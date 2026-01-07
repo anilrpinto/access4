@@ -15,7 +15,7 @@ pre { background: #f4f4f4; padding: 10px; overflow-x: auto; }
 </head>
 
 <body>
-<h2>Ver: 2</h2>
+<h2>Ver: 3</h2>
 
 <div>
   Signed in as: <span id="userEmail">Not signed in</span>
@@ -64,7 +64,7 @@ function base64ToBuf(base64) {
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes.buffer; // ArrayBuffer needed by crypto.subtle
+  return bytes.buffer;
 }
 
 // ------------------ Google Identity Services ------------------
@@ -133,12 +133,13 @@ async function loadPrivateKey(password) {
   const stored = JSON.parse(localStorage.getItem("identity"));
   assert(stored && stored.encrypted, "Private key exists in localStorage");
 
-  const salt = base64ToBuf(stored.salt);
+  // Safari/iOS-safe: use Uint8Array for encrypted + iv + salt
+  const salt = new Uint8Array(base64ToBuf(stored.salt));
   const iv = new Uint8Array(base64ToBuf(stored.iv));
-  const encrypted = base64ToBuf(stored.encrypted); // ArrayBuffer for Safari
+  const encrypted = new Uint8Array(base64ToBuf(stored.encrypted));
 
   log(`Encrypted buffer length: ${encrypted.byteLength}, IV length: ${iv.byteLength}`);
-  const key = await deriveKey(password, new Uint8Array(salt));
+  const key = await deriveKey(password, salt);
 
   try {
     const pkcs8 = await crypto.subtle.decrypt({ name:"AES-GCM", iv }, key, encrypted);
@@ -146,7 +147,7 @@ async function loadPrivateKey(password) {
     assert(privateKey, "Private key imported successfully");
     return privateKey;
   } catch(e) {
-    log("Private key decryption failed — possibly wrong password or Safari-specific issue");
+    log("Private key decryption failed — possibly Safari/iOS buffer issue");
     throw new Error("Failed to decrypt private key. Check your password.");
   }
 }
@@ -223,8 +224,8 @@ async function downloadAndDecrypt() {
 
     log("Converting Base64 fields to typed arrays…");
     const iv = new Uint8Array(base64ToBuf(envelope.iv));
-    const ciphertext = base64ToBuf(envelope.ciphertext);
-    const wrappedKey = base64ToBuf(envelope.wrappedKey);
+    const ciphertext = new Uint8Array(base64ToBuf(envelope.ciphertext));
+    const wrappedKey = new Uint8Array(base64ToBuf(envelope.wrappedKey));
 
     log("Unwrapping AES key with RSA private key…");
     const rawFileKey = await crypto.subtle.decrypt({ name:"RSA-OAEP" }, privateKey, wrappedKey);
