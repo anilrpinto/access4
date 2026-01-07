@@ -2,20 +2,20 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Signal-Style Google Drive Encryption Demo Ver: 4</title>
+<title>Signal-Style Google Drive Encryption Demo Ver: 5</title>
 <style>
 body { font-family: sans-serif; max-width: 800px; margin: auto; }
 textarea, input { width: 100%; margin: 6px 0; }
 button { margin: 6px 0; }
 pre { background: #f4f4f4; padding: 10px; overflow-x: auto; }
 #userEmail { font-weight: bold; }
+.step { margin-left: 10px; }
 </style>
-
 <script src="https://accounts.google.com/gsi/client" async defer onload="initGIS()"></script>
 </head>
 
 <body>
-<h2>Ver: 4</h2>
+<h2>Ver: 5</h2>
 
 <div>
   Signed in as: <span id="userEmail">Not signed in</span>
@@ -48,9 +48,22 @@ let accessToken = null;
 let tokenClient = null;
 let userEmail = null;
 
-// ------------------ Logging & Assertions ------------------
+// ------------------ Logging & Step Timer ------------------
 function log(msg) { document.getElementById("output").textContent += msg + "\n"; }
-function assert(condition, msg) { log(condition ? "ASSERT PASSED: " + msg : "ASSERT FAILED: " + msg); }
+async function logStep(stepName, fn) {
+  const start = performance.now();
+  log(`[${stepName}] START`);
+  try {
+    const result = await fn();
+    const duration = Math.round(performance.now() - start);
+    log(`[${stepName}] END (${duration} ms) ?`);
+    return result;
+  } catch (e) {
+    const duration = Math.round(performance.now() - start);
+    log(`[${stepName}] FAILED (${duration} ms): ${e}`);
+    throw e;
+  }
+}
 
 // ------------------ Base64 Helpers (Safari-safe) ------------------
 function bufToBase64(buffer) {
@@ -80,18 +93,15 @@ function initGIS() {
     }
   });
 }
-
 async function fetchUserEmail() {
   const res = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", { headers: { Authorization: `Bearer ${accessToken}` } });
   const data = await res.json();
   userEmail = data.email;
   document.getElementById("userEmail").textContent = userEmail;
-  assert(!!userEmail, "Fetched user email");
+  log(`[fetchUserEmail] Retrieved: ${userEmail}`);
 }
-
 function signIn() { tokenClient.requestAccessToken({ prompt: "consent" }); }
 function silentRefresh() { if (accessToken) tokenClient.requestAccessToken({ prompt: "" }); }
-
 function logout() {
   accessToken = null; userEmail = null;
   localStorage.clear();
@@ -106,77 +116,46 @@ setInterval(silentRefresh, 50*60*1000);
 
 // ------------------ Crypto Utilities ------------------
 async function deriveKey(password, salt) {
-  log("Deriving key from password…");
-  console.time("deriveKey");
-  const baseKey = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveKey"]);
-  const derivedKey = await crypto.subtle.deriveKey(
-    { name:"PBKDF2", salt: new Uint8Array(salt), iterations:250000, hash:"SHA-256" },
-    baseKey,
-    { name:"AES-GCM", length:256 },
-    false,
-    ["encrypt","decrypt"]
-  );
-  console.timeEnd("deriveKey");
-  assert(!!derivedKey, "Derived AES key created");
-  return derivedKey;
+  return logStep("Derive AES key from password", async () => {
+    const baseKey = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveKey"]);
+    return crypto.subtle.deriveKey({ name:"PBKDF2", salt: new Uint8Array(salt), iterations:250000, hash:"SHA-256" }, baseKey, { name:"AES-GCM", length:256 }, false, ["encrypt","decrypt"]);
+  });
 }
 
 // ------------------ Identity Management ------------------
 async function createIdentity(password) {
-  log("Generating RSA identity keypair…");
-  console.time("generateIdentity");
-  const keyPair = await crypto.subtle.generateKey({ name:"RSA-OAEP", modulusLength:2048, publicExponent:new Uint8Array([1,0,1]), hash:"SHA-256" }, true, ["encrypt","decrypt"]);
-  const pkcs8 = await crypto.subtle.exportKey("pkcs8", keyPair.privateKey);
-  const salt = crypto.getRandomValues(new Uint8Array(16));
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const key = await deriveKey(password, salt);
-  const encrypted = await crypto.subtle.encrypt({ name:"AES-GCM", iv }, key, pkcs8);
-  localStorage.setItem("identity", JSON.stringify({ salt: bufToBase64(salt), iv: bufToBase64(iv), encrypted: bufToBase64(encrypted) }));
-  localStorage.setItem("publicKey", bufToBase64(await crypto.subtle.exportKey("spki", keyPair.publicKey)));
-  console.timeEnd("generateIdentity");
-  assert(true, "Identity keypair created and stored");
+  return logStep("Create RSA identity keypair", async () => {
+    const keyPair = await crypto.subtle.generateKey({ name:"RSA-OAEP", modulusLength:2048, publicExponent:new Uint8Array([1,0,1]), hash:"SHA-256" }, true, ["encrypt","decrypt"]);
+    const pkcs8 = await crypto.subtle.exportKey("pkcs8", keyPair.privateKey);
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const aesKey = await deriveKey(password, salt);
+    const encrypted = await crypto.subtle.encrypt({ name:"AES-GCM", iv }, aesKey, pkcs8);
+    localStorage.setItem("identity", JSON.stringify({ salt: bufToBase64(salt), iv: bufToBase64(iv), encrypted: bufToBase64(encrypted) }));
+    localStorage.setItem("publicKey", bufToBase64(await crypto.subtle.exportKey("spki", keyPair.publicKey)));
+    return keyPair;
+  });
 }
 
 async function loadPrivateKey(password) {
-  log("Loading private key from localStorage…");
-  console.time("loadPrivateKey");
-  const stored = JSON.parse(localStorage.getItem("identity"));
-  assert(stored && stored.encrypted, "Private key exists in localStorage");
-
-  const salt = base64ToBuf(stored.salt);
-  const iv = new Uint8Array(base64ToBuf(stored.iv));
-  const encrypted = base64ToBuf(stored.encrypted);
-
-  log(`Encrypted buffer length: ${encrypted.byteLength}, IV length: ${iv.byteLength}`);
-  const key = await deriveKey(password, new Uint8Array(salt));
-
-  try {
-    console.time("decryptPrivateKey");
-    const pkcs8 = await crypto.subtle.decrypt({ name:"AES-GCM", iv }, key, encrypted);
-    console.timeEnd("decryptPrivateKey");
-
-    console.time("importPrivateKey");
-    const privateKey = await crypto.subtle.importKey("pkcs8", pkcs8, { name:"RSA-OAEP", hash:"SHA-256" }, false, ["decrypt"]);
-    console.timeEnd("importPrivateKey");
-
-    assert(privateKey, "Private key imported successfully");
-    console.timeEnd("loadPrivateKey");
-    return privateKey;
-  } catch(e) {
-    console.timeEnd("decryptPrivateKey");
-    console.timeEnd("importPrivateKey");
-    console.timeEnd("loadPrivateKey");
-    log("Private key decryption failed — possibly wrong password or Safari-specific issue");
-    throw new Error("Failed to decrypt private key. Check your password.");
-  }
+  return logStep("Load and decrypt private key", async () => {
+    const stored = JSON.parse(localStorage.getItem("identity"));
+    if (!stored || !stored.encrypted) throw new Error("No identity in localStorage");
+    const salt = base64ToBuf(stored.salt);
+    const iv = new Uint8Array(base64ToBuf(stored.iv));
+    const encrypted = base64ToBuf(stored.encrypted);
+    const aesKey = await deriveKey(password, salt);
+    const pkcs8 = await crypto.subtle.decrypt({ name:"AES-GCM", iv }, aesKey, encrypted);
+    return crypto.subtle.importKey("pkcs8", pkcs8, { name:"RSA-OAEP", hash:"SHA-256" }, false, ["decrypt"]);
+  });
 }
 
 async function loadPublicKey() {
-  const stored = localStorage.getItem("publicKey");
-  assert(!!stored, "Public key exists in localStorage");
-  const publicKey = await crypto.subtle.importKey("spki", base64ToBuf(stored), { name:"RSA-OAEP", hash:"SHA-256" }, false, ["encrypt"]);
-  assert(publicKey, "Public key imported successfully");
-  return publicKey;
+  return logStep("Load RSA public key", async () => {
+    const stored = localStorage.getItem("publicKey");
+    if (!stored) throw new Error("No public key in localStorage");
+    return crypto.subtle.importKey("spki", base64ToBuf(stored), { name:"RSA-OAEP", hash:"SHA-256" }, false, ["encrypt"]);
+  });
 }
 
 // ------------------ Encrypt & Upload ------------------
@@ -187,46 +166,27 @@ async function encryptAndUpload() {
   const password = document.getElementById("password").value;
   const text = document.getElementById("plaintext").value;
 
-  if (!localStorage.getItem("identity")) {
-    log("No identity found, creating one…");
-    await createIdentity(password);
-  }
+  if (!localStorage.getItem("identity")) await createIdentity(password);
 
   const publicKey = await loadPublicKey();
-  log("Generating AES file key…");
-  console.time("generateFileKey");
-  const fileKey = await crypto.subtle.generateKey({ name:"AES-GCM", length:256 }, true, ["encrypt","decrypt"]);
-  console.timeEnd("generateFileKey");
-  assert(fileKey, "AES file key generated");
-
+  const fileKey = await logStep("Generate AES file key", async () => crypto.subtle.generateKey({ name:"AES-GCM", length:256 }, true, ["encrypt","decrypt"]));
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  log("Encrypting plaintext with AES…");
-  console.time("encryptFile");
-  const ciphertext = await crypto.subtle.encrypt({ name:"AES-GCM", iv }, fileKey, encoder.encode(text));
-  console.timeEnd("encryptFile");
-  assert(ciphertext.byteLength > 0, "AES encryption completed");
 
-  log("Wrapping AES key with RSA public key…");
-  console.time("wrapAESKey");
+  const ciphertext = await logStep("AES-GCM encrypt plaintext", async () => crypto.subtle.encrypt({ name:"AES-GCM", iv }, fileKey, encoder.encode(text)));
   const rawFileKey = await crypto.subtle.exportKey("raw", fileKey);
-  const wrappedKey = await crypto.subtle.encrypt({ name:"RSA-OAEP" }, publicKey, rawFileKey);
-  console.timeEnd("wrapAESKey");
-  assert(wrappedKey.byteLength > 0, "AES key wrapped successfully");
+  const wrappedKey = await logStep("RSA wrap AES key", async () => crypto.subtle.encrypt({ name:"RSA-OAEP" }, publicKey, rawFileKey));
 
   const envelope = { iv: bufToBase64(iv), wrappedKey: bufToBase64(wrappedKey), ciphertext: bufToBase64(ciphertext) };
-  log("Envelope created");
-
   const form = new FormData();
   form.append("metadata", new Blob([JSON.stringify({ name: "encrypted-envelope.json" })], { type: "application/json" }));
   form.append("file", new Blob([JSON.stringify(envelope)], { type: "application/json" }));
 
-  log("Uploading file to Google Drive…");
-  console.time("uploadFile");
-  const res = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart", { method:"POST", headers:{ Authorization:`Bearer ${accessToken}` }, body:form });
-  console.timeEnd("uploadFile");
-  const json = await res.json();
-  assert(json.id, "Upload succeeded, file ID: " + json.id);
-  log("Uploaded File ID: " + json.id);
+  await logStep("Upload to Google Drive", async () => {
+    const res = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart", { method:"POST", headers:{ Authorization:`Bearer ${accessToken}` }, body:form });
+    const json = await res.json();
+    if (!json.id) throw new Error("Upload failed");
+    log("Uploaded File ID: " + json.id);
+  });
 }
 
 // ------------------ Download & Decrypt ------------------
@@ -239,40 +199,21 @@ async function downloadAndDecrypt() {
   if (!fileId) { alert("Enter File ID!"); return; }
 
   try {
-    log("Fetching encrypted file from Google Drive…");
-    console.time("fetchFile");
-    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { headers:{ Authorization:`Bearer ${accessToken}` } });
-    console.timeEnd("fetchFile");
-    if (!res.ok) { log("Download failed: " + await res.text()); return; }
+    const envelope = await logStep("Fetch encrypted file from Google Drive", async () => {
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { headers:{ Authorization:`Bearer ${accessToken}` } });
+      if (!res.ok) throw new Error("Download failed: " + await res.text());
+      return await res.json();
+    });
+    if (!envelope.iv || !envelope.wrappedKey || !envelope.ciphertext) throw new Error("Envelope missing fields");
 
-    const envelope = await res.json();
-    assert(envelope.iv && envelope.wrappedKey && envelope.ciphertext, "Envelope fields exist");
-
-    log("Loading private key…");
     const privateKey = await loadPrivateKey(password);
-
-    log("Converting Base64 fields to typed arrays…");
     const iv = new Uint8Array(base64ToBuf(envelope.iv));
     const ciphertext = base64ToBuf(envelope.ciphertext);
     const wrappedKey = base64ToBuf(envelope.wrappedKey);
 
-    log("Unwrapping AES key with RSA private key…");
-    console.time("unwrapAESKey");
-    const rawFileKey = await crypto.subtle.decrypt({ name:"RSA-OAEP" }, privateKey, wrappedKey);
-    console.timeEnd("unwrapAESKey");
-    assert(rawFileKey.byteLength > 0, "AES key unwrapped successfully");
-
-    log("Importing AES key for decryption…");
-    console.time("importAESKey");
-    const fileKey = await crypto.subtle.importKey("raw", rawFileKey, { name:"AES-GCM", length:256 }, false, ["decrypt"]);
-    console.timeEnd("importAESKey");
-    assert(fileKey, "AES key imported successfully");
-
-    log("Decrypting ciphertext with AES-GCM…");
-    console.time("decryptFile");
-    const plaintextBuf = await crypto.subtle.decrypt({ name:"AES-GCM", iv }, fileKey, ciphertext);
-    console.timeEnd("decryptFile");
-    assert(plaintextBuf.byteLength > 0, "AES decryption produced data");
+    const rawFileKey = await logStep("RSA unwrap AES key", async () => crypto.subtle.decrypt({ name:"RSA-OAEP" }, privateKey, wrappedKey));
+    const fileKey = await logStep("Import AES key for decryption", async () => crypto.subtle.importKey("raw", rawFileKey, { name:"AES-GCM", length:256 }, false, ["decrypt"]));
+    const plaintextBuf = await logStep("AES-GCM decrypt ciphertext", async () => crypto.subtle.decrypt({ name:"AES-GCM", iv }, fileKey, ciphertext));
 
     const plaintext = decoder.decode(plaintextBuf);
     log("Decrypted text:\n" + plaintext);
