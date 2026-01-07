@@ -69,9 +69,6 @@ let DRIVE_TEST = {
 
   const log = (el, msg) => el.innerHTML += msg + "<br>";
   
-document.getElementById("driveUploadBtn").onclick = driveUploadTest;
-document.getElementById("driveDownloadBtn").onclick = driveDownloadTest;
-  
   /* ---------------- Environment ---------------- */
 
   function fingerprint() {
@@ -332,19 +329,14 @@ function setupStatefulTest() {
     );
   }
 
-
 /* ------------------------- DRIVE TESTS ------------------------ */
 
-/* ----------- Minimal Google Drive Connection ----------- */
-
-const CLIENT_ID = "738922366916-ppn1c24mp9qamr6pdmjqss3cqjmvqljv.apps.googleusercontent.com"; // replace with your OAuth 2.0 client ID
-const API_KEY = "YOUR_API_KEY_HERE";     // optional for Drive
+const CLIENT_ID = "738922366916-ppn1c24mp9qamr6pdmjqss3cqjmvqljv.apps.googleusercontent.com";
+const API_KEY = ""; // optional
 const SCOPES = "https://www.googleapis.com/auth/drive.file";
 
-function initGapi() {
-  return new Promise(resolve => {
-    gapi.load("client:auth2", resolve);
-  });
+async function initGapi() {
+  return new Promise(resolve => gapi.load("client:auth2", resolve));
 }
 
 async function authenticate() {
@@ -356,7 +348,6 @@ async function authenticate() {
   });
 
   const GoogleAuth = gapi.auth2.getAuthInstance();
-
   if (!GoogleAuth.isSignedIn.get()) {
     await GoogleAuth.signIn();
   }
@@ -371,18 +362,16 @@ async function ensureDriveReady() {
 
 function buildDriveTestPayload() {
   const buf = new Uint8Array(1024);
-  for (let i = 0; i < buf.length; i++) {
-    buf[i] = i % 256;
-  }
+  for (let i = 0; i < buf.length; i++) buf[i] = i % 256;
   return buf;
 }
 
 async function driveUploadTest() {
   const el = document.getElementById("drive");
-  el.innerHTML = "";
+  el.innerHTML += "<br>";
 
   try {
-    await ensureDriveReady(); // ensure auth before doing anything
+    await ensureDriveReady();
 
     const payload = buildDriveTestPayload();
     DRIVE_TEST.original = payload;
@@ -395,19 +384,14 @@ async function driveUploadTest() {
     };
 
     const form = new FormData();
-    form.append(
-      "metadata",
-      new Blob([JSON.stringify(metadata)], { type: "application/json" })
-    );
+    form.append("metadata", new Blob([JSON.stringify(metadata)], { type: "application/json" }));
     form.append("file", blob);
 
     const res = await fetch(
       "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart",
       {
         method: "POST",
-        headers: {
-          "Authorization": "Bearer " + gapi.auth.getToken().access_token
-        },
+        headers: { "Authorization": "Bearer " + gapi.auth.getToken().access_token },
         body: form
       }
     );
@@ -417,7 +401,6 @@ async function driveUploadTest() {
 
     log(el, `Uploaded fileId: ${json.id}`);
     log(el, `<span class="pass">UPLOAD OK</span>`);
-
   } catch (e) {
     log(el, `<span class="fail">UPLOAD ERROR: ${e.message}</span>`);
   }
@@ -425,6 +408,7 @@ async function driveUploadTest() {
 
 async function driveDownloadTest() {
   const el = document.getElementById("drive");
+  el.innerHTML += "<br>";
 
   try {
     await ensureDriveReady();
@@ -436,11 +420,7 @@ async function driveDownloadTest() {
 
     const res = await fetch(
       `https://www.googleapis.com/drive/v3/files/${DRIVE_TEST.fileId}?alt=media`,
-      {
-        headers: {
-          "Authorization": "Bearer " + gapi.auth.getToken().access_token
-        }
-      }
+      { headers: { "Authorization": "Bearer " + gapi.auth.getToken().access_token } }
     );
 
     const buf = new Uint8Array(await res.arrayBuffer());
@@ -448,23 +428,22 @@ async function driveDownloadTest() {
     log(el, `Original length: ${DRIVE_TEST.original.length}`);
     log(el, `Downloaded length: ${buf.length}`);
 
-    if (buf.length !== DRIVE_TEST.original.length) {
-      throw new Error("Length mismatch");
-    }
+    if (buf.length !== DRIVE_TEST.original.length) throw new Error("Length mismatch");
 
     for (let i = 0; i < buf.length; i++) {
-      if (buf[i] !== DRIVE_TEST.original[i]) {
-        throw new Error(`Byte mismatch at offset ${i}`);
-      }
+      if (buf[i] !== DRIVE_TEST.original[i]) throw new Error(`Byte mismatch at offset ${i}`);
     }
 
     log(el, `<span class="pass">BYTE-FOR-BYTE MATCH</span>`);
-
   } catch (e) {
     log(el, `<span class="fail">DOWNLOAD ERROR: ${e.message}</span>`);
   }
 }
- 
+
+/* ------------------------- BUTTON WIRING ------------------------ */
+
+document.getElementById("driveUploadBtn").onclick = driveUploadTest;
+document.getElementById("driveDownloadBtn").onclick = driveDownloadTest;
   
   /* ---------------- Run ---------------- */
 
