@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Signal-Style Google Drive Encryption Demo Ver: 5 Patched</title>
+<title>Signal-Style Google Drive Encryption Demo Ver: 5 (Patched)</title>
 <style>
 body { font-family: sans-serif; max-width: 800px; margin: auto; }
 textarea, input { width: 100%; margin: 6px 0; }
@@ -13,9 +13,9 @@ pre { background: #f4f4f4; padding: 10px; overflow-x: auto; }
 </style>
 <script src="https://accounts.google.com/gsi/client" async defer onload="initGIS()"></script>
 </head>
-<body>
 
-<h2>Ver: 5 Patched</h2>
+<body>
+<h2>Ver: 5 (Patched)</h2>
 
 <div>
   Signed in as: <span id="userEmail">Not signed in</span>
@@ -29,14 +29,14 @@ pre { background: #f4f4f4; padding: 10px; overflow-x: auto; }
 <label>Plaintext to encrypt</label>
 <textarea id="plaintext">Hello Google Drive ??</textarea>
 
-<button onclick="encryptAndUpload()">Encrypt & Upload</button>
+<button id="encryptUploadBtn">Encrypt & Upload</button>
 
 <hr>
 
 <label>Google Drive File ID to Download</label>
 <input id="fileId">
 
-<button onclick="downloadAndDecrypt()">Download & Decrypt</button>
+<button id="downloadDecryptBtn">Download & Decrypt</button>
 
 <h3>Output</h3>
 <pre id="output"></pre>
@@ -92,7 +92,13 @@ function initGIS() {
       log("Signed in successfully.");
     }
   });
+
+  // Safe wiring after tokenClient exists
+  document.getElementById("signinBtn").onclick = () => tokenClient.requestAccessToken({ prompt: "consent" });
+  document.getElementById("logoutBtn").onclick = logout;
 }
+
+// ------------------ Fetch User Email ------------------
 async function fetchUserEmail() {
   const res = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", { headers: { Authorization: `Bearer ${accessToken}` } });
   const data = await res.json();
@@ -100,35 +106,47 @@ async function fetchUserEmail() {
   document.getElementById("userEmail").textContent = userEmail;
   log(`[fetchUserEmail] Retrieved: ${userEmail}`);
 }
-function signIn() { tokenClient.requestAccessToken({ prompt: "consent" }); }
-function silentRefresh() { if (accessToken) tokenClient.requestAccessToken({ prompt: "" }); }
+
+// ------------------ Logout ------------------
 function logout() {
-  accessToken = null; userEmail = null;
+  accessToken = null;
+  userEmail = null;
   localStorage.clear();
   document.getElementById("userEmail").textContent = "Not signed in";
   document.getElementById("signinBtn").disabled = false;
   document.getElementById("logoutBtn").disabled = true;
   log("Logged out and identity cleared.");
 }
-setInterval(silentRefresh, 50*60*1000);
 
 // ------------------ Crypto Utilities ------------------
 async function deriveKey(password, salt) {
   return logStep("Derive AES key from password", async () => {
     const baseKey = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveKey"]);
-    return crypto.subtle.deriveKey({ name:"PBKDF2", salt: encoder.encode(salt), iterations:250000, hash:"SHA-256" }, baseKey, { name:"AES-GCM", length:256 }, false, ["encrypt","decrypt"]);
+    return crypto.subtle.deriveKey(
+      { name:"PBKDF2", salt: new Uint8Array(salt), iterations:250000, hash:"SHA-256" },
+      baseKey,
+      { name:"AES-GCM", length:256 },
+      false,
+      ["encrypt","decrypt"]
+    );
   });
 }
 
-// ------------------ Identity Management (Self-Healing) ------------------
+// ------------------ Identity Management ------------------
 async function createIdentity(password) {
   return logStep("Create RSA identity keypair", async () => {
-    const keyPair = await crypto.subtle.generateKey({ name:"RSA-OAEP", modulusLength:2048, publicExponent:new Uint8Array([1,0,1]), hash:"SHA-256" }, true, ["encrypt","decrypt"]);
+    const keyPair = await crypto.subtle.generateKey(
+      { name:"RSA-OAEP", modulusLength:2048, publicExponent:new Uint8Array([1,0,1]), hash:"SHA-256" },
+      true,
+      ["encrypt","decrypt"]
+    );
+
     const pkcs8 = await crypto.subtle.exportKey("pkcs8", keyPair.privateKey);
     const salt = crypto.getRandomValues(new Uint8Array(16));
     const iv = crypto.getRandomValues(new Uint8Array(12));
-    const aesKey = await deriveKey(password, "identity-salt");
+    const aesKey = await deriveKey(password, salt);
     const encrypted = await crypto.subtle.encrypt({ name:"AES-GCM", iv }, aesKey, pkcs8);
+
     localStorage.setItem("identity", JSON.stringify({ salt: bufToBase64(salt), iv: bufToBase64(iv), encrypted: bufToBase64(encrypted) }));
     localStorage.setItem("publicKey", bufToBase64(await crypto.subtle.exportKey("spki", keyPair.publicKey)));
     return keyPair;
@@ -137,67 +155,41 @@ async function createIdentity(password) {
 
 async function loadPrivateKey(password) {
   return logStep("Load and decrypt private key", async () => {
-    const storedRaw = localStorage.getItem("identity");
-    if (!storedRaw) return createIdentity(password).then(kp => kp.privateKey);
-
-    try {
-      const stored = JSON.parse(storedRaw);
-      const salt = stored.salt;
-      const iv = new Uint8Array(base64ToBuf(stored.iv));
-      const encrypted = base64ToBuf(stored.encrypted);
-      const aesKey = await deriveKey(password, "identity-salt");
-
-      const pkcs8 = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, aesKey, encrypted);
-      return crypto.subtle.importKey("pkcs8", pkcs8, { name:"RSA-OAEP", hash:"SHA-256" }, false, ["decrypt"]);
-
-    } catch (e) {
-      log("Stored private key incompatible. Recreating identity. (" + e + ")");
-      localStorage.removeItem("identity");
-      localStorage.removeItem("publicKey");
-      return createIdentity(password).then(kp => kp.privateKey);
-    }
+    const stored = JSON.parse(localStorage.getItem("identity"));
+    if (!stored || !stored.encrypted) throw new Error("No identity in localStorage");
+    const salt = new Uint8Array(base64ToBuf(stored.salt));
+    const iv = new Uint8Array(base64ToBuf(stored.iv));
+    const encrypted = base64ToBuf(stored.encrypted);
+    const aesKey = await deriveKey(password, salt);
+    const pkcs8 = await crypto.subtle.decrypt({ name:"AES-GCM", iv }, aesKey, encrypted);
+    return crypto.subtle.importKey("pkcs8", pkcs8, { name:"RSA-OAEP", hash:"SHA-256" }, false, ["decrypt"]);
   });
 }
 
-async function loadPublicKey(password) {
+async function loadPublicKey() {
   return logStep("Load RSA public key", async () => {
     const stored = localStorage.getItem("publicKey");
-    if (!stored) return createIdentity(password).then(kp => kp.publicKey);
-
-    try {
-      return crypto.subtle.importKey("spki", base64ToBuf(stored), { name: "RSA-OAEP", hash: "SHA-256" }, false, ["encrypt"]);
-    } catch (e) {
-      log("Stored public key incompatible. Recreating identity. (" + e + ")");
-      localStorage.removeItem("identity");
-      localStorage.removeItem("publicKey");
-      return createIdentity(password).then(kp => kp.publicKey);
-    }
+    if (!stored) throw new Error("No public key in localStorage");
+    return crypto.subtle.importKey("spki", base64ToBuf(stored), { name:"RSA-OAEP", hash:"SHA-256" }, false, ["encrypt"]);
   });
 }
 
 // ------------------ Encrypt & Upload ------------------
-async function encryptAndUpload() {
+document.getElementById("encryptUploadBtn").onclick = async () => {
   if (!accessToken) return alert("Sign in first");
   document.getElementById("output").textContent = "";
 
   const password = document.getElementById("password").value;
   const text = document.getElementById("plaintext").value;
 
-  const publicKey = await loadPublicKey(password);
+  if (!localStorage.getItem("identity")) await createIdentity(password);
 
-  const fileKey = await logStep("Generate AES file key", async () => 
-    crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt","decrypt"])
-  );
+  const publicKey = await loadPublicKey();
+  const fileKey = await logStep("Generate AES file key", async () => crypto.subtle.generateKey({ name:"AES-GCM", length:256 }, true, ["encrypt","decrypt"]));
   const iv = crypto.getRandomValues(new Uint8Array(12));
-
-  const ciphertext = await logStep("AES-GCM encrypt plaintext", async () => 
-    crypto.subtle.encrypt({ name: "AES-GCM", iv }, fileKey, encoder.encode(text))
-  );
-
+  const ciphertext = await logStep("AES-GCM encrypt plaintext", async () => crypto.subtle.encrypt({ name:"AES-GCM", iv }, fileKey, encoder.encode(text)));
   const rawFileKey = await crypto.subtle.exportKey("raw", fileKey);
-  const wrappedKey = await logStep("RSA wrap AES key", async () => 
-    crypto.subtle.encrypt({ name: "RSA-OAEP" }, publicKey, rawFileKey)
-  );
+  const wrappedKey = await logStep("RSA wrap AES key", async () => crypto.subtle.encrypt({ name:"RSA-OAEP" }, publicKey, rawFileKey));
 
   const envelope = { iv: bufToBase64(iv), wrappedKey: bufToBase64(wrappedKey), ciphertext: bufToBase64(ciphertext) };
   const form = new FormData();
@@ -205,19 +197,15 @@ async function encryptAndUpload() {
   form.append("file", new Blob([JSON.stringify(envelope)], { type: "application/json" }));
 
   await logStep("Upload to Google Drive", async () => {
-    const res = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${accessToken}` },
-      body: form
-    });
+    const res = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart", { method:"POST", headers:{ Authorization:`Bearer ${accessToken}` }, body:form });
     const json = await res.json();
     if (!json.id) throw new Error("Upload failed");
     log("Uploaded File ID: " + json.id);
   });
-}
+};
 
 // ------------------ Download & Decrypt ------------------
-async function downloadAndDecrypt() {
+document.getElementById("downloadDecryptBtn").onclick = async () => {
   if (!accessToken) { alert("Sign in first"); return; }
   document.getElementById("output").textContent = "";
 
@@ -227,30 +215,21 @@ async function downloadAndDecrypt() {
 
   try {
     const envelope = await logStep("Fetch encrypted file from Google Drive", async () => {
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
-        headers: { Authorization: `Bearer ${accessToken}` }
-      });
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { headers:{ Authorization:`Bearer ${accessToken}` } });
       if (!res.ok) throw new Error("Download failed: " + await res.text());
       return await res.json();
     });
+
     if (!envelope.iv || !envelope.wrappedKey || !envelope.ciphertext) throw new Error("Envelope missing fields");
 
     const privateKey = await loadPrivateKey(password);
-
     const iv = new Uint8Array(base64ToBuf(envelope.iv));
     const ciphertext = base64ToBuf(envelope.ciphertext);
     const wrappedKey = base64ToBuf(envelope.wrappedKey);
 
-    const rawFileKey = await logStep("RSA unwrap AES key", async () => 
-      crypto.subtle.decrypt({ name:"RSA-OAEP" }, privateKey, wrappedKey)
-    );
-    const fileKey = await logStep("Import AES key for decryption", async () => 
-      crypto.subtle.importKey("raw", rawFileKey, { name:"AES-GCM", length:256 }, false, ["decrypt"])
-    );
-
-    const plaintextBuf = await logStep("AES-GCM decrypt ciphertext", async () => 
-      crypto.subtle.decrypt({ name:"AES-GCM", iv }, fileKey, ciphertext)
-    );
+    const rawFileKey = await logStep("RSA unwrap AES key", async () => crypto.subtle.decrypt({ name:"RSA-OAEP" }, privateKey, wrappedKey));
+    const fileKey = await logStep("Import AES key for decryption", async () => crypto.subtle.importKey("raw", rawFileKey, { name:"AES-GCM", length:256 }, false, ["decrypt"]));
+    const plaintextBuf = await logStep("AES-GCM decrypt ciphertext", async () => crypto.subtle.decrypt({ name:"AES-GCM", iv }, fileKey, ciphertext));
 
     const plaintext = decoder.decode(plaintextBuf);
     log("Decrypted text:\n" + plaintext);
@@ -258,7 +237,11 @@ async function downloadAndDecrypt() {
   } catch (e) {
     log("Decryption error: " + e);
   }
-}
+};
+
+// ------------------ Optional silent token refresh ------------------
+setInterval(() => { if (accessToken) tokenClient.requestAccessToken({ prompt: "" }); }, 50*60*1000);
+
 </script>
 </body>
 </html>
