@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Cross-Platform Crypto Compatibility Test</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+  body { font-family: monospace; padding: 12px; }
+  h2 { margin-top: 24px; }
+  .panel { border: 1px solid #ccc; padding: 10px; margin-top: 10px; }
+  .pass { color: green; }
+  .fail { color: red; }
+  pre { white-space: pre-wrap; word-break: break-word; }
+</style>
+<script src="https://apis.google.com/js/api.js"></script>
+
+</head>
+<body>
+
+<h1>Crypto Compatibility Test</h1>
+
+<h2>1. Environment Fingerprint</h2>
+<div id="env" class="panel"></div>
+
+<h2>2. Deterministic Crypto Test</h2>
+<div id="deterministic" class="panel"></div>
+
+<h2>3. Crypto Self-Tests</h2>
+<div id="tests" class="panel"></div>
+
+<h2>4. Serialization Round-Trip Test</h2>
+<div id="serialize" class="panel"></div>
+
+<h2>5. Stateful Encrypt / Decrypt Test</h2>
+<div class="panel">
+  <button id="encryptBtn">Encrypt & Store</button>
+  <button id="decryptBtn">Decrypt Stored</button>
+  <div id="stateful"></div>
+</div>
+
+<h2>6. Google Drive Binary Round-Trip Test</h2>
+<div class="panel">
+  <button id="driveUploadBtn">Upload Test Payload</button>
+  <button id="driveDownloadBtn">Download & Verify</button>
+  <div id="drive"></div>
+</div>
+
+document.getElementById("driveUploadBtn").onclick = driveUploadTest;
+document.getElementById("driveDownloadBtn").onclick = driveDownloadTest;
+  
+<script>
+
+let STORED = {
+  salt: null,
+  iv: null,
+  ciphertext: null
+};
+
+let DRIVE_TEST = {
+  fileId: null,
+  original: null
+};
+  
+(async () => {
+
+  const envEl = document.getElementById("env");
+  const detEl = document.getElementById("deterministic");
+  const testEl = document.getElementById("tests");
+
+  const enc = new TextEncoder();
+  const dec = new TextDecoder();
+
+  const log = (el, msg) => el.innerHTML += msg + "<br>";
+
+  /* ---------------- Environment ---------------- */
+
+  function fingerprint() {
+    const ua = navigator.userAgent;
+    const isIOS = /iPad|iPhone|iPod/.test(ua);
+    const iosVersion = isIOS ? (ua.match(/OS (\d+)_?(\d+)?/) || []).slice(1).join(".") : "N/A";
+
+    log(envEl, `User Agent: ${ua}`);
+    log(envEl, `Platform: ${isIOS ? "iOS " + iosVersion : navigator.platform}`);
+    log(envEl, `WebCrypto: ${!!window.crypto && !!crypto.subtle}`);
+  }
+
+  /* ---------------- Helpers ---------------- */
+
+  function toBase64(buf) {
+    return btoa(String.fromCharCode(...new Uint8Array(buf)));
+  }
+
+  function fromBase64(b64) {
+    return Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+  }
+
+  async function sha256(buf) {
+    return crypto.subtle.digest("SHA-256", buf);
+  }
+
+  async function deriveKey(password, salt) {
+    const keyMaterial = await crypto.subtle.importKey(
+      "raw",
+      enc.encode(password),
+      "PBKDF2",
+      false,
+      ["deriveKey"]
+    );
+
+    return crypto.subtle.deriveKey(
+      {
+        name: "PBKDF2",
+        salt: enc.encode(salt),
+        iterations: 100000,
+        hash: "SHA-256"
+      },
+      keyMaterial,
+      { name: "AES-GCM", length: 256 },
+      true,
+      ["encrypt", "decrypt"]
+    );
+  }
+
+  /* ---------------- Deterministic Test ---------------- */
+
+  async function deterministicTest() {
+    const password = "correct horse battery staple";
+    const salt = "fixed-test-salt";
+    const iv = new Uint8Array(12).fill(7);
+    const plaintext = "GIS:POINT(-122.4194 37.7749)";
+
+    try {
+      const key = await deriveKey(password, salt);
+      const rawKey = await crypto.subtle.exportKey("raw", key);
+      const keyHash = toBase64(await sha256(rawKey));
+
+      const cipherBuf = await crypto.subtle.encrypt(
+        { name: "AES-GCM", iv },
+        key,
+        enc.encode(plaintext)
+      );
+
+      const decryptedBuf = await crypto.subtle.decrypt(
+        { name: "AES-GCM", iv },
+        key,
+        cipherBuf
+      );
+
+      const decrypted = dec.decode(decryptedBuf);
+
+      log(detEl, `Key SHA-256: ${keyHash}`);
+      log(detEl, `Ciphertext: ${toBase64(cipherBuf)}`);
+      log(detEl, `Decrypted: ${decrypted}`);
+      log(detEl, decrypted === plaintext
+        ? `<span class="pass">PASS</span>`
+        : `<span class="fail">FAIL</span>`
+      );
+
+      return decrypted === plaintext;
+    } catch (e) {
+      log(detEl, `<span class="fail">ERROR: ${e.message}</span>`);
+      return false;
+    }
+  }
+
+async function serializationTest() {
+  const el = document.getElementById("serialize");
+
+  const password = "correct horse battery staple";
+  const salt = "fixed-test-salt";
+  const iv = new Uint8Array(12).fill(9);
+  const plaintext = "GIS:POLYGON((-122.5 37.7,-122.3 37.7,-122.3 37.8,-122.5 37.8,-122.5 37.7))";
+
+  try {
+    const key = await deriveKey(password, salt);
+
+    /* Encrypt */
+    const cipherBuf = await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv },
+      key,
+      enc.encode(plaintext)
+    );
+
+    /* Serialize */
+    const payload = {
+      salt,
+      iv: toBase64(iv.buffer),
+      ciphertext: toBase64(cipherBuf)
+    };
+
+    const json = JSON.stringify(payload);
+
+    /* Deserialize */
+    const parsed = JSON.parse(json);
+
+    const iv2 = fromBase64(parsed.iv);
+    const cipher2 = fromBase64(parsed.ciphertext);
+
+    /* Length checks */
+    log(el, `IV length before: ${iv.length}`);
+    log(el, `IV length after: ${iv2.length}`);
+    log(el, `Cipher length before: ${cipherBuf.byteLength}`);
+    log(el, `Cipher length after: ${cipher2.length}`);
+
+    /* Decrypt */
+    const decryptedBuf = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: iv2 },
+      key,
+      cipher2
+    );
+
+    const decrypted = dec.decode(decryptedBuf);
+
+    log(el, `Decrypted: ${decrypted}`);
+    log(el, decrypted === plaintext
+      ? `<span class="pass">PASS (serialization intact)</span>`
+      : `<span class="fail">FAIL (data mismatch)</span>`
+    );
+
+  } catch (e) {
+    log(el, `<span class="fail">ERROR: ${e.message}</span>`);
+  }
+}
+
+function setupStatefulTest() {
+  const el = document.getElementById("stateful");
+
+  const password = "correct horse battery staple";
+  const salt = "fixed-test-salt";
+  const plaintext = "GIS:STATEFUL:POINT(-73.9857 40.7484)";
+
+  const encryptBtn = document.getElementById("encryptBtn");
+  const decryptBtn = document.getElementById("decryptBtn");
+
+  encryptBtn.onclick = async () => {
+    el.innerHTML = "";
+    try {
+      const key = await deriveKey(password, salt);
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+
+      const cipherBuf = await crypto.subtle.encrypt(
+        { name: "AES-GCM", iv },
+        key,
+        enc.encode(plaintext)
+      );
+
+      STORED.salt = salt;
+      STORED.iv = iv;
+      STORED.ciphertext = cipherBuf;
+
+      log(el, `Stored IV length: ${iv.length}`);
+      log(el, `Stored cipher length: ${cipherBuf.byteLength}`);
+      log(el, `<span class="pass">ENCRYPT OK</span>`);
+    } catch (e) {
+      log(el, `<span class="fail">ENCRYPT ERROR: ${e.message}</span>`);
+    }
+  };
+
+  decryptBtn.onclick = async () => {
+    try {
+      if (!STORED.ciphertext) {
+        log(el, `<span class="fail">Nothing stored yet</span>`);
+        return;
+      }
+
+      const key = await deriveKey(password, STORED.salt);
+
+      const decryptedBuf = await crypto.subtle.decrypt(
+        { name: "AES-GCM", iv: STORED.iv },
+        key,
+        STORED.ciphertext
+      );
+
+      const decrypted = dec.decode(decryptedBuf);
+
+      log(el, `Decrypted: ${decrypted}`);
+      log(el, decrypted === plaintext
+        ? `<span class="pass">DECRYPT PASS</span>`
+        : `<span class="fail">DECRYPT FAIL</span>`
+      );
+
+    } catch (e) {
+      log(el, `<span class="fail">DECRYPT ERROR: ${e.message}</span>`);
+    }
+  };
+}
+
+  
+  /* ---------------- Self Tests ---------------- */
+
+  async function selfTests() {
+
+    const results = [];
+
+    async function test(name, fn) {
+      try {
+        await fn();
+        results.push(`✓ ${name}`);
+      } catch (e) {
+        results.push(`✗ ${name}: ${e.message}`);
+      }
+    }
+
+    await test("TextEncoder UTF-8", () => {
+      const b = enc.encode("✓");
+      if (b.length !== 3) throw new Error("UTF-8 encoding mismatch");
+    });
+
+    await test("Base64 Round-Trip", () => {
+      const buf = new Uint8Array([1,2,3,4,5]).buffer;
+      const b64 = toBase64(buf);
+      const out = fromBase64(b64);
+      if (out.length !== 5 || out[4] !== 5) throw new Error("Base64 corruption");
+    });
+
+    await test("PBKDF2 Derive", async () => {
+      await deriveKey("a", "b");
+    });
+
+    await test("AES-GCM Encrypt/Decrypt", async () => {
+      const key = await deriveKey("x", "y");
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const data = enc.encode("test");
+      const c = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, data);
+      const p = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, c);
+      if (dec.decode(p) !== "test") throw new Error("Mismatch");
+    });
+
+    for (const r of results) log(testEl, r.startsWith("✓")
+      ? `<span class="pass">${r}</span>`
+      : `<span class="fail">${r}</span>`
+    );
+  }
+
+
+/* ------------------------- DRIVE TESTS ------------------------ */
+
+/* ----------- Minimal Google Drive Connection ----------- */
+
+const CLIENT_ID = "738922366916-ppn1c24mp9qamr6pdmjqss3cqjmvqljv.apps.googleusercontent.com"; // replace with your OAuth 2.0 client ID
+const API_KEY = "YOUR_API_KEY_HERE";     // optional for Drive
+const SCOPES = "https://www.googleapis.com/auth/drive.file";
+
+function initGapi() {
+  return new Promise(resolve => {
+    gapi.load("client:auth2", resolve);
+  });
+}
+
+async function authenticate() {
+  await gapi.client.init({
+    apiKey: API_KEY,
+    clientId: CLIENT_ID,
+    discoveryDocs: ["https://www.googleapis.com/discovery/v3/apis/drive/v3/rest"],
+    scope: SCOPES
+  });
+
+  const GoogleAuth = gapi.auth2.getAuthInstance();
+
+  if (!GoogleAuth.isSignedIn.get()) {
+    await GoogleAuth.signIn();
+  }
+
+  log(document.getElementById("drive"), `<span class="pass">Google Auth Successful</span>`);
+}
+
+async function ensureDriveReady() {
+  await initGapi();
+  await authenticate();
+}
+
+function buildDriveTestPayload() {
+  const buf = new Uint8Array(1024);
+  for (let i = 0; i < buf.length; i++) {
+    buf[i] = i % 256;
+  }
+  return buf;
+}
+
+async function driveUploadTest() {
+  const el = document.getElementById("drive");
+  el.innerHTML = "";
+
+  try {
+    await ensureDriveReady(); // ensure auth before doing anything
+
+    const payload = buildDriveTestPayload();
+    DRIVE_TEST.original = payload;
+
+    const blob = new Blob([payload], { type: "application/octet-stream" });
+
+    const metadata = {
+      name: "crypto-drive-roundtrip.bin",
+      mimeType: "application/octet-stream"
+    };
+
+    const form = new FormData();
+    form.append(
+      "metadata",
+      new Blob([JSON.stringify(metadata)], { type: "application/json" })
+    );
+    form.append("file", blob);
+
+    const res = await fetch(
+      "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart",
+      {
+        method: "POST",
+        headers: {
+          "Authorization": "Bearer " + gapi.auth.getToken().access_token
+        },
+        body: form
+      }
+    );
+
+    const json = await res.json();
+    DRIVE_TEST.fileId = json.id;
+
+    log(el, `Uploaded fileId: ${json.id}`);
+    log(el, `<span class="pass">UPLOAD OK</span>`);
+
+  } catch (e) {
+    log(el, `<span class="fail">UPLOAD ERROR: ${e.message}</span>`);
+  }
+}
+
+async function driveDownloadTest() {
+  const el = document.getElementById("drive");
+
+  try {
+    await ensureDriveReady();
+
+    if (!DRIVE_TEST.fileId) {
+      log(el, `<span class="fail">No file uploaded yet</span>`);
+      return;
+    }
+
+    const res = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${DRIVE_TEST.fileId}?alt=media`,
+      {
+        headers: {
+          "Authorization": "Bearer " + gapi.auth.getToken().access_token
+        }
+      }
+    );
+
+    const buf = new Uint8Array(await res.arrayBuffer());
+
+    log(el, `Original length: ${DRIVE_TEST.original.length}`);
+    log(el, `Downloaded length: ${buf.length}`);
+
+    if (buf.length !== DRIVE_TEST.original.length) {
+      throw new Error("Length mismatch");
+    }
+
+    for (let i = 0; i < buf.length; i++) {
+      if (buf[i] !== DRIVE_TEST.original[i]) {
+        throw new Error(`Byte mismatch at offset ${i}`);
+      }
+    }
+
+    log(el, `<span class="pass">BYTE-FOR-BYTE MATCH</span>`);
+
+  } catch (e) {
+    log(el, `<span class="fail">DOWNLOAD ERROR: ${e.message}</span>`);
+  }
+}
+ 
+  
+  /* ---------------- Run ---------------- */
+
+  fingerprint();
+  await deterministicTest();
+  await serializationTest();
+  await selfTests();
+  setupStatefulTest();
+
+})();
+</script>
+
+</body>
+</html>
