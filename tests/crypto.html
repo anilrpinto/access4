@@ -26,6 +26,9 @@
 <h2>3. Crypto Self-Tests</h2>
 <div id="tests" class="panel"></div>
 
+<h2>4. Serialization Round-Trip Test</h2>
+<div id="serialize" class="panel"></div>
+  
 <script>
 (async () => {
 
@@ -129,6 +132,65 @@
     }
   }
 
+async function serializationTest() {
+  const el = document.getElementById("serialize");
+
+  const password = "correct horse battery staple";
+  const salt = "fixed-test-salt";
+  const iv = new Uint8Array(12).fill(9);
+  const plaintext = "GIS:POLYGON((-122.5 37.7,-122.3 37.7,-122.3 37.8,-122.5 37.8,-122.5 37.7))";
+
+  try {
+    const key = await deriveKey(password, salt);
+
+    /* Encrypt */
+    const cipherBuf = await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv },
+      key,
+      enc.encode(plaintext)
+    );
+
+    /* Serialize */
+    const payload = {
+      salt,
+      iv: toBase64(iv.buffer),
+      ciphertext: toBase64(cipherBuf)
+    };
+
+    const json = JSON.stringify(payload);
+
+    /* Deserialize */
+    const parsed = JSON.parse(json);
+
+    const iv2 = fromBase64(parsed.iv);
+    const cipher2 = fromBase64(parsed.ciphertext);
+
+    /* Length checks */
+    log(el, `IV length before: ${iv.length}`);
+    log(el, `IV length after: ${iv2.length}`);
+    log(el, `Cipher length before: ${cipherBuf.byteLength}`);
+    log(el, `Cipher length after: ${cipher2.length}`);
+
+    /* Decrypt */
+    const decryptedBuf = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: iv2 },
+      key,
+      cipher2
+    );
+
+    const decrypted = dec.decode(decryptedBuf);
+
+    log(el, `Decrypted: ${decrypted}`);
+    log(el, decrypted === plaintext
+      ? `<span class="pass">PASS (serialization intact)</span>`
+      : `<span class="fail">FAIL (data mismatch)</span>`
+    );
+
+  } catch (e) {
+    log(el, `<span class="fail">ERROR: ${e.message}</span>`);
+  }
+}
+  
   /* ---------------- Self Tests ---------------- */
 
   async function selfTests() {
@@ -179,6 +241,7 @@
 
   fingerprint();
   await deterministicTest();
+  await serializationTest();
   await selfTests();
 
 })();
