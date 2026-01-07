@@ -44,10 +44,7 @@
   <button id="driveDownloadBtn">Download & Verify</button>
   <div id="drive"></div>
 </div>
-
-document.getElementById("driveUploadBtn").onclick = driveUploadTest;
-document.getElementById("driveDownloadBtn").onclick = driveDownloadTest;
-  
+ 
 <script>
 
 let STORED = {
@@ -71,7 +68,10 @@ let DRIVE_TEST = {
   const dec = new TextDecoder();
 
   const log = (el, msg) => el.innerHTML += msg + "<br>";
-
+  
+document.getElementById("driveUploadBtn").onclick = driveUploadTest;
+document.getElementById("driveDownloadBtn").onclick = driveDownloadTest;
+  
   /* ---------------- Environment ---------------- */
 
   function fingerprint() {
