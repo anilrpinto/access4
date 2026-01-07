@@ -60,7 +60,7 @@ function assert(condition, msg) {
 // ------------------ Google Identity Services ------------------
 function initGIS() {
   tokenClient = google.accounts.oauth2.initTokenClient({
-    client_id: "myclientid.apps.googleusercontent.com",
+    client_id: "738922366916-ppn1c24mp9qamr6pdmjqss3cqjmvqljv.apps.googleusercontent.com",
     scope: "https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email",
     callback: async (resp) => {
       accessToken = resp.access_token;
