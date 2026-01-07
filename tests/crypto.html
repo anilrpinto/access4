@@ -50,4 +50,139 @@
     log(envEl, `WebCrypto: ${!!window.crypto && !!crypto.subtle}`);
   }
 
-  /* --*
+  /* ---------------- Helpers ---------------- */
+
+  function toBase64(buf) {
+    return btoa(String.fromCharCode(...new Uint8Array(buf)));
+  }
+
+  function fromBase64(b64) {
+    return Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+  }
+
+  async function sha256(buf) {
+    return crypto.subtle.digest("SHA-256", buf);
+  }
+
+  async function deriveKey(password, salt) {
+    const keyMaterial = await crypto.subtle.importKey(
+      "raw",
+      enc.encode(password),
+      "PBKDF2",
+      false,
+      ["deriveKey"]
+    );
+
+    return crypto.subtle.deriveKey(
+      {
+        name: "PBKDF2",
+        salt: enc.encode(salt),
+        iterations: 100000,
+        hash: "SHA-256"
+      },
+      keyMaterial,
+      { name: "AES-GCM", length: 256 },
+      true,
+      ["encrypt", "decrypt"]
+    );
+  }
+
+  /* ---------------- Deterministic Test ---------------- */
+
+  async function deterministicTest() {
+    const password = "correct horse battery staple";
+    const salt = "fixed-test-salt";
+    const iv = new Uint8Array(12).fill(7);
+    const plaintext = "GIS:POINT(-122.4194 37.7749)";
+
+    try {
+      const key = await deriveKey(password, salt);
+      const rawKey = await crypto.subtle.exportKey("raw", key);
+      const keyHash = toBase64(await sha256(rawKey));
+
+      const cipherBuf = await crypto.subtle.encrypt(
+        { name: "AES-GCM", iv },
+        key,
+        enc.encode(plaintext)
+      );
+
+      const decryptedBuf = await crypto.subtle.decrypt(
+        { name: "AES-GCM", iv },
+        key,
+        cipherBuf
+      );
+
+      const decrypted = dec.decode(decryptedBuf);
+
+      log(detEl, `Key SHA-256: ${keyHash}`);
+      log(detEl, `Ciphertext: ${toBase64(cipherBuf)}`);
+      log(detEl, `Decrypted: ${decrypted}`);
+      log(detEl, decrypted === plaintext
+        ? `<span class="pass">PASS</span>`
+        : `<span class="fail">FAIL</span>`
+      );
+
+      return decrypted === plaintext;
+    } catch (e) {
+      log(detEl, `<span class="fail">ERROR: ${e.message}</span>`);
+      return false;
+    }
+  }
+
+  /* ---------------- Self Tests ---------------- */
+
+  async function selfTests() {
+
+    const results = [];
+
+    async function test(name, fn) {
+      try {
+        await fn();
+        results.push(`✓ ${name}`);
+      } catch (e) {
+        results.push(`✗ ${name}: ${e.message}`);
+      }
+    }
+
+    await test("TextEncoder UTF-8", () => {
+      const b = enc.encode("✓");
+      if (b.length !== 3) throw new Error("UTF-8 encoding mismatch");
+    });
+
+    await test("Base64 Round-Trip", () => {
+      const buf = new Uint8Array([1,2,3,4,5]).buffer;
+      const b64 = toBase64(buf);
+      const out = fromBase64(b64);
+      if (out.length !== 5 || out[4] !== 5) throw new Error("Base64 corruption");
+    });
+
+    await test("PBKDF2 Derive", async () => {
+      await deriveKey("a", "b");
+    });
+
+    await test("AES-GCM Encrypt/Decrypt", async () => {
+      const key = await deriveKey("x", "y");
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const data = enc.encode("test");
+      const c = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, data);
+      const p = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, c);
+      if (dec.decode(p) !== "test") throw new Error("Mismatch");
+    });
+
+    for (const r of results) log(testEl, r.startsWith("✓")
+      ? `<span class="pass">${r}</span>`
+      : `<span class="fail">${r}</span>`
+    );
+  }
+
+  /* ---------------- Run ---------------- */
+
+  fingerprint();
+  await deterministicTest();
+  await selfTests();
+
+})();
+</script>
+
+</body>
+</html>
