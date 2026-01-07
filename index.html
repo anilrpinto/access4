@@ -15,7 +15,7 @@ pre { background: #f4f4f4; padding: 10px; overflow-x: auto; }
 </head>
 
 <body>
-<h2>Signal-Style Google Drive Encryption w/ Safari/iOS Fix</h2>
+<h2>Ver: 1</h2>
 
 <div>
   Signed in as: <span id="userEmail">Not signed in</span>
@@ -52,15 +52,20 @@ let userEmail = null;
 function log(msg) { document.getElementById("output").textContent += msg + "\n"; }
 function assert(condition, msg) { log(condition ? "ASSERT PASSED: " + msg : "ASSERT FAILED: " + msg); }
 
-// ------------------ Base64 Helpers ------------------
-// Safari-safe Uint8Array decoding
-function fromB64Uint8(str) {
-  const bin = atob(str);
-  const arr = new Uint8Array(bin.length);
-  for(let i=0;i<bin.length;i++) arr[i] = bin.charCodeAt(i);
-  return arr;
+// ------------------ Base64 Helpers (Safari-safe) ------------------
+function bufToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
 }
-function b64(buf) { return btoa(String.fromCharCode(...new Uint8Array(buf))); }
+
+function base64ToBuf(base64) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes.buffer; // ArrayBuffer needed by crypto.subtle
+}
 
 // ------------------ Google Identity Services ------------------
 function initGIS() {
@@ -104,7 +109,7 @@ setInterval(silentRefresh, 50*60*1000);
 async function deriveKey(password, salt) {
   log("Deriving key from password…");
   const baseKey = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveKey"]);
-  const derivedKey = await crypto.subtle.deriveKey({ name:"PBKDF2", salt, iterations:250000, hash:"SHA-256" }, baseKey, { name:"AES-GCM", length:256 }, false, ["encrypt","decrypt"]);
+  const derivedKey = await crypto.subtle.deriveKey({ name:"PBKDF2", salt: new Uint8Array(salt), iterations:250000, hash:"SHA-256" }, baseKey, { name:"AES-GCM", length:256 }, false, ["encrypt","decrypt"]);
   assert(!!derivedKey, "Derived AES key created");
   return derivedKey;
 }
@@ -118,8 +123,8 @@ async function createIdentity(password) {
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const key = await deriveKey(password, salt);
   const encrypted = await crypto.subtle.encrypt({ name:"AES-GCM", iv }, key, pkcs8);
-  localStorage.setItem("identity", JSON.stringify({ salt: b64(salt), iv: b64(iv), encrypted: b64(encrypted) }));
-  localStorage.setItem("publicKey", b64(await crypto.subtle.exportKey("spki", keyPair.publicKey)));
+  localStorage.setItem("identity", JSON.stringify({ salt: bufToBase64(salt), iv: bufToBase64(iv), encrypted: bufToBase64(encrypted) }));
+  localStorage.setItem("publicKey", bufToBase64(await crypto.subtle.exportKey("spki", keyPair.publicKey)));
   assert(true, "Identity keypair created and stored");
 }
 
@@ -127,11 +132,13 @@ async function loadPrivateKey(password) {
   log("Loading private key from localStorage…");
   const stored = JSON.parse(localStorage.getItem("identity"));
   assert(stored && stored.encrypted, "Private key exists in localStorage");
-  const salt = fromB64Uint8(stored.salt);
-  const iv = fromB64Uint8(stored.iv);
-  const encrypted = fromB64Uint8(stored.encrypted);
+
+  const salt = base64ToBuf(stored.salt);
+  const iv = new Uint8Array(base64ToBuf(stored.iv));
+  const encrypted = base64ToBuf(stored.encrypted); // <-- ArrayBuffer for Safari
+
   log(`Encrypted buffer length: ${encrypted.byteLength}, IV length: ${iv.byteLength}`);
-  const key = await deriveKey(password, salt);
+  const key = await deriveKey(password, new Uint8Array(salt));
   const pkcs8 = await crypto.subtle.decrypt({ name:"AES-GCM", iv }, key, encrypted);
   const privateKey = await crypto.subtle.importKey("pkcs8", pkcs8, { name:"RSA-OAEP", hash:"SHA-256" }, false, ["decrypt"]);
   assert(privateKey, "Private key imported successfully");
@@ -141,7 +148,7 @@ async function loadPrivateKey(password) {
 async function loadPublicKey() {
   const stored = localStorage.getItem("publicKey");
   assert(!!stored, "Public key exists in localStorage");
-  const publicKey = await crypto.subtle.importKey("spki", fromB64Uint8(stored), { name:"RSA-OAEP", hash:"SHA-256" }, false, ["encrypt"]);
+  const publicKey = await crypto.subtle.importKey("spki", base64ToBuf(stored), { name:"RSA-OAEP", hash:"SHA-256" }, false, ["encrypt"]);
   assert(publicKey, "Public key imported successfully");
   return publicKey;
 }
@@ -174,11 +181,11 @@ async function encryptAndUpload() {
   const wrappedKey = await crypto.subtle.encrypt({ name:"RSA-OAEP" }, publicKey, rawFileKey);
   assert(wrappedKey.byteLength > 0, "AES key wrapped successfully");
 
-  const envelope = { iv: b64(iv), wrappedKey: b64(wrappedKey), ciphertext: b64(ciphertext) };
+  const envelope = { iv: bufToBase64(iv), wrappedKey: bufToBase64(wrappedKey), ciphertext: bufToBase64(ciphertext) };
   log("Envelope created");
 
   const form = new FormData();
-  form.append("metadata", new Blob([JSON.stringify({ name:"encrypted-envelope.json" })], { type:"application/json" }));
+  form.append("metadata", new Blob([JSON.stringify({ name: "encrypted-envelope.json" })], { type:"application/json" }));
   form.append("file", new Blob([JSON.stringify(envelope)], { type:"application/json" }));
 
   log("Uploading file to Google Drive…");
@@ -209,9 +216,9 @@ async function downloadAndDecrypt() {
     const privateKey = await loadPrivateKey(password);
 
     log("Converting Base64 fields to typed arrays…");
-    const iv = fromB64Uint8(envelope.iv);
-    const ciphertext = fromB64Uint8(envelope.ciphertext); // Safari/iOS safe
-    const wrappedKey = fromB64Uint8(envelope.wrappedKey);
+    const iv = new Uint8Array(base64ToBuf(envelope.iv));
+    const ciphertext = base64ToBuf(envelope.ciphertext);  // ArrayBuffer
+    const wrappedKey = base64ToBuf(envelope.wrappedKey);  // ArrayBuffer
 
     log("Unwrapping AES key with RSA private key…");
     const rawFileKey = await crypto.subtle.decrypt({ name:"RSA-OAEP" }, privateKey, wrappedKey);
