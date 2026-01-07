@@ -15,7 +15,7 @@ pre { background: #f4f4f4; padding: 10px; overflow-x: auto; }
 </head>
 
 <body>
-<h2>Ver: 1</h2>
+<h2>Ver: 2</h2>
 
 <div>
   Signed in as: <span id="userEmail">Not signed in</span>
@@ -135,14 +135,20 @@ async function loadPrivateKey(password) {
 
   const salt = base64ToBuf(stored.salt);
   const iv = new Uint8Array(base64ToBuf(stored.iv));
-  const encrypted = base64ToBuf(stored.encrypted); // <-- ArrayBuffer for Safari
+  const encrypted = base64ToBuf(stored.encrypted); // ArrayBuffer for Safari
 
   log(`Encrypted buffer length: ${encrypted.byteLength}, IV length: ${iv.byteLength}`);
   const key = await deriveKey(password, new Uint8Array(salt));
-  const pkcs8 = await crypto.subtle.decrypt({ name:"AES-GCM", iv }, key, encrypted);
-  const privateKey = await crypto.subtle.importKey("pkcs8", pkcs8, { name:"RSA-OAEP", hash:"SHA-256" }, false, ["decrypt"]);
-  assert(privateKey, "Private key imported successfully");
-  return privateKey;
+
+  try {
+    const pkcs8 = await crypto.subtle.decrypt({ name:"AES-GCM", iv }, key, encrypted);
+    const privateKey = await crypto.subtle.importKey("pkcs8", pkcs8, { name:"RSA-OAEP", hash:"SHA-256" }, false, ["decrypt"]);
+    assert(privateKey, "Private key imported successfully");
+    return privateKey;
+  } catch(e) {
+    log("Private key decryption failed — possibly wrong password or Safari-specific issue");
+    throw new Error("Failed to decrypt private key. Check your password.");
+  }
 }
 
 async function loadPublicKey() {
@@ -185,8 +191,8 @@ async function encryptAndUpload() {
   log("Envelope created");
 
   const form = new FormData();
-  form.append("metadata", new Blob([JSON.stringify({ name: "encrypted-envelope.json" })], { type:"application/json" }));
-  form.append("file", new Blob([JSON.stringify(envelope)], { type:"application/json" }));
+  form.append("metadata", new Blob([JSON.stringify({ name: "encrypted-envelope.json" })], { type: "application/json" }));
+  form.append("file", new Blob([JSON.stringify(envelope)], { type: "application/json" }));
 
   log("Uploading file to Google Drive…");
   const res = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart", { method:"POST", headers:{ Authorization:`Bearer ${accessToken}` }, body:form });
@@ -195,7 +201,7 @@ async function encryptAndUpload() {
   log("Uploaded File ID: " + json.id);
 }
 
-// ------------------ Download & Decrypt (Safari/iOS Safe) ------------------
+// ------------------ Download & Decrypt ------------------
 async function downloadAndDecrypt() {
   if (!accessToken) { alert("Sign in first"); return; }
   document.getElementById("output").textContent = "";
@@ -217,8 +223,8 @@ async function downloadAndDecrypt() {
 
     log("Converting Base64 fields to typed arrays…");
     const iv = new Uint8Array(base64ToBuf(envelope.iv));
-    const ciphertext = base64ToBuf(envelope.ciphertext);  // ArrayBuffer
-    const wrappedKey = base64ToBuf(envelope.wrappedKey);  // ArrayBuffer
+    const ciphertext = base64ToBuf(envelope.ciphertext);
+    const wrappedKey = base64ToBuf(envelope.wrappedKey);
 
     log("Unwrapping AES key with RSA private key…");
     const rawFileKey = await crypto.subtle.decrypt({ name:"RSA-OAEP" }, privateKey, wrappedKey);
