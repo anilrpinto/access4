@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Signal-Style Google Drive Encryption Demo w/ Safari/iOS Fix</title>
+<title>Signal-Style Google Drive Encryption Demo Ver: 4</title>
 <style>
 body { font-family: sans-serif; max-width: 800px; margin: auto; }
 textarea, input { width: 100%; margin: 6px 0; }
@@ -15,7 +15,7 @@ pre { background: #f4f4f4; padding: 10px; overflow-x: auto; }
 </head>
 
 <body>
-<h2>Ver: 3</h2>
+<h2>Ver: 4</h2>
 
 <div>
   Signed in as: <span id="userEmail">Not signed in</span>
@@ -59,7 +59,6 @@ function bufToBase64(buffer) {
   for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
   return btoa(binary);
 }
-
 function base64ToBuf(base64) {
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
@@ -108,8 +107,16 @@ setInterval(silentRefresh, 50*60*1000);
 // ------------------ Crypto Utilities ------------------
 async function deriveKey(password, salt) {
   log("Deriving key from password…");
+  console.time("deriveKey");
   const baseKey = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveKey"]);
-  const derivedKey = await crypto.subtle.deriveKey({ name:"PBKDF2", salt: new Uint8Array(salt), iterations:250000, hash:"SHA-256" }, baseKey, { name:"AES-GCM", length:256 }, false, ["encrypt","decrypt"]);
+  const derivedKey = await crypto.subtle.deriveKey(
+    { name:"PBKDF2", salt: new Uint8Array(salt), iterations:250000, hash:"SHA-256" },
+    baseKey,
+    { name:"AES-GCM", length:256 },
+    false,
+    ["encrypt","decrypt"]
+  );
+  console.timeEnd("deriveKey");
   assert(!!derivedKey, "Derived AES key created");
   return derivedKey;
 }
@@ -117,6 +124,7 @@ async function deriveKey(password, salt) {
 // ------------------ Identity Management ------------------
 async function createIdentity(password) {
   log("Generating RSA identity keypair…");
+  console.time("generateIdentity");
   const keyPair = await crypto.subtle.generateKey({ name:"RSA-OAEP", modulusLength:2048, publicExponent:new Uint8Array([1,0,1]), hash:"SHA-256" }, true, ["encrypt","decrypt"]);
   const pkcs8 = await crypto.subtle.exportKey("pkcs8", keyPair.privateKey);
   const salt = crypto.getRandomValues(new Uint8Array(16));
@@ -125,29 +133,40 @@ async function createIdentity(password) {
   const encrypted = await crypto.subtle.encrypt({ name:"AES-GCM", iv }, key, pkcs8);
   localStorage.setItem("identity", JSON.stringify({ salt: bufToBase64(salt), iv: bufToBase64(iv), encrypted: bufToBase64(encrypted) }));
   localStorage.setItem("publicKey", bufToBase64(await crypto.subtle.exportKey("spki", keyPair.publicKey)));
+  console.timeEnd("generateIdentity");
   assert(true, "Identity keypair created and stored");
 }
 
 async function loadPrivateKey(password) {
   log("Loading private key from localStorage…");
+  console.time("loadPrivateKey");
   const stored = JSON.parse(localStorage.getItem("identity"));
   assert(stored && stored.encrypted, "Private key exists in localStorage");
 
-  // Safari/iOS-safe: use Uint8Array for encrypted + iv + salt
-  const salt = new Uint8Array(base64ToBuf(stored.salt));
+  const salt = base64ToBuf(stored.salt);
   const iv = new Uint8Array(base64ToBuf(stored.iv));
-  const encrypted = new Uint8Array(base64ToBuf(stored.encrypted));
+  const encrypted = base64ToBuf(stored.encrypted);
 
   log(`Encrypted buffer length: ${encrypted.byteLength}, IV length: ${iv.byteLength}`);
-  const key = await deriveKey(password, salt);
+  const key = await deriveKey(password, new Uint8Array(salt));
 
   try {
+    console.time("decryptPrivateKey");
     const pkcs8 = await crypto.subtle.decrypt({ name:"AES-GCM", iv }, key, encrypted);
+    console.timeEnd("decryptPrivateKey");
+
+    console.time("importPrivateKey");
     const privateKey = await crypto.subtle.importKey("pkcs8", pkcs8, { name:"RSA-OAEP", hash:"SHA-256" }, false, ["decrypt"]);
+    console.timeEnd("importPrivateKey");
+
     assert(privateKey, "Private key imported successfully");
+    console.timeEnd("loadPrivateKey");
     return privateKey;
   } catch(e) {
-    log("Private key decryption failed — possibly Safari/iOS buffer issue");
+    console.timeEnd("decryptPrivateKey");
+    console.timeEnd("importPrivateKey");
+    console.timeEnd("loadPrivateKey");
+    log("Private key decryption failed — possibly wrong password or Safari-specific issue");
     throw new Error("Failed to decrypt private key. Check your password.");
   }
 }
@@ -175,17 +194,23 @@ async function encryptAndUpload() {
 
   const publicKey = await loadPublicKey();
   log("Generating AES file key…");
+  console.time("generateFileKey");
   const fileKey = await crypto.subtle.generateKey({ name:"AES-GCM", length:256 }, true, ["encrypt","decrypt"]);
+  console.timeEnd("generateFileKey");
   assert(fileKey, "AES file key generated");
 
   const iv = crypto.getRandomValues(new Uint8Array(12));
   log("Encrypting plaintext with AES…");
+  console.time("encryptFile");
   const ciphertext = await crypto.subtle.encrypt({ name:"AES-GCM", iv }, fileKey, encoder.encode(text));
+  console.timeEnd("encryptFile");
   assert(ciphertext.byteLength > 0, "AES encryption completed");
 
   log("Wrapping AES key with RSA public key…");
+  console.time("wrapAESKey");
   const rawFileKey = await crypto.subtle.exportKey("raw", fileKey);
   const wrappedKey = await crypto.subtle.encrypt({ name:"RSA-OAEP" }, publicKey, rawFileKey);
+  console.timeEnd("wrapAESKey");
   assert(wrappedKey.byteLength > 0, "AES key wrapped successfully");
 
   const envelope = { iv: bufToBase64(iv), wrappedKey: bufToBase64(wrappedKey), ciphertext: bufToBase64(ciphertext) };
@@ -196,7 +221,9 @@ async function encryptAndUpload() {
   form.append("file", new Blob([JSON.stringify(envelope)], { type: "application/json" }));
 
   log("Uploading file to Google Drive…");
+  console.time("uploadFile");
   const res = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart", { method:"POST", headers:{ Authorization:`Bearer ${accessToken}` }, body:form });
+  console.timeEnd("uploadFile");
   const json = await res.json();
   assert(json.id, "Upload succeeded, file ID: " + json.id);
   log("Uploaded File ID: " + json.id);
@@ -213,7 +240,9 @@ async function downloadAndDecrypt() {
 
   try {
     log("Fetching encrypted file from Google Drive…");
+    console.time("fetchFile");
     const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { headers:{ Authorization:`Bearer ${accessToken}` } });
+    console.timeEnd("fetchFile");
     if (!res.ok) { log("Download failed: " + await res.text()); return; }
 
     const envelope = await res.json();
@@ -224,19 +253,25 @@ async function downloadAndDecrypt() {
 
     log("Converting Base64 fields to typed arrays…");
     const iv = new Uint8Array(base64ToBuf(envelope.iv));
-    const ciphertext = new Uint8Array(base64ToBuf(envelope.ciphertext));
-    const wrappedKey = new Uint8Array(base64ToBuf(envelope.wrappedKey));
+    const ciphertext = base64ToBuf(envelope.ciphertext);
+    const wrappedKey = base64ToBuf(envelope.wrappedKey);
 
     log("Unwrapping AES key with RSA private key…");
+    console.time("unwrapAESKey");
     const rawFileKey = await crypto.subtle.decrypt({ name:"RSA-OAEP" }, privateKey, wrappedKey);
+    console.timeEnd("unwrapAESKey");
     assert(rawFileKey.byteLength > 0, "AES key unwrapped successfully");
 
     log("Importing AES key for decryption…");
+    console.time("importAESKey");
     const fileKey = await crypto.subtle.importKey("raw", rawFileKey, { name:"AES-GCM", length:256 }, false, ["decrypt"]);
+    console.timeEnd("importAESKey");
     assert(fileKey, "AES key imported successfully");
 
     log("Decrypting ciphertext with AES-GCM…");
+    console.time("decryptFile");
     const plaintextBuf = await crypto.subtle.decrypt({ name:"AES-GCM", iv }, fileKey, ciphertext);
+    console.timeEnd("decryptFile");
     assert(plaintextBuf.byteLength > 0, "AES decryption produced data");
 
     const plaintext = decoder.decode(plaintextBuf);
