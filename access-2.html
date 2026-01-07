@@ -52,7 +52,7 @@ const decoder = new TextDecoder();
 let accessToken = null;
 let userEmail = null;
 let tokenClient = null;
-const allowedEmails = ["myemailinbox1234@gmail.com"]; // Example: ["alice@gmail.com", "bob@gmail.com"]
+const allowedEmails = ["myemailinbox1234@gmail.com", "anilrpinto1@gmail.com"];
 
 function log(msg) {
   document.getElementById("output").textContent += msg + "\n";
@@ -165,9 +165,9 @@ async function encryptAndUpload() {
   const password = document.getElementById("password").value;
   const text = document.getElementById("plaintext").value;
 
-  log("Starting encryption…");
+  log("Starting encryptionâ€¦");
   if (!localStorage.getItem("identity")) {
-    log("Creating identity key…");
+    log("Creating identity keyâ€¦");
     await createIdentity(password);
   }
   const publicKey = await loadPublicKey();
@@ -221,3 +221,4 @@ async function downloadAndDecrypt() {
 </script>
 </body>
 </html>
+
