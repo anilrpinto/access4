@@ -49,7 +49,6 @@ let STORED = { salt: null, iv: null, ciphertext: null };
 let DRIVE_TEST = { fileId: null, original: null };
 const enc = new TextEncoder();
 const dec = new TextDecoder();
-
 const log = (el, msg) => el.innerHTML += msg + "<br>";
 
 /* ---------------- Environment ---------------- */
@@ -64,23 +63,11 @@ function fingerprint() {
 }
 
 /* ---------------- Helpers ---------------- */
-function toBase64(buf) {
-  return btoa(String.fromCharCode(...new Uint8Array(buf)));
-}
-function fromBase64(b64) {
-  return Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-}
-async function sha256(buf) {
-  return crypto.subtle.digest("SHA-256", buf);
-}
+function toBase64(buf) { return btoa(String.fromCharCode(...new Uint8Array(buf))); }
+function fromBase64(b64) { return Uint8Array.from(atob(b64), c => c.charCodeAt(0)); }
+async function sha256(buf) { return crypto.subtle.digest("SHA-256", buf); }
 async function deriveKey(password, salt) {
-  const keyMaterial = await crypto.subtle.importKey(
-    "raw",
-    enc.encode(password),
-    "PBKDF2",
-    false,
-    ["deriveKey"]
-  );
+  const keyMaterial = await crypto.subtle.importKey("raw", enc.encode(password), "PBKDF2", false, ["deriveKey"]);
   return crypto.subtle.deriveKey(
     { name: "PBKDF2", salt: enc.encode(salt), iterations: 100000, hash: "SHA-256" },
     keyMaterial,
@@ -113,11 +100,7 @@ async function deterministicTest() {
       ? `<span class="pass">PASS</span>`
       : `<span class="fail">FAIL</span>`
     );
-    return decrypted === plaintext;
-  } catch (e) {
-    log(detEl, `<span class="fail">ERROR: ${e.message}</span>`);
-    return false;
-  }
+  } catch (e) { log(detEl, `<span class="fail">ERROR: ${e.message}</span>`); }
 }
 
 /* ---------------- Serialization Test ---------------- */
@@ -195,24 +178,28 @@ const CLIENT_ID = "738922366916-ppn1c24mp9qamr6pdmjqss3cqjmvqljv.apps.googleuser
 const API_KEY = ""; 
 const SCOPES = "https://www.googleapis.com/auth/drive.file";
 
-async function initGapi() { return new Promise(resolve => gapi.load("client:auth2", resolve)); }
-async function authenticate() {
-  await gapi.client.init({ apiKey: API_KEY, clientId: CLIENT_ID, discoveryDocs:["https://www.googleapis.com/discovery/v3/apis/drive/v3/rest"], scope: SCOPES });
-  const GoogleAuth = gapi.auth2.getAuthInstance();
-  if (!GoogleAuth.isSignedIn.get()) await GoogleAuth.signIn();
-  const token = gapi.auth.getToken();
-  if(!token || !token.access_token) throw new Error("No OAuth token available");
-  log(document.getElementById("drive"), `<span class="pass">Google Auth Successful</span>`);
-  console.log("OAuth token:", token.access_token);
+async function ensureDriveReady() {
+  return new Promise((resolve, reject) => {
+    gapi.load("client:auth2", async () => {
+      try {
+        await gapi.client.init({ apiKey: API_KEY, clientId: CLIENT_ID, discoveryDocs:["https://www.googleapis.com/discovery/v3/apis/drive/v3/rest"], scope: SCOPES });
+        const GoogleAuth = gapi.auth2.getAuthInstance();
+        if (!GoogleAuth.isSignedIn.get()) await GoogleAuth.signIn();
+        const tokenObj = gapi.auth.getToken();
+        if(!tokenObj || !tokenObj.access_token) throw new Error("No OAuth token available");
+        log(document.getElementById("drive"), `<span class="pass">Google Auth Successful</span>`);
+        console.log("OAuth token ready:", tokenObj.access_token);
+        resolve();
+      } catch(e) { reject(e); }
+    });
+  });
 }
-async function ensureDriveReady() { await initGapi(); await authenticate(); }
 
 function buildDriveTestPayload() { const buf=new Uint8Array(1024); for(let i=0;i<buf.length;i++) buf[i]=i%256; return buf; }
 
 async function driveUploadTest() {
   const el = document.getElementById("drive"); el.innerHTML += "<br>";
-  try {
-    await ensureDriveReady();
+  try{
     const payload = buildDriveTestPayload(); DRIVE_TEST.original = payload;
     const blob = new Blob([payload],{type:"application/octet-stream"});
     const metadata = {name:"crypto-drive-roundtrip.bin", mimeType:"application/octet-stream"};
@@ -230,7 +217,6 @@ async function driveUploadTest() {
 async function driveDownloadTest() {
   const el = document.getElementById("drive"); el.innerHTML += "<br>";
   try{
-    await ensureDriveReady();
     if(!DRIVE_TEST.fileId){ log(el, `<span class="fail">No file uploaded yet</span>`); return; }
     const token = gapi.auth.getToken().access_token;
     const res = await fetch(`https://www.googleapis.com/drive/v3/files/${DRIVE_TEST.fileId}?alt=media`,{headers:{ "Authorization":"Bearer "+token }});
@@ -243,7 +229,25 @@ async function driveDownloadTest() {
   } catch(e){ log(el, `<span class="fail">DOWNLOAD ERROR: ${e?.message || JSON.stringify(e)}</span>`); }
 }
 
-/* ---------------- Run ---------------- */
+/* ---------------- Wire Buttons ---------------- */
+gapi.load("client:auth2", () => {
+  document.getElementById("driveUploadBtn").onclick = async () => {
+    const btn = document.getElementById("driveUploadBtn");
+    btn.disabled = true;
+    try { await ensureDriveReady(); await driveUploadTest(); }
+    catch(e){ log(document.getElementById("drive"), `<span class="fail">UPLOAD ERROR: ${e?.message || JSON.stringify(e)}</span>`); }
+    finally{ btn.disabled = false; }
+  };
+  document.getElementById("driveDownloadBtn").onclick = async () => {
+    const btn = document.getElementById("driveDownloadBtn");
+    btn.disabled = true;
+    try { await ensureDriveReady(); await driveDownloadTest(); }
+    catch(e){ log(document.getElementById("drive"), `<span class="fail">DOWNLOAD ERROR: ${e?.message || JSON.stringify(e)}</span>`); }
+    finally{ btn.disabled = false; }
+  };
+});
+
+/* ---------------- Run Crypto Tests ---------------- */
 (async ()=>{
   fingerprint();
   await deterministicTest();
