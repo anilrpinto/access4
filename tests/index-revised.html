@@ -2,19 +2,20 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Signal-Style Google Drive Encryption Demo Ver: 5 (Safari-safe)</title>
+<title>Signal-Style Google Drive Encryption Demo Ver: 5 Patched</title>
 <style>
 body { font-family: sans-serif; max-width: 800px; margin: auto; }
 textarea, input { width: 100%; margin: 6px 0; }
 button { margin: 6px 0; }
 pre { background: #f4f4f4; padding: 10px; overflow-x: auto; }
 #userEmail { font-weight: bold; }
+.step { margin-left: 10px; }
 </style>
 <script src="https://accounts.google.com/gsi/client" async defer onload="initGIS()"></script>
 </head>
 <body>
 
-<h2>Ver: 5 (Safari-safe)</h2>
+<h2>Ver: 5 Patched</h2>
 
 <div>
   Signed in as: <span id="userEmail">Not signed in</span>
@@ -28,14 +29,14 @@ pre { background: #f4f4f4; padding: 10px; overflow-x: auto; }
 <label>Plaintext to encrypt</label>
 <textarea id="plaintext">Hello Google Drive ??</textarea>
 
-<button id="encryptUploadBtn">Encrypt & Upload</button>
+<button onclick="encryptAndUpload()">Encrypt & Upload</button>
 
 <hr>
 
 <label>Google Drive File ID to Download</label>
 <input id="fileId">
 
-<button id="downloadDecryptBtn">Download & Decrypt</button>
+<button onclick="downloadAndDecrypt()">Download & Decrypt</button>
 
 <h3>Output</h3>
 <pre id="output"></pre>
@@ -45,14 +46,40 @@ const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 let accessToken = null;
 let tokenClient = null;
+let userEmail = null;
 
-// ---------------- Base64 helpers (Safari-safe) ----------------
-function bufToBase64(buf) { return btoa(String.fromCharCode(...new Uint8Array(buf))); }
-function base64ToBuf(b64) { return Uint8Array.from(atob(b64), c=>c.charCodeAt(0)).buffer; }
-
+// ------------------ Logging ------------------
 function log(msg) { document.getElementById("output").textContent += msg + "\n"; }
+async function logStep(stepName, fn) {
+  const start = performance.now();
+  log(`[${stepName}] START`);
+  try {
+    const result = await fn();
+    const duration = Math.round(performance.now() - start);
+    log(`[${stepName}] END (${duration} ms)`);
+    return result;
+  } catch (e) {
+    const duration = Math.round(performance.now() - start);
+    log(`[${stepName}] FAILED (${duration} ms): ${e}`);
+    throw e;
+  }
+}
 
-// ---------------- Google Identity ----------------
+// ------------------ Base64 Helpers ------------------
+function bufToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
+}
+function base64ToBuf(base64) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes.buffer;
+}
+
+// ------------------ Google Identity Services ------------------
 function initGIS() {
   tokenClient = google.accounts.oauth2.initTokenClient({
     client_id: "738922366916-ppn1c24mp9qamr6pdmjqss3cqjmvqljv.apps.googleusercontent.com",
@@ -69,118 +96,169 @@ function initGIS() {
 async function fetchUserEmail() {
   const res = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", { headers: { Authorization: `Bearer ${accessToken}` } });
   const data = await res.json();
-  document.getElementById("userEmail").textContent = data.email;
-  log("User email: " + data.email);
+  userEmail = data.email;
+  document.getElementById("userEmail").textContent = userEmail;
+  log(`[fetchUserEmail] Retrieved: ${userEmail}`);
 }
-document.getElementById("signinBtn").onclick = () => tokenClient.requestAccessToken({ prompt: "consent" });
-document.getElementById("logoutBtn").onclick = () => {
-  accessToken = null;
+function signIn() { tokenClient.requestAccessToken({ prompt: "consent" }); }
+function silentRefresh() { if (accessToken) tokenClient.requestAccessToken({ prompt: "" }); }
+function logout() {
+  accessToken = null; userEmail = null;
   localStorage.clear();
   document.getElementById("userEmail").textContent = "Not signed in";
   document.getElementById("signinBtn").disabled = false;
   document.getElementById("logoutBtn").disabled = true;
-  log("Logged out.");
-};
+  log("Logged out and identity cleared.");
+}
+setInterval(silentRefresh, 50*60*1000);
 
-// ---------------- Crypto ----------------
-async function deriveKey(password, saltString) {
-  const baseKey = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveKey"]);
-  return crypto.subtle.deriveKey(
-    { name:"PBKDF2", salt: encoder.encode(saltString), iterations:250000, hash:"SHA-256" },
-    baseKey,
-    { name:"AES-GCM", length:256 },
-    false,
-    ["encrypt","decrypt"]
-  );
+// ------------------ Crypto Utilities ------------------
+async function deriveKey(password, salt) {
+  return logStep("Derive AES key from password", async () => {
+    const baseKey = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveKey"]);
+    return crypto.subtle.deriveKey({ name:"PBKDF2", salt: encoder.encode(salt), iterations:250000, hash:"SHA-256" }, baseKey, { name:"AES-GCM", length:256 }, false, ["encrypt","decrypt"]);
+  });
 }
 
+// ------------------ Identity Management (Self-Healing) ------------------
 async function createIdentity(password) {
-  const keyPair = await crypto.subtle.generateKey({ name:"RSA-OAEP", modulusLength:2048, publicExponent:new Uint8Array([1,0,1]), hash:"SHA-256" }, true, ["encrypt","decrypt"]);
-  const pkcs8 = await crypto.subtle.exportKey("pkcs8", keyPair.privateKey);
-  const salt = "identity-salt"; // simple string, Safari-safe
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const aesKey = await deriveKey(password, salt);
-  const encrypted = await crypto.subtle.encrypt({ name:"AES-GCM", iv }, aesKey, pkcs8);
-  localStorage.setItem("identity", JSON.stringify({ salt, iv: bufToBase64(iv), encrypted: bufToBase64(encrypted) }));
-  localStorage.setItem("publicKey", bufToBase64(await crypto.subtle.exportKey("spki", keyPair.publicKey)));
-  return keyPair;
+  return logStep("Create RSA identity keypair", async () => {
+    const keyPair = await crypto.subtle.generateKey({ name:"RSA-OAEP", modulusLength:2048, publicExponent:new Uint8Array([1,0,1]), hash:"SHA-256" }, true, ["encrypt","decrypt"]);
+    const pkcs8 = await crypto.subtle.exportKey("pkcs8", keyPair.privateKey);
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const aesKey = await deriveKey(password, "identity-salt");
+    const encrypted = await crypto.subtle.encrypt({ name:"AES-GCM", iv }, aesKey, pkcs8);
+    localStorage.setItem("identity", JSON.stringify({ salt: bufToBase64(salt), iv: bufToBase64(iv), encrypted: bufToBase64(encrypted) }));
+    localStorage.setItem("publicKey", bufToBase64(await crypto.subtle.exportKey("spki", keyPair.publicKey)));
+    return keyPair;
+  });
 }
 
 async function loadPrivateKey(password) {
-  const stored = JSON.parse(localStorage.getItem("identity"));
-  const salt = stored.salt;
-  const iv = new Uint8Array(base64ToBuf(stored.iv));
-  const encrypted = base64ToBuf(stored.encrypted);
-  const aesKey = await deriveKey(password, salt);
-  const pkcs8 = await crypto.subtle.decrypt({ name:"AES-GCM", iv }, aesKey, encrypted);
-  return crypto.subtle.importKey("pkcs8", pkcs8, { name:"RSA-OAEP", hash:"SHA-256" }, false, ["decrypt"]);
+  return logStep("Load and decrypt private key", async () => {
+    const storedRaw = localStorage.getItem("identity");
+    if (!storedRaw) return createIdentity(password).then(kp => kp.privateKey);
+
+    try {
+      const stored = JSON.parse(storedRaw);
+      const salt = stored.salt;
+      const iv = new Uint8Array(base64ToBuf(stored.iv));
+      const encrypted = base64ToBuf(stored.encrypted);
+      const aesKey = await deriveKey(password, "identity-salt");
+
+      const pkcs8 = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, aesKey, encrypted);
+      return crypto.subtle.importKey("pkcs8", pkcs8, { name:"RSA-OAEP", hash:"SHA-256" }, false, ["decrypt"]);
+
+    } catch (e) {
+      log("Stored private key incompatible. Recreating identity. (" + e + ")");
+      localStorage.removeItem("identity");
+      localStorage.removeItem("publicKey");
+      return createIdentity(password).then(kp => kp.privateKey);
+    }
+  });
 }
 
-async function loadPublicKey() {
-  const stored = localStorage.getItem("publicKey");
-  return crypto.subtle.importKey("spki", base64ToBuf(stored), { name:"RSA-OAEP", hash:"SHA-256" }, false, ["encrypt"]);
+async function loadPublicKey(password) {
+  return logStep("Load RSA public key", async () => {
+    const stored = localStorage.getItem("publicKey");
+    if (!stored) return createIdentity(password).then(kp => kp.publicKey);
+
+    try {
+      return crypto.subtle.importKey("spki", base64ToBuf(stored), { name: "RSA-OAEP", hash: "SHA-256" }, false, ["encrypt"]);
+    } catch (e) {
+      log("Stored public key incompatible. Recreating identity. (" + e + ")");
+      localStorage.removeItem("identity");
+      localStorage.removeItem("publicKey");
+      return createIdentity(password).then(kp => kp.publicKey);
+    }
+  });
 }
 
-// ---------------- Encrypt & Upload (Safari-safe) ----------------
-document.getElementById("encryptUploadBtn").onclick = async () => {
+// ------------------ Encrypt & Upload ------------------
+async function encryptAndUpload() {
   if (!accessToken) return alert("Sign in first");
   document.getElementById("output").textContent = "";
 
   const password = document.getElementById("password").value;
   const text = document.getElementById("plaintext").value;
 
-  if (!localStorage.getItem("identity")) await createIdentity(password);
+  const publicKey = await loadPublicKey(password);
 
-  const publicKey = await loadPublicKey();
-  const fileKey = await crypto.subtle.generateKey({ name:"AES-GCM", length:256 }, true, ["encrypt","decrypt"]);
+  const fileKey = await logStep("Generate AES file key", async () => 
+    crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt","decrypt"])
+  );
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const ciphertext = await crypto.subtle.encrypt({ name:"AES-GCM", iv }, fileKey, encoder.encode(text));
+
+  const ciphertext = await logStep("AES-GCM encrypt plaintext", async () => 
+    crypto.subtle.encrypt({ name: "AES-GCM", iv }, fileKey, encoder.encode(text))
+  );
+
   const rawFileKey = await crypto.subtle.exportKey("raw", fileKey);
-  const wrappedKey = await crypto.subtle.encrypt({ name:"RSA-OAEP" }, publicKey, rawFileKey);
+  const wrappedKey = await logStep("RSA wrap AES key", async () => 
+    crypto.subtle.encrypt({ name: "RSA-OAEP" }, publicKey, rawFileKey)
+  );
 
-  // Upload raw binary envelope
-  const envelope = new Uint8Array([...iv, ...new Uint8Array(wrappedKey), ...new Uint8Array(ciphertext)]);
-  const blob = new Blob([envelope], { type:"application/octet-stream" });
-
+  const envelope = { iv: bufToBase64(iv), wrappedKey: bufToBase64(wrappedKey), ciphertext: bufToBase64(ciphertext) };
   const form = new FormData();
-  form.append("metadata", new Blob([JSON.stringify({ name:"encrypted.bin" })], { type:"application/json" }));
-  form.append("file", blob);
+  form.append("metadata", new Blob([JSON.stringify({ name: "encrypted-envelope.json" })], { type: "application/json" }));
+  form.append("file", new Blob([JSON.stringify(envelope)], { type: "application/json" }));
 
-  const res = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart", {
-    method:"POST",
-    headers: { Authorization: `Bearer ${accessToken}` },
-    body: form
+  await logStep("Upload to Google Drive", async () => {
+    const res = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}` },
+      body: form
+    });
+    const json = await res.json();
+    if (!json.id) throw new Error("Upload failed");
+    log("Uploaded File ID: " + json.id);
   });
-  const json = await res.json();
-  log("Uploaded File ID: " + json.id);
-};
+}
 
-// ---------------- Download & Decrypt ----------------
-document.getElementById("downloadDecryptBtn").onclick = async () => {
-  if (!accessToken) return alert("Sign in first");
+// ------------------ Download & Decrypt ------------------
+async function downloadAndDecrypt() {
+  if (!accessToken) { alert("Sign in first"); return; }
   document.getElementById("output").textContent = "";
 
   const password = document.getElementById("password").value;
   const fileId = document.getElementById("fileId").value;
-  if (!fileId) return alert("Enter File ID!");
+  if (!fileId) { alert("Enter File ID!"); return; }
 
-  const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
-    headers:{ Authorization: `Bearer ${accessToken}` }
-  });
-  const buf = new Uint8Array(await res.arrayBuffer());
+  try {
+    const envelope = await logStep("Fetch encrypted file from Google Drive", async () => {
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+      if (!res.ok) throw new Error("Download failed: " + await res.text());
+      return await res.json();
+    });
+    if (!envelope.iv || !envelope.wrappedKey || !envelope.ciphertext) throw new Error("Envelope missing fields");
 
-  const privateKey = await loadPrivateKey(password);
-  // Simplified: first 12 bytes = iv, next 256 bytes = wrapped AES key, rest = ciphertext
-  const iv = buf.slice(0,12);
-  const wrappedKey = buf.slice(12, 12+256);
-  const ciphertext = buf.slice(12+256);
+    const privateKey = await loadPrivateKey(password);
 
-  const rawFileKey = await crypto.subtle.decrypt({ name:"RSA-OAEP" }, privateKey, wrappedKey);
-  const fileKey = await crypto.subtle.importKey("raw", rawFileKey, { name:"AES-GCM", length:256 }, false, ["decrypt"]);
-  const plaintextBuf = await crypto.subtle.decrypt({ name:"AES-GCM", iv }, fileKey, ciphertext);
+    const iv = new Uint8Array(base64ToBuf(envelope.iv));
+    const ciphertext = base64ToBuf(envelope.ciphertext);
+    const wrappedKey = base64ToBuf(envelope.wrappedKey);
 
-  log("Decrypted text:\n" + decoder.decode(plaintextBuf));
-};
+    const rawFileKey = await logStep("RSA unwrap AES key", async () => 
+      crypto.subtle.decrypt({ name:"RSA-OAEP" }, privateKey, wrappedKey)
+    );
+    const fileKey = await logStep("Import AES key for decryption", async () => 
+      crypto.subtle.importKey("raw", rawFileKey, { name:"AES-GCM", length:256 }, false, ["decrypt"])
+    );
+
+    const plaintextBuf = await logStep("AES-GCM decrypt ciphertext", async () => 
+      crypto.subtle.decrypt({ name:"AES-GCM", iv }, fileKey, ciphertext)
+    );
+
+    const plaintext = decoder.decode(plaintextBuf);
+    log("Decrypted text:\n" + plaintext);
+
+  } catch (e) {
+    log("Decryption error: " + e);
+  }
+}
 </script>
 </body>
 </html>
