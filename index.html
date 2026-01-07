@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Signal-Style Google Drive Encryption Demo w/ GIS (Safari/iOS Safe)</title>
+<title>Signal-Style Google Drive Encryption Demo w/ Safari/iOS Fix</title>
 <style>
 body { font-family: sans-serif; max-width: 800px; margin: auto; }
 textarea, input { width: 100%; margin: 6px 0; }
@@ -15,7 +15,7 @@ pre { background: #f4f4f4; padding: 10px; overflow-x: auto; }
 </head>
 
 <body>
-<h2>Signal-Style Google Drive Encryption w/ Google Sign-In (Safari/iOS Safe)</h2>
+<h2>Signal-Style Google Drive Encryption w/ Safari/iOS Fix</h2>
 
 <div>
   Signed in as: <span id="userEmail">Not signed in</span>
@@ -49,13 +49,18 @@ let tokenClient = null;
 let userEmail = null;
 
 // ------------------ Logging & Assertions ------------------
-function log(msg) {
-  document.getElementById("output").textContent += msg + "\n";
+function log(msg) { document.getElementById("output").textContent += msg + "\n"; }
+function assert(condition, msg) { log(condition ? "ASSERT PASSED: " + msg : "ASSERT FAILED: " + msg); }
+
+// ------------------ Base64 Helpers ------------------
+// Safari-safe Uint8Array decoding
+function fromB64Uint8(str) {
+  const bin = atob(str);
+  const arr = new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) arr[i] = bin.charCodeAt(i);
+  return arr;
 }
-function assert(condition, msg) {
-  if (!condition) log("ASSERT FAILED: " + msg);
-  else log("ASSERT PASSED: " + msg);
-}
+function b64(buf) { return btoa(String.fromCharCode(...new Uint8Array(buf))); }
 
 // ------------------ Google Identity Services ------------------
 function initGIS() {
@@ -84,22 +89,16 @@ function signIn() { tokenClient.requestAccessToken({ prompt: "consent" }); }
 function silentRefresh() { if (accessToken) tokenClient.requestAccessToken({ prompt: "" }); }
 
 function logout() {
-  accessToken = null;
-  userEmail = null;
+  accessToken = null; userEmail = null;
   localStorage.clear();
   document.getElementById("userEmail").textContent = "Not signed in";
   document.getElementById("signinBtn").disabled = false;
   document.getElementById("logoutBtn").disabled = true;
   log("Logged out and identity cleared.");
 }
-
 document.getElementById("signinBtn").onclick = signIn;
 document.getElementById("logoutBtn").onclick = logout;
 setInterval(silentRefresh, 50*60*1000);
-
-// ------------------ Base64 Helpers ------------------
-function b64(buf) { return btoa(String.fromCharCode(...new Uint8Array(buf))); }
-function fromB64(str) { return Uint8Array.from(atob(str), c => c.charCodeAt(0)).buffer; }
 
 // ------------------ Crypto Utilities ------------------
 async function deriveKey(password, salt) {
@@ -128,8 +127,12 @@ async function loadPrivateKey(password) {
   log("Loading private key from localStorage…");
   const stored = JSON.parse(localStorage.getItem("identity"));
   assert(stored && stored.encrypted, "Private key exists in localStorage");
-  const key = await deriveKey(password, fromB64(stored.salt));
-  const pkcs8 = await crypto.subtle.decrypt({ name:"AES-GCM", iv: new Uint8Array(fromB64(stored.iv)) }, key, fromB64(stored.encrypted));
+  const salt = fromB64Uint8(stored.salt);
+  const iv = fromB64Uint8(stored.iv);
+  const encrypted = fromB64Uint8(stored.encrypted);
+  log(`Encrypted buffer length: ${encrypted.byteLength}, IV length: ${iv.byteLength}`);
+  const key = await deriveKey(password, salt);
+  const pkcs8 = await crypto.subtle.decrypt({ name:"AES-GCM", iv }, key, encrypted);
   const privateKey = await crypto.subtle.importKey("pkcs8", pkcs8, { name:"RSA-OAEP", hash:"SHA-256" }, false, ["decrypt"]);
   assert(privateKey, "Private key imported successfully");
   return privateKey;
@@ -138,7 +141,7 @@ async function loadPrivateKey(password) {
 async function loadPublicKey() {
   const stored = localStorage.getItem("publicKey");
   assert(!!stored, "Public key exists in localStorage");
-  const publicKey = await crypto.subtle.importKey("spki", fromB64(stored), { name:"RSA-OAEP", hash:"SHA-256" }, false, ["encrypt"]);
+  const publicKey = await crypto.subtle.importKey("spki", fromB64Uint8(stored), { name:"RSA-OAEP", hash:"SHA-256" }, false, ["encrypt"]);
   assert(publicKey, "Public key imported successfully");
   return publicKey;
 }
@@ -206,9 +209,9 @@ async function downloadAndDecrypt() {
     const privateKey = await loadPrivateKey(password);
 
     log("Converting Base64 fields to typed arrays…");
-    const iv = new Uint8Array(fromB64(envelope.iv));
-    const ciphertext = new Uint8Array(fromB64(envelope.ciphertext)); // SAFARI/iOS SAFE
-    const wrappedKey = fromB64(envelope.wrappedKey);
+    const iv = fromB64Uint8(envelope.iv);
+    const ciphertext = fromB64Uint8(envelope.ciphertext); // Safari/iOS safe
+    const wrappedKey = fromB64Uint8(envelope.wrappedKey);
 
     log("Unwrapping AES key with RSA private key…");
     const rawFileKey = await crypto.subtle.decrypt({ name:"RSA-OAEP" }, privateKey, wrappedKey);
