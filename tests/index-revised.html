@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Signal-Style Google Drive Encryption Demo Ver: 5 (Patched)</title>
+<title>Signal-Style Google Drive Encryption Demo Ver: 5.1 (Patched)</title>
 <style>
 body { font-family: sans-serif; max-width: 800px; margin: auto; }
 textarea, input { width: 100%; margin: 6px 0; }
@@ -15,7 +15,7 @@ pre { background: #f4f4f4; padding: 10px; overflow-x: auto; }
 </head>
 
 <body>
-<h2>Ver: 5 (Patched)</h2>
+<h2>Ver: 5.1 (Patched)</h2>
 
 <div>
   Signed in as: <span id="userEmail">Not signed in</span>
@@ -55,12 +55,10 @@ async function logStep(stepName, fn) {
   log(`[${stepName}] START`);
   try {
     const result = await fn();
-    const duration = Math.round(performance.now() - start);
-    log(`[${stepName}] END (${duration} ms)`);
+    log(`[${stepName}] END (${Math.round(performance.now() - start)} ms)`);
     return result;
   } catch (e) {
-    const duration = Math.round(performance.now() - start);
-    log(`[${stepName}] FAILED (${duration} ms): ${e}`);
+    log(`[${stepName}] FAILED (${Math.round(performance.now() - start)} ms): ${e.message || e}`);
     throw e;
   }
 }
@@ -79,6 +77,15 @@ function base64ToBuf(base64) {
   return bytes.buffer;
 }
 
+// ------------------ Crypto Invariant ------------------
+async function cryptoInvariantCheck() {
+  const iv = new Uint8Array(12).fill(1);
+  const key = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]);
+  const c = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, encoder.encode("ok"));
+  const p = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, c);
+  if (decoder.decode(p) !== "ok") throw new Error("Crypto invariant failed");
+}
+
 // ------------------ Google Identity Services ------------------
 function initGIS() {
   tokenClient = google.accounts.oauth2.initTokenClient({
@@ -87,18 +94,17 @@ function initGIS() {
     callback: async (resp) => {
       accessToken = resp.access_token;
       await fetchUserEmail();
+      await cryptoInvariantCheck(); // safety gate
       document.getElementById("signinBtn").disabled = true;
       document.getElementById("logoutBtn").disabled = false;
       log("Signed in successfully.");
     }
   });
 
-  // Safe wiring after tokenClient exists
   document.getElementById("signinBtn").onclick = () => tokenClient.requestAccessToken({ prompt: "consent" });
   document.getElementById("logoutBtn").onclick = logout;
 }
 
-// ------------------ Fetch User Email ------------------
 async function fetchUserEmail() {
   const res = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", { headers: { Authorization: `Bearer ${accessToken}` } });
   const data = await res.json();
@@ -107,7 +113,6 @@ async function fetchUserEmail() {
   log(`[fetchUserEmail] Retrieved: ${userEmail}`);
 }
 
-// ------------------ Logout ------------------
 function logout() {
   accessToken = null;
   userEmail = null;
@@ -122,13 +127,7 @@ function logout() {
 async function deriveKey(password, salt) {
   return logStep("Derive AES key from password", async () => {
     const baseKey = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveKey"]);
-    return crypto.subtle.deriveKey(
-      { name:"PBKDF2", salt: new Uint8Array(salt), iterations:250000, hash:"SHA-256" },
-      baseKey,
-      { name:"AES-GCM", length:256 },
-      false,
-      ["encrypt","decrypt"]
-    );
+    return crypto.subtle.deriveKey({ name:"PBKDF2", salt: new Uint8Array(salt), iterations:250000, hash:"SHA-256" }, baseKey, { name:"AES-GCM", length:256 }, false, ["encrypt","decrypt"]);
   });
 }
 
@@ -161,8 +160,13 @@ async function loadPrivateKey(password) {
     const iv = new Uint8Array(base64ToBuf(stored.iv));
     const encrypted = base64ToBuf(stored.encrypted);
     const aesKey = await deriveKey(password, salt);
-    const pkcs8 = await crypto.subtle.decrypt({ name:"AES-GCM", iv }, aesKey, encrypted);
-    return crypto.subtle.importKey("pkcs8", pkcs8, { name:"RSA-OAEP", hash:"SHA-256" }, false, ["decrypt"]);
+    try {
+      const pkcs8 = await crypto.subtle.decrypt({ name:"AES-GCM", iv }, aesKey, encrypted);
+      return crypto.subtle.importKey("pkcs8", pkcs8, { name:"RSA-OAEP", hash:"SHA-256" }, false, ["decrypt"]);
+    } catch (e) {
+      if (e.name === "OperationError") throw new Error("Incorrect password or corrupted identity");
+      throw e;
+    }
   });
 }
 
@@ -235,7 +239,11 @@ document.getElementById("downloadDecryptBtn").onclick = async () => {
     log("Decrypted text:\n" + plaintext);
 
   } catch (e) {
-    log("Decryption error: " + e);
+    if (e.message.includes("Incorrect password")) {
+      log("Decryption failed: Incorrect password or corrupted identity");
+    } else {
+      log("Decryption error: " + e);
+    }
   }
 };
 
