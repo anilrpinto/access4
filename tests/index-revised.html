@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Signal-Style Google Drive Encryption Demo Ver: 5 (Patched)</title>
+<title>Signal-Style Google Drive Encryption Demo Ver: 5 (Patched Final)</title>
 <style>
 body { font-family: sans-serif; max-width: 800px; margin: auto; }
 textarea, input { width: 100%; margin: 6px 0; }
@@ -15,7 +15,7 @@ pre { background: #f4f4f4; padding: 10px; overflow-x: auto; }
 </head>
 
 <body>
-<h2>Ver: 5 (Patched)</h2>
+<h2>Ver: 5 (Patched Final)</h2>
 
 <div>
   Signed in as: <span id="userEmail">Not signed in</span>
@@ -80,16 +80,10 @@ function base64ToBuf(base64) {
 /* ------------------ Crypto Invariant ------------------ */
 async function cryptoInvariantCheck() {
   const iv = new Uint8Array(12).fill(1);
-  const key = await crypto.subtle.generateKey(
-    { name: "AES-GCM", length: 256 },
-    true,
-    ["encrypt", "decrypt"]
-  );
+  const key = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt","decrypt"]);
   const c = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, encoder.encode("ok"));
   const p = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, c);
-  if (decoder.decode(p) !== "ok") {
-    throw new Error("Crypto invariant failed");
-  }
+  if (decoder.decode(p) !== "ok") throw new Error("Crypto invariant failed");
 }
 
 /* ------------------ Google Identity Services ------------------ */
@@ -100,15 +94,14 @@ function initGIS() {
     callback: async (resp) => {
       accessToken = resp.access_token;
       await fetchUserEmail();
-      await cryptoInvariantCheck(); // ← added safety gate
+      await cryptoInvariantCheck();
       document.getElementById("signinBtn").disabled = true;
       document.getElementById("logoutBtn").disabled = false;
       log("Signed in successfully.");
     }
   });
 
-  document.getElementById("signinBtn").onclick =
-    () => tokenClient.requestAccessToken({ prompt: "consent" });
+  document.getElementById("signinBtn").onclick = () => tokenClient.requestAccessToken({ prompt: "consent" });
   document.getElementById("logoutBtn").onclick = logout;
 }
 
@@ -158,7 +151,7 @@ async function createIdentity(password) {
     const keyPair = await crypto.subtle.generateKey(
       { name: "RSA-OAEP", modulusLength: 2048, publicExponent: new Uint8Array([1,0,1]), hash: "SHA-256" },
       true,
-      ["encrypt", "decrypt"]
+      ["encrypt","decrypt"]
     );
 
     const pkcs8 = await crypto.subtle.exportKey("pkcs8", keyPair.privateKey);
@@ -173,18 +166,14 @@ async function createIdentity(password) {
       iv: bufToBase64(iv),
       encrypted: bufToBase64(encrypted)
     }));
-    localStorage.setItem("publicKey",
-      bufToBase64(await crypto.subtle.exportKey("spki", keyPair.publicKey))
-    );
+    localStorage.setItem("publicKey", bufToBase64(await crypto.subtle.exportKey("spki", keyPair.publicKey)));
   });
 }
 
 async function loadPrivateKey(password) {
   return logStep("Load private key", async () => {
     const stored = JSON.parse(localStorage.getItem("identity"));
-    if (!stored || stored.version !== 1) {
-      throw new Error("Unsupported or missing identity");
-    }
+    if (!stored || stored.version !== 1) throw new Error("Unsupported or missing identity");
 
     const salt = new Uint8Array(base64ToBuf(stored.salt));
     const iv = new Uint8Array(base64ToBuf(stored.iv));
@@ -192,18 +181,16 @@ async function loadPrivateKey(password) {
 
     const aesKey = await deriveKey(password, salt);
     try {
-      const pkcs8 = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, aesKey, encrypted);
+      const pkcs8 = await crypto.subtle.decrypt({ name:"AES-GCM", iv }, aesKey, encrypted);
       return crypto.subtle.importKey(
         "pkcs8",
         pkcs8,
-        { name: "RSA-OAEP", hash: "SHA-256" },
+        { name:"RSA-OAEP", hash:"SHA-256" },
         false,
         ["decrypt"]
       );
-    } catch (e) {
-      if (e.name === "OperationError") {
-        throw new Error("Incorrect password or corrupted identity");
-      }
+    } catch(e) {
+      if(e.name === "OperationError") throw new Error("Incorrect password or corrupted identity");
       throw e;
     }
   });
@@ -213,36 +200,25 @@ async function loadPublicKey() {
   return logStep("Load public key", async () => {
     const stored = localStorage.getItem("publicKey");
     if (!stored) throw new Error("No public key");
-    return crypto.subtle.importKey(
-      "spki",
-      base64ToBuf(stored),
-      { name: "RSA-OAEP", hash: "SHA-256" },
-      false,
-      ["encrypt"]
-    );
+    return crypto.subtle.importKey("spki", base64ToBuf(stored), { name:"RSA-OAEP", hash:"SHA-256" }, false, ["encrypt"]);
   });
 }
 
 /* ------------------ Encrypt / Upload ------------------ */
-/* (unchanged logic, only validated envelope use) */
-
 document.getElementById("encryptUploadBtn").onclick = async () => {
   if (!accessToken) return alert("Sign in first");
-  document.getElementById("output").textContent = "";
 
   const password = document.getElementById("password").value;
-
-  if (!password) {
-    alert("Enter password");
-    return;
-  }
+  const plaintext = document.getElementById("plaintext").value;
+  if (!password) return alert("Enter password");
+  if (!plaintext) return alert("Enter plaintext");
 
   if (!localStorage.getItem("identity")) await createIdentity(password);
 
   const publicKey = await loadPublicKey();
   const fileKey = await crypto.subtle.generateKey({ name:"AES-GCM", length:256 }, true, ["encrypt","decrypt"]);
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const ciphertext = await crypto.subtle.encrypt({ name:"AES-GCM", iv }, fileKey, encoder.encode(plaintext.value));
+  const ciphertext = await crypto.subtle.encrypt({ name:"AES-GCM", iv }, fileKey, encoder.encode(plaintext));
   const wrappedKey = await crypto.subtle.encrypt({ name:"RSA-OAEP" }, publicKey, await crypto.subtle.exportKey("raw", fileKey));
 
   const envelope = {
@@ -269,59 +245,31 @@ document.getElementById("encryptUploadBtn").onclick = async () => {
 /* ------------------ Download / Decrypt ------------------ */
 document.getElementById("downloadDecryptBtn").onclick = async () => {
   if (!accessToken) return alert("Sign in first");
-  document.getElementById("output").textContent = "";
 
   const fileId = document.getElementById("fileId").value;
+  const password = document.getElementById("password").value;
+  if (!fileId) return alert("Enter file ID");
+  if (!password) return alert("Enter password");
 
-  const res = await fetch(
-    `https://www.googleapis.com/drive/v3/files/${fileId.value}?alt=media`,
-    { headers: { Authorization: `Bearer ${accessToken}` } }
-  );
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+    headers: { Authorization: `Bearer ${accessToken}` }
+  });
+
+  if (!res.ok) throw new Error("Download failed: " + await res.text());
   const envelope = await res.json();
 
-  if (
-    typeof envelope.iv !== "string" ||
-    typeof envelope.wrappedKey !== "string" ||
-    typeof envelope.ciphertext !== "string"
-  ) {
-    throw new Error("Invalid envelope format");
-  }
+  if (!envelope.iv || !envelope.wrappedKey || !envelope.ciphertext) throw new Error("Invalid envelope");
 
-  const password = document.getElementById("password").value;
-
-  if (!password || !fileId) {
-    alert("Missing password or file ID");
-    return;
-  }
-
-  const privateKey = await loadPrivateKey(password.value);
-  const rawFileKey = await crypto.subtle.decrypt(
-    { name: "RSA-OAEP" },
-    privateKey,
-    base64ToBuf(envelope.wrappedKey)
-  );
-
-  const fileKey = await crypto.subtle.importKey(
-    "raw",
-    rawFileKey,
-    { name: "AES-GCM", length: 256 },
-    false,
-    ["decrypt"]
-  );
-
-  const plaintextBuf = await crypto.subtle.decrypt(
-    { name: "AES-GCM", iv: new Uint8Array(base64ToBuf(envelope.iv)) },
-    fileKey,
-    base64ToBuf(envelope.ciphertext)
-  );
+  const privateKey = await loadPrivateKey(password);
+  const rawFileKey = await crypto.subtle.decrypt({ name:"RSA-OAEP" }, privateKey, base64ToBuf(envelope.wrappedKey));
+  const fileKey = await crypto.subtle.importKey("raw", rawFileKey, { name:"AES-GCM", length:256 }, false, ["decrypt"]);
+  const plaintextBuf = await crypto.subtle.decrypt({ name:"AES-GCM", iv:new Uint8Array(base64ToBuf(envelope.iv)) }, fileKey, base64ToBuf(envelope.ciphertext));
 
   log("Decrypted text:\n" + decoder.decode(plaintextBuf));
 };
 
-setInterval(() => {
-  if (accessToken) tokenClient.requestAccessToken({ prompt: "" });
-}, 50 * 60 * 1000);
+/* ------------------ Silent token refresh ------------------ */
+setInterval(() => { if(accessToken) tokenClient.requestAccessToken({ prompt: "" }); }, 50*60*1000);
 </script>
-
 </body>
 </html>
