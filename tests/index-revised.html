@@ -271,6 +271,8 @@ document.getElementById("downloadDecryptBtn").onclick = async () => {
   if (!accessToken) return alert("Sign in first");
   document.getElementById("output").textContent = "";
 
+  const fileId = document.getElementById("fileId").value;
+
   const res = await fetch(
     `https://www.googleapis.com/drive/v3/files/${fileId.value}?alt=media`,
     { headers: { Authorization: `Bearer ${accessToken}` } }
@@ -286,7 +288,6 @@ document.getElementById("downloadDecryptBtn").onclick = async () => {
   }
 
   const password = document.getElementById("password").value;
-  const fileId = document.getElementById("fileId").value;
 
   if (!password || !fileId) {
     alert("Missing password or file ID");
