@@ -230,7 +230,13 @@ document.getElementById("encryptUploadBtn").onclick = async () => {
   if (!accessToken) return alert("Sign in first");
   document.getElementById("output").textContent = "";
 
-  const password = password.value;
+  const password = document.getElementById("password").value;
+
+  if (!password) {
+    alert("Enter password");
+    return;
+  }
+
   if (!localStorage.getItem("identity")) await createIdentity(password);
 
   const publicKey = await loadPublicKey();
@@ -277,6 +283,14 @@ document.getElementById("downloadDecryptBtn").onclick = async () => {
     typeof envelope.ciphertext !== "string"
   ) {
     throw new Error("Invalid envelope format");
+  }
+
+  const password = document.getElementById("password").value;
+  const fileId = document.getElementById("fileId").value;
+
+  if (!password || !fileId) {
+    alert("Missing password or file ID");
+    return;
   }
 
   const privateKey = await loadPrivateKey(password.value);
