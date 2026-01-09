@@ -1,227 +1,253 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>Signal-Style Google Drive Encryption Demo Ver: 5</title>
-<style>
-body { font-family: sans-serif; max-width: 800px; margin: auto; }
-textarea, input { width: 100%; margin: 6px 0; }
-button { margin: 6px 0; }
-pre { background: #f4f4f4; padding: 10px; overflow-x: auto; }
-#userEmail { font-weight: bold; }
-.step { margin-left: 10px; }
-</style>
-<script src="https://accounts.google.com/gsi/client" async defer onload="initGIS()"></script>
+    <meta charset="UTF-8" />
+    <title>Access4 – Ver 6 Step 2</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <style>
+        body { font-family: monospace; max-width: 900px; margin: auto; padding: 12px; }
+        button { margin: 6px 0; }
+        pre { background: #f4f4f4; padding: 10px; white-space: pre-wrap; }
+    </style>
+
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 
 <body>
-<h2>Ver: 5</h2>
+<h2>Access4 – Ver 6 (Step 2: Genesis Authorization)</h2>
 
 <div>
-  Signed in as: <span id="userEmail">Not signed in</span>
-  <button id="signinBtn">Sign in with Google</button>
-  <button id="logoutBtn" disabled>Logout</button>
+    Signed in as: <b><span id="userEmail">Not signed in</span></b><br>
+    <button id="signinBtn">Sign in with Google</button>
+    <button id="logoutBtn" disabled>Logout</button>
 </div>
 
-<label>Password (used to protect private key)</label>
-<input id="password" type="password">
-
-<label>Plaintext to encrypt</label>
-<textarea id="plaintext">Hello Google Drive ??</textarea>
-
-<button onclick="encryptAndUpload()">Encrypt & Upload</button>
-
-<hr>
-
-<label>Google Drive File ID to Download</label>
-<input id="fileId">
-
-<button onclick="downloadAndDecrypt()">Download & Decrypt</button>
-
-<h3>Output</h3>
-<pre id="output"></pre>
+<h3>Log</h3>
+<pre id="log"></pre>
 
 <script>
-const encoder = new TextEncoder();
-const decoder = new TextDecoder();
-let accessToken = null;
-let tokenClient = null;
-let userEmail = null;
+    /* ================== CONFIG ================== */
 
-// ------------------ Logging & Step Timer ------------------
-function log(msg) { document.getElementById("output").textContent += msg + "\n"; }
-async function logStep(stepName, fn) {
-  const start = performance.now();
-  log(`[${stepName}] START`);
-  try {
-    const result = await fn();
-    const duration = Math.round(performance.now() - start);
-    log(`[${stepName}] END (${duration} ms) ?`);
-    return result;
-  } catch (e) {
-    const duration = Math.round(performance.now() - start);
-    log(`[${stepName}] FAILED (${duration} ms): ${e}`);
-    throw e;
-  }
-}
+    const CLIENT_ID = "738922366916-ppn1c24mp9qamr6pdmjqss3cqjmvqljv.apps.googleusercontent.com";
+    const SCOPES = "https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/userinfo.email";
 
-// ------------------ Base64 Helpers (Safari-safe) ------------------
-function bufToBase64(buffer) {
-  const bytes = new Uint8Array(buffer);
-  let binary = '';
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-  return btoa(binary);
-}
-function base64ToBuf(base64) {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes.buffer;
-}
+    // Shared Drive / folder root (hardcoded)
+    const ACCESS4_ROOT_ID = "1zQPiXTCDlPjzgD1YZiVKsRB2s4INUS_g";
+    const AUTH_FILE_NAME = "authorized.json";
 
-// ------------------ Google Identity Services ------------------
-function initGIS() {
-  tokenClient = google.accounts.oauth2.initTokenClient({
-    client_id: "738922366916-ppn1c24mp9qamr6pdmjqss3cqjmvqljv.apps.googleusercontent.com",
-    scope: "https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email",
-    callback: async (resp) => {
-      accessToken = resp.access_token;
-      await fetchUserEmail();
-      document.getElementById("signinBtn").disabled = true;
-      document.getElementById("logoutBtn").disabled = false;
-      log("Signed in successfully.");
+    /* ================== STATE ================== */
+
+    let tokenClient;
+    let accessToken = null;
+    let userEmail = null;
+
+    /* ================== LOGGING ================== */
+
+    function log(msg) {
+        document.getElementById("log").textContent += msg + "\n";
     }
-  });
-}
-async function fetchUserEmail() {
-  const res = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", { headers: { Authorization: `Bearer ${accessToken}` } });
-  const data = await res.json();
-  userEmail = data.email;
-  document.getElementById("userEmail").textContent = userEmail;
-  log(`[fetchUserEmail] Retrieved: ${userEmail}`);
-}
-function signIn() { tokenClient.requestAccessToken({ prompt: "consent" }); }
-function silentRefresh() { if (accessToken) tokenClient.requestAccessToken({ prompt: "" }); }
-function logout() {
-  accessToken = null; userEmail = null;
-  localStorage.clear();
-  document.getElementById("userEmail").textContent = "Not signed in";
-  document.getElementById("signinBtn").disabled = false;
-  document.getElementById("logoutBtn").disabled = true;
-  log("Logged out and identity cleared.");
-}
-document.getElementById("signinBtn").onclick = signIn;
-document.getElementById("logoutBtn").onclick = logout;
-setInterval(silentRefresh, 50*60*1000);
 
-// ------------------ Crypto Utilities ------------------
-async function deriveKey(password, salt) {
-  return logStep("Derive AES key from password", async () => {
-    const baseKey = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveKey"]);
-    return crypto.subtle.deriveKey({ name:"PBKDF2", salt: new Uint8Array(salt), iterations:250000, hash:"SHA-256" }, baseKey, { name:"AES-GCM", length:256 }, false, ["encrypt","decrypt"]);
-  });
-}
+    /* ================== INIT GIS ================== */
 
-// ------------------ Identity Management ------------------
-async function createIdentity(password) {
-  return logStep("Create RSA identity keypair", async () => {
-    const keyPair = await crypto.subtle.generateKey({ name:"RSA-OAEP", modulusLength:2048, publicExponent:new Uint8Array([1,0,1]), hash:"SHA-256" }, true, ["encrypt","decrypt"]);
-    const pkcs8 = await crypto.subtle.exportKey("pkcs8", keyPair.privateKey);
-    const salt = crypto.getRandomValues(new Uint8Array(16));
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    const aesKey = await deriveKey(password, salt);
-    const encrypted = await crypto.subtle.encrypt({ name:"AES-GCM", iv }, aesKey, pkcs8);
-    localStorage.setItem("identity", JSON.stringify({ salt: bufToBase64(salt), iv: bufToBase64(iv), encrypted: bufToBase64(encrypted) }));
-    localStorage.setItem("publicKey", bufToBase64(await crypto.subtle.exportKey("spki", keyPair.publicKey)));
-    return keyPair;
-  });
-}
+    function initGIS() {
+        tokenClient = google.accounts.oauth2.initTokenClient({
+            client_id: CLIENT_ID,
+            scope: SCOPES,
+            callback: async (resp) => {
+                try {
+                    if (resp.error) throw resp.error;
 
-async function loadPrivateKey(password) {
-  return logStep("Load and decrypt private key", async () => {
-    const stored = JSON.parse(localStorage.getItem("identity"));
-    if (!stored || !stored.encrypted) throw new Error("No identity in localStorage");
-    const salt = base64ToBuf(stored.salt);
-    const iv = new Uint8Array(base64ToBuf(stored.iv));
-    const encrypted = base64ToBuf(stored.encrypted);
-    const aesKey = await deriveKey(password, salt);
-    const pkcs8 = await crypto.subtle.decrypt({ name:"AES-GCM", iv }, aesKey, encrypted);
-    return crypto.subtle.importKey("pkcs8", pkcs8, { name:"RSA-OAEP", hash:"SHA-256" }, false, ["decrypt"]);
-  });
-}
+                    accessToken = resp.access_token;
+                    log("Access token acquired");
 
-async function loadPublicKey() {
-  return logStep("Load RSA public key", async () => {
-    const stored = localStorage.getItem("publicKey");
-    if (!stored) throw new Error("No public key in localStorage");
-    return crypto.subtle.importKey("spki", base64ToBuf(stored), { name:"RSA-OAEP", hash:"SHA-256" }, false, ["encrypt"]);
-  });
-}
+                    await fetchUserEmail();
+                    await verifySharedRoot();
+                    await verifyWritable(ACCESS4_ROOT_ID);   // ✅ probe access
+                    await ensureAuthorization();
 
-// ------------------ Encrypt & Upload ------------------
-async function encryptAndUpload() {
-  if (!accessToken) return alert("Sign in first");
-  document.getElementById("output").textContent = "";
+                    document.getElementById("signinBtn").disabled = true;
+                    document.getElementById("logoutBtn").disabled = false;
 
-  const password = document.getElementById("password").value;
-  const text = document.getElementById("plaintext").value;
+                } catch (e) {
+                    log("❌ " + e.message);
+                }
+            }
+        });
 
-  if (!localStorage.getItem("identity")) await createIdentity(password);
+        document.getElementById("signinBtn").onclick = () =>
+            tokenClient.requestAccessToken({
+                prompt: "consent select_account"
+            });
 
-  const publicKey = await loadPublicKey();
-  const fileKey = await logStep("Generate AES file key", async () => crypto.subtle.generateKey({ name:"AES-GCM", length:256 }, true, ["encrypt","decrypt"]));
-  const iv = crypto.getRandomValues(new Uint8Array(12));
+        document.getElementById("logoutBtn").onclick = logout;
+    }
 
-  const ciphertext = await logStep("AES-GCM encrypt plaintext", async () => crypto.subtle.encrypt({ name:"AES-GCM", iv }, fileKey, encoder.encode(text)));
-  const rawFileKey = await crypto.subtle.exportKey("raw", fileKey);
-  const wrappedKey = await logStep("RSA wrap AES key", async () => crypto.subtle.encrypt({ name:"RSA-OAEP" }, publicKey, rawFileKey));
+    /* ================== USER INFO ================== */
 
-  const envelope = { iv: bufToBase64(iv), wrappedKey: bufToBase64(wrappedKey), ciphertext: bufToBase64(ciphertext) };
-  const form = new FormData();
-  form.append("metadata", new Blob([JSON.stringify({ name: "encrypted-envelope.json" })], { type: "application/json" }));
-  form.append("file", new Blob([JSON.stringify(envelope)], { type: "application/json" }));
+    async function fetchUserEmail() {
+        const res = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+            headers: { Authorization: `Bearer ${accessToken}` }
+        });
+        const data = await res.json();
+        userEmail = data.email;
+        document.getElementById("userEmail").textContent = userEmail;
+        log("Signed in as: " + userEmail);
+    }
 
-  await logStep("Upload to Google Drive", async () => {
-    const res = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart", { method:"POST", headers:{ Authorization:`Bearer ${accessToken}` }, body:form });
-    const json = await res.json();
-    if (!json.id) throw new Error("Upload failed");
-    log("Uploaded File ID: " + json.id);
-  });
-}
+    /* ================== DRIVE HELPERS ================== */
 
-// ------------------ Download & Decrypt ------------------
-async function downloadAndDecrypt() {
-  if (!accessToken) { alert("Sign in first"); return; }
-  document.getElementById("output").textContent = "";
+    function buildDriveUrl(path, params = {}) {
+        // Standardize query params including support for shared drives
+        params.supportsAllDrives = true;
+        params.includeItemsFromAllDrives = true;
 
-  const password = document.getElementById("password").value;
-  const fileId = document.getElementById("fileId").value;
-  if (!fileId) { alert("Enter File ID!"); return; }
+        const query = Object.keys(params)
+            .map(k => `${encodeURIComponent(k)}=${encodeURIComponent(params[k])}`)
+            .join("&");
 
-  try {
-    const envelope = await logStep("Fetch encrypted file from Google Drive", async () => {
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { headers:{ Authorization:`Bearer ${accessToken}` } });
-      if (!res.ok) throw new Error("Download failed: " + await res.text());
-      return await res.json();
-    });
-    if (!envelope.iv || !envelope.wrappedKey || !envelope.ciphertext) throw new Error("Envelope missing fields");
+        return `https://www.googleapis.com/drive/v3/${path}?${query}`;
+    }
 
-    const privateKey = await loadPrivateKey(password);
-    const iv = new Uint8Array(base64ToBuf(envelope.iv));
-    const ciphertext = base64ToBuf(envelope.ciphertext);
-    const wrappedKey = base64ToBuf(envelope.wrappedKey);
+    async function driveFetch(url, options = {}) {
+        options.headers = options.headers || {};
+        options.headers.Authorization = `Bearer ${accessToken}`;
 
-    const rawFileKey = await logStep("RSA unwrap AES key", async () => crypto.subtle.decrypt({ name:"RSA-OAEP" }, privateKey, wrappedKey));
-    const fileKey = await logStep("Import AES key for decryption", async () => crypto.subtle.importKey("raw", rawFileKey, { name:"AES-GCM", length:256 }, false, ["decrypt"]));
-    const plaintextBuf = await logStep("AES-GCM decrypt ciphertext", async () => crypto.subtle.decrypt({ name:"AES-GCM", iv }, fileKey, ciphertext));
+        const res = await fetch(url, options);
+        if (!res.ok) {
+            const text = await res.text();
+            throw new Error(`Drive error ${res.status}: ${text}`);
+        }
+        return res.json();
+    }
 
-    const plaintext = decoder.decode(plaintextBuf);
-    log("Decrypted text:\n" + plaintext);
+    // Quick probe to see if user has write access
+    async function verifyWritable(folderId) {
+        log("Verifying Drive write access (probe)");
 
-  } catch (e) {
-    log("Decryption error: " + e);
-  }
-}
+        try {
+            const url = buildDriveUrl("files", {
+                q: `'${folderId}' in parents`,
+                pageSize: 1
+            });
+
+            const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+            if (!res.ok) throw new Error("Unable to list folder contents");
+
+            log("Drive access verified (read OK)");
+        } catch (e) {
+            throw new Error("You do not have sufficient access to the Access4 shared folder.");
+        }
+    }
+
+    /* ================== STEP 1: VERIFY ROOT ================== */
+
+    async function verifySharedRoot() {
+        log("Verifying shared Access4 root folder");
+
+        try {
+            const url = buildDriveUrl(`files/${ACCESS4_ROOT_ID}`, { fields: "id,name" });
+            const meta = await driveFetch(url);
+
+            log(`Using shared root folder: "${meta.name}" (${meta.id})`);
+            return meta.id;
+
+        } catch (e) {
+            if (e.message.includes("404")) {
+                throw new Error(
+                    "Access4 shared folder not accessible. " +
+                    "You must be granted access to the shared folder before using this app."
+                );
+            }
+            throw e;
+        }
+    }
+
+    /* ================== STEP 2: AUTHORIZATION ================== */
+
+    async function ensureAuthorization() {
+        log("Checking authorization state");
+
+        const query = `'${ACCESS4_ROOT_ID}' in parents and name='${AUTH_FILE_NAME}' and trashed=false`;
+
+        const url = buildDriveUrl("files", {
+            q: query,
+            fields: "files(id,name)"
+        });
+
+        const list = await driveFetch(url);
+
+        if (list.files.length === 0) {
+            log("authorized.json not found");
+            await createGenesisAuthorization();
+            return;
+        }
+
+        const authFileId = list.files[0].id;
+        log("authorized.json found");
+
+        const authData = await driveFetch(buildDriveUrl(`files/${authFileId}`, { alt: "media" }));
+
+        const isAuthorized =
+            authData.admins.includes(userEmail) ||
+            authData.members.includes(userEmail);
+
+        if (!isAuthorized) {
+            log("❌ Access denied: user not authorized");
+            throw new Error("Unauthorized user");
+        }
+
+        log("✅ Authorized user verified");
+    }
+
+    /* ================== GENESIS ================== */
+
+    async function createGenesisAuthorization() {
+        log("Creating genesis authorization");
+
+        const data = {
+            admins: [userEmail],
+            members: [userEmail],
+            created: new Date().toISOString(),
+            version: 1
+        };
+
+        // authorized.json creation
+        const file = await driveFetch(buildDriveUrl("files"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                name: AUTH_FILE_NAME,
+                mimeType: "application/json",
+                parents: [ACCESS4_ROOT_ID]
+            })
+        });
+
+        // Patch content
+        await driveFetch(buildDriveUrl(`files/${file.id}`, { uploadType: "media" }), {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(data)
+        });
+
+        log(`✅ Genesis admin created: ${userEmail}`);
+    }
+
+    /* ================== LOGOUT ================== */
+
+    function logout() {
+        accessToken = null;
+        userEmail = null;
+        document.getElementById("userEmail").textContent = "Not signed in";
+        document.getElementById("signinBtn").disabled = false;
+        document.getElementById("logoutBtn").disabled = true;
+        log("Logged out");
+    }
+
+    /* ================== INIT ================== */
+
+    window.onload = initGIS;
+
 </script>
 </body>
 </html>
