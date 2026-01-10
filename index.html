@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8" />
-    <title>Access4 – Ver 6 Step 3.1</title>
+    <title>Access4 – Ver 6 Step 4</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
     <style>
@@ -15,7 +15,7 @@
 </head>
 
 <body>
-<h2>Access4 – Ver 6 (Step 3.1: Domain specific identity storage)</h2>
+<h2>Access4 – Ver 6 (Step 4: Public key to drive)</h2>
 
 <div>
     Signed in as: <b><span id="userEmail">Not signed in</span></b><br>
@@ -66,6 +66,7 @@
                     await verifyWritable(ACCESS4_ROOT_ID);   // ✅ probe access
                     await ensureAuthorization();
                     await ensureIdentity();
+                    await ensureAccountPublicKey(); // Step 4
 
                     document.getElementById("signinBtn").disabled = true;
                     document.getElementById("logoutBtn").disabled = false;
@@ -401,6 +402,90 @@
     function base64ToArrayBuffer(b64) {
         return Uint8Array.from(atob(b64), c => c.charCodeAt(0));
     }
+
+    /* ================== STEP 4: ACCOUNT PUBLIC KEY ================== */
+
+    const PUBKEY_FOLDER_NAME = "pub-keys";
+
+    /* Entry point after identity verified */
+    async function ensureAccountPublicKey() {
+        log("Checking account public key in Drive");
+
+        // 1️⃣ Find or create pub-keys folder under root
+        const folderId = await findOrCreatePubKeysFolder();
+
+        // 2️⃣ Check if pubkey file exists
+        const filename = `${userEmail}.json`;
+        const query = `'${folderId}' in parents and name='${filename}' and trashed=false`;
+        const res = await driveFetch(buildDriveUrl("files", { q: query, fields: "files(id,name)" }));
+
+        if (res.files.length > 0) {
+            log("Account public key already exists in Drive");
+            return res.files[0].id;
+        }
+
+        log("Account public key not found in Drive, creating...");
+
+        const storedIdentity = loadStoredIdentity();
+        if (!storedIdentity) throw new Error("Local identity missing");
+
+        // 3️⃣ Prepare public key JSON
+        const pubData = {
+            email: userEmail,
+            publicKey: storedIdentity.publicKey,
+            created: storedIdentity.created || new Date().toISOString(),
+            version: storedIdentity.version || 1
+        };
+
+        // 4️⃣ Multipart upload to create the file in Drive
+        const boundary = '-------314159265358979323846';
+        const body =
+            `--${boundary}\r\n` +
+            'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
+            JSON.stringify({ name: filename, parents: [folderId] }) + '\r\n' +
+            `--${boundary}\r\n` +
+            'Content-Type: application/json\r\n\r\n' +
+            JSON.stringify(pubData) + '\r\n' +
+            `--${boundary}--`;
+
+        await fetch(`https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': `multipart/related; boundary=${boundary}`
+            },
+            body
+        });
+
+        log(`✅ Account public key uploaded for ${userEmail}`);
+    }
+
+    /* Helper: find or create pub-keys folder */
+    async function findOrCreatePubKeysFolder() {
+        const query = `'${ACCESS4_ROOT_ID}' in parents and name='${PUBKEY_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+        const res = await driveFetch(buildDriveUrl("files", { q: query, fields: "files(id,name)" }));
+
+        if (res.files.length > 0) {
+            log(`Pub-keys folder found: ${res.files[0].id}`);
+            return res.files[0].id;
+        }
+
+        log("Pub-keys folder not found, creating...");
+        const folder = await driveFetch(buildDriveUrl("files"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                name: PUBKEY_FOLDER_NAME,
+                mimeType: "application/vnd.google-apps.folder",
+                parents: [ACCESS4_ROOT_ID]
+            })
+        });
+
+        log(`Pub-keys folder created: ${folder.id}`);
+        return folder.id;
+    }
+
+
 
 
     /* ================== LOGOUT ================== */
