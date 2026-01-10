@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8" />
-    <title>Access4 – Ver 6 Step 2</title>
+    <title>Access4 – Ver 6 Step 3</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
     <style>
@@ -15,7 +15,7 @@
 </head>
 
 <body>
-<h2>Access4 – Ver 6 (Step 2: Genesis Authorization)</h2>
+<h2>Access4 – Ver 6 (Step 3: Device identity)</h2>
 
 <div>
     Signed in as: <b><span id="userEmail">Not signed in</span></b><br>
@@ -65,6 +65,7 @@
                     await verifySharedRoot();
                     await verifyWritable(ACCESS4_ROOT_ID);   // ✅ probe access
                     await ensureAuthorization();
+                    await ensureIdentity();
 
                     document.getElementById("signinBtn").disabled = true;
                     document.getElementById("logoutBtn").disabled = false;
@@ -232,6 +233,171 @@
 
         log(`✅ Genesis admin created: ${userEmail}`);
     }
+
+    /* ================== STEP 3: DEVICE IDENTITY ================== */
+
+    const IDENTITY_VERSION = 1;
+    const IDENTITY_STORAGE_KEY = "access4.identity";
+
+    /* Entry point */
+    async function ensureIdentity() {
+        log("Checking device identity");
+
+        const stored = loadStoredIdentity();
+
+        if (stored) {
+            log("Existing identity found");
+            await unlockExistingIdentity(stored);
+        } else {
+            log("No identity found on this device");
+            await createNewIdentity();
+        }
+
+        log("✅ Device identity verified");
+    }
+
+    /* ---------- Storage ---------- */
+
+    function loadStoredIdentity() {
+        const raw = localStorage.getItem(IDENTITY_STORAGE_KEY);
+        if (!raw) return null;
+        return JSON.parse(raw);
+    }
+
+    function saveIdentity(data) {
+        localStorage.setItem(IDENTITY_STORAGE_KEY, JSON.stringify(data));
+    }
+
+    /* ---------- Password UI ---------- */
+
+    async function promptForPassword(message) {
+        const pwd = prompt(message);
+        if (!pwd) throw new Error("Password required");
+        return pwd;
+    }
+
+    /* ---------- Existing Identity ---------- */
+
+    async function unlockExistingIdentity(identity) {
+        const password = await promptForPassword("Enter your Access4 password");
+
+        const aesKey = await deriveKeyFromPassword(
+            password,
+            identity.kdf.salt,
+            identity.kdf.iterations
+        );
+
+        try {
+            await decryptPrivateKey(identity.encryptedPrivateKey, aesKey);
+            log("Identity unlocked successfully");
+        } catch {
+            throw new Error("Incorrect password for this device");
+        }
+    }
+
+    /* ---------- New Identity ---------- */
+
+    async function createNewIdentity() {
+        const password = await promptForPassword("Create a password for this device");
+
+        log("Generating identity key pair");
+
+        const keyPair = await crypto.subtle.generateKey(
+            {
+                name: "RSA-OAEP",
+                modulusLength: 2048,
+                publicExponent: new Uint8Array([1, 0, 1]),
+                hash: "SHA-256"
+            },
+            true,
+            ["encrypt", "decrypt"]
+        );
+
+        const privateKeyRaw = await crypto.subtle.exportKey("pkcs8", keyPair.privateKey);
+        const publicKeyRaw  = await crypto.subtle.exportKey("spki", keyPair.publicKey);
+
+        const saltBytes = crypto.getRandomValues(new Uint8Array(16));
+        const saltB64 = arrayBufferToBase64(saltBytes);
+        const iterations = 100_000;
+
+        const aesKey = await deriveKeyFromPassword(password, saltB64, iterations);
+        const encryptedPrivateKey = await encryptPrivateKey(privateKeyRaw, aesKey);
+
+        saveIdentity({
+            version: IDENTITY_VERSION,
+            encryptedPrivateKey,
+            publicKey: arrayBufferToBase64(publicKeyRaw),
+            kdf: {
+                salt: saltB64,
+                iterations
+            }
+        });
+
+        log("New device identity created");
+    }
+
+    /* ---------- Crypto Helpers ---------- */
+
+    async function deriveKeyFromPassword(password, saltB64, iterations) {
+        const salt = base64ToArrayBuffer(saltB64);
+
+        const keyMaterial = await crypto.subtle.importKey(
+            "raw",
+            new TextEncoder().encode(password),
+            "PBKDF2",
+            false,
+            ["deriveKey"]
+        );
+
+        return crypto.subtle.deriveKey(
+            {
+                name: "PBKDF2",
+                salt,
+                iterations,
+                hash: "SHA-256"
+            },
+            keyMaterial,
+            { name: "AES-GCM", length: 256 },
+            false,
+            ["encrypt", "decrypt"]
+        );
+    }
+
+    async function encryptPrivateKey(data, aesKey) {
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const cipher = await crypto.subtle.encrypt(
+            { name: "AES-GCM", iv },
+            aesKey,
+            data
+        );
+
+        return {
+            iv: arrayBufferToBase64(iv),
+            data: arrayBufferToBase64(cipher)
+        };
+    }
+
+    async function decryptPrivateKey(encrypted, aesKey) {
+        const iv = base64ToArrayBuffer(encrypted.iv);
+        const data = base64ToArrayBuffer(encrypted.data);
+
+        return crypto.subtle.decrypt(
+            { name: "AES-GCM", iv },
+            aesKey,
+            data
+        );
+    }
+
+    /* ---------- Utils ---------- */
+
+    function arrayBufferToBase64(buf) {
+        return btoa(String.fromCharCode(...new Uint8Array(buf)));
+    }
+
+    function base64ToArrayBuffer(b64) {
+        return Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+    }
+
 
     /* ================== LOGOUT ================== */
 
