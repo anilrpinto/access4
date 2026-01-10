@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8" />
-    <title>Access4 – Ver 6 Step 3</title>
+    <title>Access4 – Ver 6 Step 3.1</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
     <style>
@@ -15,7 +15,7 @@
 </head>
 
 <body>
-<h2>Access4 – Ver 6 (Step 3: Device identity)</h2>
+<h2>Access4 – Ver 6 (Step 3.1: Domain specific identity storage)</h2>
 
 <div>
     Signed in as: <b><span id="userEmail">Not signed in</span></b><br>
@@ -237,7 +237,11 @@
     /* ================== STEP 3: DEVICE IDENTITY ================== */
 
     const IDENTITY_VERSION = 1;
-    const IDENTITY_STORAGE_KEY = "access4.identity";
+
+    function identityStorageKey() {
+        if (!userEmail) throw new Error("Identity requested before user email known");
+        return `access4.identity::${userEmail}`;
+    }
 
     /* Entry point */
     async function ensureIdentity() {
@@ -259,13 +263,13 @@
     /* ---------- Storage ---------- */
 
     function loadStoredIdentity() {
-        const raw = localStorage.getItem(IDENTITY_STORAGE_KEY);
+        const raw = localStorage.getItem(identityStorageKey());
         if (!raw) return null;
         return JSON.parse(raw);
     }
 
     function saveIdentity(data) {
-        localStorage.setItem(IDENTITY_STORAGE_KEY, JSON.stringify(data));
+        localStorage.setItem(identityStorageKey(), JSON.stringify(data));
     }
 
     /* ---------- Password UI ---------- */
