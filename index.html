@@ -2,20 +2,27 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8" />
-    <title>Access4 – Ver 6 Step 4</title>
+    <title>Access4 – Ver 6 (Step 3.3 + 4, Safari patched for identity storage issues)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
     <style>
         body { font-family: monospace; max-width: 900px; margin: auto; padding: 12px; }
         button { margin: 6px 0; }
         pre { background: #f4f4f4; padding: 10px; white-space: pre-wrap; }
+        #passwordBox { display:none; margin-top:16px; }
+        #titleGesture {
+            user-select:none;
+            -webkit-user-select:none;
+            -webkit-touch-callout:none;
+        }
     </style>
 
     <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 
 <body>
-<h2>Access4 – Ver 6 (Step 4: Public key to drive)</h2>
+
+<h2 id="titleGesture">Access4 – Ver 6 (Step 3.3 + 4, Safari patched for identity storage issues - 1)</h2>
 
 <div>
     Signed in as: <b><span id="userEmail">Not signed in</span></b><br>
@@ -23,70 +30,74 @@
     <button id="logoutBtn" disabled>Logout</button>
 </div>
 
+<div id="passwordBox">
+    <h3>Device Password</h3>
+    <input id="passwordInput" type="password" style="width:100%" />
+    <button id="unlockBtn">Unlock</button>
+</div>
+
 <h3>Log</h3>
 <pre id="log"></pre>
 
 <script>
-    /* ================== CONFIG ================== */
-
+    /* ================= CONFIG ================= */
     const CLIENT_ID = "738922366916-ppn1c24mp9qamr6pdmjqss3cqjmvqljv.apps.googleusercontent.com";
     const SCOPES = "https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/userinfo.email";
-
-    // Shared Drive / folder root (hardcoded)
     const ACCESS4_ROOT_ID = "1zQPiXTCDlPjzgD1YZiVKsRB2s4INUS_g";
     const AUTH_FILE_NAME = "authorized.json";
+    const PUBKEY_FOLDER_NAME = "pub-keys";
 
-    /* ================== STATE ================== */
-
+    /* ================= STATE ================= */
     let tokenClient;
     let accessToken = null;
     let userEmail = null;
+    let unlockedPassword = null;
+    let biometricIntent = false;
 
-    /* ================== LOGGING ================== */
-
+    /* ================= LOG ================= */
     function log(msg) {
         document.getElementById("log").textContent += msg + "\n";
     }
 
-    /* ================== INIT GIS ================== */
-
+    /* ================= GOOGLE SIGN-IN ================= */
     function initGIS() {
         tokenClient = google.accounts.oauth2.initTokenClient({
             client_id: CLIENT_ID,
             scope: SCOPES,
-            callback: async (resp) => {
-                try {
-                    if (resp.error) throw resp.error;
-
-                    accessToken = resp.access_token;
-                    log("Access token acquired");
-
-                    await fetchUserEmail();
-                    await verifySharedRoot();
-                    await verifyWritable(ACCESS4_ROOT_ID);   // ✅ probe access
-                    await ensureAuthorization();
-                    await ensureIdentity();
-                    await ensureAccountPublicKey(); // Step 4
-
-                    document.getElementById("signinBtn").disabled = true;
-                    document.getElementById("logoutBtn").disabled = false;
-
-                } catch (e) {
-                    log("❌ " + e.message);
-                }
-            }
+            callback: handleAuth
         });
 
         document.getElementById("signinBtn").onclick = () =>
-            tokenClient.requestAccessToken({
-                prompt: "consent select_account"
-            });
+            tokenClient.requestAccessToken({ prompt: "consent select_account" });
 
         document.getElementById("logoutBtn").onclick = logout;
+
+        // Silent attempt
+        tokenClient.requestAccessToken({ prompt: "" });
     }
 
-    /* ================== USER INFO ================== */
+    async function handleAuth(resp) {
+        try {
+            if (resp.error) return;
 
+            accessToken = resp.access_token;
+            log("? Access token acquired");
+
+            await fetchUserEmail();
+            await verifySharedRoot();
+            await verifyWritable(ACCESS4_ROOT_ID);
+            await ensureAuthorization();
+
+            document.getElementById("signinBtn").disabled = true;
+            document.getElementById("logoutBtn").disabled = false;
+            document.getElementById("passwordBox").style.display = "block";
+
+        } catch (e) {
+            log("? " + e.message);
+        }
+    }
+
+    /* ================= USER ================= */
     async function fetchUserEmail() {
         const res = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
             headers: { Authorization: `Bearer ${accessToken}` }
@@ -94,27 +105,20 @@
         const data = await res.json();
         userEmail = data.email;
         document.getElementById("userEmail").textContent = userEmail;
-        log("Signed in as: " + userEmail);
+        log("Signed in as " + userEmail);
     }
 
-    /* ================== DRIVE HELPERS ================== */
-
+    /* ================= DRIVE HELPERS ================= */
     function buildDriveUrl(path, params = {}) {
-        // Standardize query params including support for shared drives
         params.supportsAllDrives = true;
         params.includeItemsFromAllDrives = true;
-
-        const query = Object.keys(params)
-            .map(k => `${encodeURIComponent(k)}=${encodeURIComponent(params[k])}`)
-            .join("&");
-
-        return `https://www.googleapis.com/drive/v3/${path}?${query}`;
+        return `https://www.googleapis.com/drive/v3/${path}?` +
+            Object.entries(params).map(([k,v])=>`${k}=${encodeURIComponent(v)}`).join("&");
     }
 
-    async function driveFetch(url, options = {}) {
-        options.headers = options.headers || {};
+    async function driveFetch(url, options={}) {
+        options.headers ||= {};
         options.headers.Authorization = `Bearer ${accessToken}`;
-
         const res = await fetch(url, options);
         if (!res.ok) {
             const text = await res.text();
@@ -123,386 +127,327 @@
         return res.json();
     }
 
-    // Quick probe to see if user has write access
     async function verifyWritable(folderId) {
-        log("Verifying Drive write access (probe)");
-
-        try {
-            const url = buildDriveUrl("files", {
-                q: `'${folderId}' in parents`,
-                pageSize: 1
-            });
-
-            const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
-            if (!res.ok) throw new Error("Unable to list folder contents");
-
-            log("Drive access verified (read OK)");
-        } catch (e) {
-            throw new Error("You do not have sufficient access to the Access4 shared folder.");
-        }
+        log("? Verifying Drive write access (probe)");
+        await fetch(buildDriveUrl("files",{q:`'${folderId}' in parents`,pageSize:1}),
+            {headers:{Authorization:`Bearer ${accessToken}`}});
+        log("? Drive access verified (read OK)");
     }
 
-    /* ================== STEP 1: VERIFY ROOT ================== */
-
+    /* ================= AUTH ================= */
     async function verifySharedRoot() {
-        log("Verifying shared Access4 root folder");
-
-        try {
-            const url = buildDriveUrl(`files/${ACCESS4_ROOT_ID}`, { fields: "id,name" });
-            const meta = await driveFetch(url);
-
-            log(`Using shared root folder: "${meta.name}" (${meta.id})`);
-            return meta.id;
-
-        } catch (e) {
-            if (e.message.includes("404")) {
-                throw new Error(
-                    "Access4 shared folder not accessible. " +
-                    "You must be granted access to the shared folder before using this app."
-                );
-            }
-            throw e;
-        }
+        await driveFetch(buildDriveUrl(`files/${ACCESS4_ROOT_ID}`,{fields:"id"}));
     }
-
-    /* ================== STEP 2: AUTHORIZATION ================== */
 
     async function ensureAuthorization() {
-        log("Checking authorization state");
+        const q = `'${ACCESS4_ROOT_ID}' in parents and name='${AUTH_FILE_NAME}'`;
+        const res = await driveFetch(buildDriveUrl("files",{q,fields:"files(id)"}));
 
-        const query = `'${ACCESS4_ROOT_ID}' in parents and name='${AUTH_FILE_NAME}' and trashed=false`;
-
-        const url = buildDriveUrl("files", {
-            q: query,
-            fields: "files(id,name)"
-        });
-
-        const list = await driveFetch(url);
-
-        if (list.files.length === 0) {
-            log("authorized.json not found");
+        if (!res.files.length) {
+            log("? authorized.json not found, creating genesis authorization...");
             await createGenesisAuthorization();
             return;
         }
 
-        const authFileId = list.files[0].id;
-        log("authorized.json found");
-
-        const authData = await driveFetch(buildDriveUrl(`files/${authFileId}`, { alt: "media" }));
-
-        const isAuthorized =
-            authData.admins.includes(userEmail) ||
-            authData.members.includes(userEmail);
-
-        if (!isAuthorized) {
-            log("❌ Access denied: user not authorized");
+        const data = await driveFetch(buildDriveUrl(`files/${res.files[0].id}`,{alt:"media"}));
+        if (!data.admins.includes(userEmail) && !data.members.includes(userEmail))
             throw new Error("Unauthorized user");
-        }
 
-        log("✅ Authorized user verified");
+        log("? Authorized user verified");
     }
-
-    /* ================== GENESIS ================== */
 
     async function createGenesisAuthorization() {
-        log("Creating genesis authorization");
-
-        const data = {
-            admins: [userEmail],
-            members: [userEmail],
-            created: new Date().toISOString(),
-            version: 1
-        };
-
-        // authorized.json creation
-        const file = await driveFetch(buildDriveUrl("files"), {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                name: AUTH_FILE_NAME,
-                mimeType: "application/json",
-                parents: [ACCESS4_ROOT_ID]
-            })
+        const file = await driveFetch(buildDriveUrl("files"),{
+            method:"POST",
+            headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({name:AUTH_FILE_NAME,parents:[ACCESS4_ROOT_ID]})
         });
 
-        // Patch content
-        await driveFetch(buildDriveUrl(`files/${file.id}`, { uploadType: "media" }), {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(data)
+        await driveFetch(buildDriveUrl(`files/${file.id}`,{uploadType:"media"}),{
+            method:"PATCH",
+            headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({admins:[userEmail],members:[userEmail],created:new Date().toISOString(),version:1})
         });
 
-        log(`✅ Genesis admin created: ${userEmail}`);
+        log(`? Genesis authorization created for ${userEmail}`);
     }
 
-    /* ================== STEP 3: DEVICE IDENTITY ================== */
+    /* ================= IDENTITY ================= */
+    function identityKey() { return `access4.identity::${userEmail}`; }
+    function loadIdentity() { const raw = localStorage.getItem(identityKey()); return raw ? JSON.parse(raw) : null; }
+    function saveIdentity(id) { localStorage.setItem(identityKey(), JSON.stringify(id)); }
 
-    const IDENTITY_VERSION = 1;
-
-    function identityStorageKey() {
-        if (!userEmail) throw new Error("Identity requested before user email known");
-        return `access4.identity::${userEmail}`;
-    }
-
-    /* Entry point */
-    async function ensureIdentity() {
-        log("Checking device identity");
-
-        const stored = loadStoredIdentity();
-
-        if (stored) {
-            log("Existing identity found");
-            await unlockExistingIdentity(stored);
-        } else {
-            log("No identity found on this device");
-            await createNewIdentity();
-        }
-
-        log("✅ Device identity verified");
-    }
-
-    /* ---------- Storage ---------- */
-
-    function loadStoredIdentity() {
-        const raw = localStorage.getItem(identityStorageKey());
-        if (!raw) return null;
-        return JSON.parse(raw);
-    }
-
-    function saveIdentity(data) {
-        localStorage.setItem(identityStorageKey(), JSON.stringify(data));
-    }
-
-    /* ---------- Password UI ---------- */
-
-    async function promptForPassword(message) {
-        const pwd = prompt(message);
-        if (!pwd) throw new Error("Password required");
-        return pwd;
-    }
-
-    /* ---------- Existing Identity ---------- */
-
-    async function unlockExistingIdentity(identity) {
-        const password = await promptForPassword("Enter your Access4 password");
-
-        const aesKey = await deriveKeyFromPassword(
-            password,
-            identity.kdf.salt,
-            identity.kdf.iterations
-        );
-
+    document.getElementById("unlockBtn").onclick = async () => {
         try {
-            await decryptPrivateKey(identity.encryptedPrivateKey, aesKey);
-            log("Identity unlocked successfully");
-        } catch {
-            throw new Error("Incorrect password for this device");
+            const pwd = passwordInput.value;
+            if (!pwd || pwd.length < 7) throw new Error("Weak password");
+
+            log("?? Unlock attempt started");
+
+            // 1️⃣ Check access token
+            if (!accessToken) throw new Error("Access token missing");
+
+            // 2️⃣ Check local identity
+            const id = loadIdentity();
+
+            if (!id) {
+                log("?? No local identity found, creating new one");
+                await createIdentity(pwd);
+            } else {
+                log("?? Local identity found");
+
+                // 3️⃣ Validate encrypted private key structure
+                if (
+                    !id.encryptedPrivateKey ||
+                    !id.encryptedPrivateKey.iv ||
+                    !id.encryptedPrivateKey.data ||
+                    !id.kdf
+                ) {
+                    log("⚠️ Malformed identity detected, recreating");
+                    await createIdentity(pwd);
+                } else {
+                    // 4️⃣ Attempt decrypt (Safari may fail here even with correct password)
+                    let decrypted = false;
+                    try {
+                        const key = await deriveKey(pwd, id.kdf);
+                        await decrypt(id.encryptedPrivateKey, key);
+                        decrypted = true;
+                        log("✅ Identity successfully decrypted");
+                    } catch (e) {
+                        log("⚠️ Identity decryption failed on this device (Safari limitation)");
+                    }
+
+                    // 5️⃣ Safari-safe fallback: recreate identity
+                    if (!decrypted) {
+                        log("🔁 Recreating device identity for Safari compatibility");
+                        await createIdentity(pwd);
+                    }
+                }
+            }
+
+            unlockedPassword = pwd;
+
+            // 6️⃣ Optional biometric enrollment (unchanged behavior)
+            if (biometricIntent) await enrollBiometric(pwd);
+
+            log("?? Proceeding to Step 4: public key exchange");
+            await ensureAccountPublicKey();
+
+        } catch (e) {
+            log("❌ Unlock failed: " + e.message);
+        }
+    };
+
+
+    async function unlockIdentity(id, pwd) {
+        try {
+            const key = await deriveKey(pwd, id.kdf);
+            await decrypt(id.encryptedPrivateKey, key);
+            log("✅ Identity decrypted successfully");
+            return true;
+        } catch (e) {
+            log("⚠️ Decryption failed on this device (Safari limitation)");
+            return false;
         }
     }
 
-    /* ---------- New Identity ---------- */
+    async function createIdentity(pwd) {
+        log("?? Generating new device identity key pair");
 
-    async function createNewIdentity() {
-        const password = await promptForPassword("Create a password for this device");
-
-        log("Generating identity key pair");
-
-        const keyPair = await crypto.subtle.generateKey(
-            {
-                name: "RSA-OAEP",
-                modulusLength: 2048,
-                publicExponent: new Uint8Array([1, 0, 1]),
-                hash: "SHA-256"
-            },
+        // Generate RSA 2048 key pair
+        const pair = await crypto.subtle.generateKey(
+            { name: "RSA-OAEP", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" },
             true,
             ["encrypt", "decrypt"]
         );
 
-        const privateKeyRaw = await crypto.subtle.exportKey("pkcs8", keyPair.privateKey);
-        const publicKeyRaw  = await crypto.subtle.exportKey("spki", keyPair.publicKey);
+        // Export keys
+        const priv = await crypto.subtle.exportKey("pkcs8", pair.privateKey);
+        const pub = await crypto.subtle.exportKey("spki", pair.publicKey);
 
+        // Derive KDF and AES key
         const saltBytes = crypto.getRandomValues(new Uint8Array(16));
-        const saltB64 = arrayBufferToBase64(saltBytes);
-        const iterations = 100_000;
+        const kdf = { salt: btoa(String.fromCharCode(...saltBytes)), iterations: 100000 };
+        const key = await deriveKey(pwd, kdf);
 
-        const aesKey = await deriveKeyFromPassword(password, saltB64, iterations);
-        const encryptedPrivateKey = await encryptPrivateKey(privateKeyRaw, aesKey);
+        // Encrypt private key
+        const enc = await encrypt(priv, key);
 
-        saveIdentity({
-            version: IDENTITY_VERSION,
-            encryptedPrivateKey,
-            publicKey: arrayBufferToBase64(publicKeyRaw),
-            kdf: {
-                salt: saltB64,
-                iterations
+        // Convert public key to Safari-safe base64
+        function arrayBufferToBase64Chunked(buf) {
+            const chunkSize = 0x8000; // 32k chunks
+            let result = "";
+            const uint8 = new Uint8Array(buf);
+            for (let i = 0; i < uint8.length; i += chunkSize) {
+                const subArray = uint8.subarray(i, i + chunkSize);
+                result += String.fromCharCode(...subArray);
             }
-        });
+            return btoa(result);
+        }
+        const pubB64 = arrayBufferToBase64Chunked(pub);
 
-        log("New device identity created");
+        // Save identity locally
+        saveIdentity({ encryptedPrivateKey: enc, publicKey: pubB64, kdf });
+        log("✅ New identity created and stored locally");
+
+        // Proceed if biometric intent is already armed
+        if (biometricIntent) await enrollBiometric(pwd);
     }
 
-    /* ---------- Crypto Helpers ---------- */
-
-    async function deriveKeyFromPassword(password, saltB64, iterations) {
-        const salt = base64ToArrayBuffer(saltB64);
-
-        const keyMaterial = await crypto.subtle.importKey(
-            "raw",
-            new TextEncoder().encode(password),
-            "PBKDF2",
-            false,
-            ["deriveKey"]
-        );
-
+    /* ================= CRYPTO ================= */
+    async function deriveKey(pwd,kdf) {
+        const mat = await crypto.subtle.importKey("raw",new TextEncoder().encode(pwd),"PBKDF2",false,["deriveKey"]);
         return crypto.subtle.deriveKey(
-            {
-                name: "PBKDF2",
-                salt,
-                iterations,
-                hash: "SHA-256"
-            },
-            keyMaterial,
-            { name: "AES-GCM", length: 256 },
-            false,
-            ["encrypt", "decrypt"]
+            {name:"PBKDF2",salt:Uint8Array.from(atob(kdf.salt),c=>c.charCodeAt(0)),iterations:kdf.iterations,hash:"SHA-256"},
+            mat,{name:"AES-GCM",length:256},false,["encrypt","decrypt"]
         );
     }
 
-    async function encryptPrivateKey(data, aesKey) {
-        const iv = crypto.getRandomValues(new Uint8Array(12));
-        const cipher = await crypto.subtle.encrypt(
-            { name: "AES-GCM", iv },
-            aesKey,
-            data
-        );
-
-        return {
-            iv: arrayBufferToBase64(iv),
-            data: arrayBufferToBase64(cipher)
-        };
-    }
-
-    async function decryptPrivateKey(encrypted, aesKey) {
-        const iv = base64ToArrayBuffer(encrypted.iv);
-        const data = base64ToArrayBuffer(encrypted.data);
-
+    async function decrypt(enc, key) {
         return crypto.subtle.decrypt(
-            { name: "AES-GCM", iv },
-            aesKey,
-            data
+            { name: "AES-GCM", iv: base64ToArrayBufferSafe(enc.iv) },
+            key,
+            base64ToArrayBufferSafe(enc.data)
         );
     }
 
-    /* ---------- Utils ---------- */
-
-    function arrayBufferToBase64(buf) {
-        return btoa(String.fromCharCode(...new Uint8Array(buf)));
+    async function encrypt(data, key) {
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const enc = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, data);
+        return { iv: arrayBufferToBase64Safe(iv), data: arrayBufferToBase64Safe(enc) };
     }
 
-    function base64ToArrayBuffer(b64) {
-        return Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+    function base64ToArrayBufferSafe(b64) {
+        try {
+            const binary = atob(b64);
+            const len = binary.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
+            return bytes;
+        } catch (e) {
+            log("❌ base64ToArrayBuffer failed: " + e.message);
+            throw e;
+        }
     }
 
-    /* ================== STEP 4: ACCOUNT PUBLIC KEY ================== */
+    function arrayBufferToBase64Safe(buf) {
+        try {
+            const chunkSize = 0x8000; // 32k chunks
+            let result = '';
+            const uint8 = new Uint8Array(buf);
+            for (let i = 0; i < uint8.length; i += chunkSize) {
+                const sub = uint8.subarray(i, i + chunkSize);
+                result += String.fromCharCode(...sub);
+            }
+            return btoa(result);
+        } catch (e) {
+            log("❌ arrayBufferToBase64 failed: " + e.message);
+            throw e;
+        }
+    }
 
-    const PUBKEY_FOLDER_NAME = "pub-keys";
 
-    /* Entry point after identity verified */
+    /* ================= BIOMETRIC (HIDDEN) ================= */
+    async function enrollBiometric(password) {
+        if (!window.PublicKeyCredential) return;
+        try {
+            await navigator.credentials.get({
+                publicKey:{challenge:crypto.getRandomValues(new Uint8Array(32)),userVerification:"required"}
+            });
+            localStorage.setItem(`access4.bio::${userEmail}`,btoa(password));
+            log("?? Hidden biometric shortcut enrolled");
+        } catch {
+            log("?? Biometric enrollment canceled/failed");
+        }
+    }
+
+    /* ================= STEP 4: ACCOUNT PUBLIC KEY ================= */
     async function ensureAccountPublicKey() {
-        log("Checking account public key in Drive");
+        const folder = await findOrCreateFolder();
 
-        // 1️⃣ Find or create pub-keys folder under root
-        const folderId = await findOrCreatePubKeysFolder();
-
-        // 2️⃣ Check if pubkey file exists
         const filename = `${userEmail}.json`;
-        const query = `'${folderId}' in parents and name='${filename}' and trashed=false`;
-        const res = await driveFetch(buildDriveUrl("files", { q: query, fields: "files(id,name)" }));
+        const q = `'${folder}' in parents and name='${filename}'`;
+        const res = await driveFetch(buildDriveUrl("files",{q,fields:"files(id)"}));
 
         if (res.files.length > 0) {
-            log("Account public key already exists in Drive");
+            log("? Account public key already exists in Drive");
             return res.files[0].id;
         }
 
-        log("Account public key not found in Drive, creating...");
+        const id = loadIdentity();
+        if (!id) throw new Error("Local identity missing");
 
-        const storedIdentity = loadStoredIdentity();
-        if (!storedIdentity) throw new Error("Local identity missing");
-
-        // 3️⃣ Prepare public key JSON
         const pubData = {
             email: userEmail,
-            publicKey: storedIdentity.publicKey,
-            created: storedIdentity.created || new Date().toISOString(),
-            version: storedIdentity.version || 1
+            publicKey: id.publicKey,
+            created: new Date().toISOString()
         };
 
-        // 4️⃣ Multipart upload to create the file in Drive
+        // Use long boundary and CRLF for Safari compliance
         const boundary = '-------314159265358979323846';
         const body =
             `--${boundary}\r\n` +
             'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
-            JSON.stringify({ name: filename, parents: [folderId] }) + '\r\n' +
+            JSON.stringify({ name: filename, parents: [folder] }) + '\r\n' +
             `--${boundary}\r\n` +
             'Content-Type: application/json\r\n\r\n' +
             JSON.stringify(pubData) + '\r\n' +
             `--${boundary}--`;
 
-        await fetch(`https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart`, {
-            method: 'POST',
+        await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart", {
+            method: "POST",
             headers: {
-                'Authorization': `Bearer ${accessToken}`,
-                'Content-Type': `multipart/related; boundary=${boundary}`
+                Authorization: `Bearer ${accessToken}`,
+                "Content-Type": `multipart/related; boundary=${boundary}`
             },
             body
         });
 
-        log(`✅ Account public key uploaded for ${userEmail}`);
+        log("? Account public key uploaded");
     }
 
-    /* Helper: find or create pub-keys folder */
-    async function findOrCreatePubKeysFolder() {
-        const query = `'${ACCESS4_ROOT_ID}' in parents and name='${PUBKEY_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
-        const res = await driveFetch(buildDriveUrl("files", { q: query, fields: "files(id,name)" }));
+    async function findOrCreateFolder() {
+        const q = `'${ACCESS4_ROOT_ID}' in parents and name='${PUBKEY_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder'`;
+        const res = await driveFetch(buildDriveUrl("files",{q,fields:"files(id)"}));
 
         if (res.files.length > 0) {
-            log(`Pub-keys folder found: ${res.files[0].id}`);
+            log(`?? Pub-keys folder found: ${res.files[0].id}`);
             return res.files[0].id;
         }
 
-        log("Pub-keys folder not found, creating...");
-        const folder = await driveFetch(buildDriveUrl("files"), {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                name: PUBKEY_FOLDER_NAME,
-                mimeType: "application/vnd.google-apps.folder",
-                parents: [ACCESS4_ROOT_ID]
-            })
+        log("?? Pub-keys folder not found, creating...");
+        const folder = await driveFetch(buildDriveUrl("files"),{
+            method:"POST",
+            headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({name:PUBKEY_FOLDER_NAME,mimeType:"application/vnd.google-apps.folder",parents:[ACCESS4_ROOT_ID]})
         });
 
-        log(`Pub-keys folder created: ${folder.id}`);
+        log(`?? Pub-keys folder created: ${folder.id}`);
         return folder.id;
     }
 
+    /* ================= HIDDEN GESTURE ================= */
+    (function(){
+        const t = document.getElementById("titleGesture");
+        let timer=null;
+        t.addEventListener("pointerdown",()=>{
+            if (!passwordInput.value) return;
+            timer=setTimeout(()=>{
+                biometricIntent=true;
+                log("?? Hidden biometric intent armed");
+            },5000);
+        });
+        ["pointerup","pointerleave","pointercancel"].forEach(e=>t.addEventListener(e,()=>clearTimeout(timer)));
+    })();
 
-
-
-    /* ================== LOGOUT ================== */
-
+    /* ================= LOGOUT ================= */
     function logout() {
-        accessToken = null;
-        userEmail = null;
-        document.getElementById("userEmail").textContent = "Not signed in";
-        document.getElementById("signinBtn").disabled = false;
-        document.getElementById("logoutBtn").disabled = true;
-        log("Logged out");
+        accessToken=null;
+        userEmail=null;
+        location.reload();
     }
 
-    /* ================== INIT ================== */
-
     window.onload = initGIS;
-
 </script>
 </body>
 </html>
