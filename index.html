@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8" />
-    <title>Access4 – Ver 6.4 (Reliable Biometric Gesture)</title>
+    <title>Access4 – Ver 6.5 (Step 4.1 Device-Scoped Identity)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
     <style>
@@ -23,7 +23,7 @@
 
 <body>
 
-<h2 id="titleGesture">Access4 – Ver 6.4</h2>
+<h2 id="titleGesture">Access4 – Ver 6.5 (Step 4.1)</h2>
 
 <div>
     Signed in as: <b><span id="userEmail">Not signed in</span></b><br>
@@ -38,15 +38,6 @@
 </div>
 
 <button id="resetBioBtn">Reset Biometric</button>
-<script>
-    resetBioBtn.onclick = () => {
-        localStorage.removeItem(`access4.bio.cred::${userEmail}`);
-        localStorage.removeItem(`access4.bio.pwd::${userEmail}`);
-        biometricRegistered = false;
-        biometricIntent = false;
-        log("⚠️ Biometric registration cleared for testing");
-    };
-</script>
 
 <h3>Log</h3>
 <pre id="log"></pre>
@@ -64,11 +55,26 @@
     let accessToken = null;
     let userEmail = null;
     let unlockedPassword = null;
-    let biometricIntent = false; // armed after long press for enrollment
+    let biometricIntent = false;
     let biometricRegistered = false;
 
     /* ================= LOG ================= */
-    function log(msg) { document.getElementById("log").textContent += msg + "\n"; }
+    function log(msg) {
+        document.getElementById("log").textContent += msg + "\n";
+    }
+
+    /* ================= DEVICE ID (4.1) ================= */
+    function deviceIdKey() { return "access4.device.id"; }
+
+    function getDeviceId() {
+        let id = localStorage.getItem(deviceIdKey());
+        if (!id) {
+            id = crypto.randomUUID();
+            localStorage.setItem(deviceIdKey(), id);
+            log("🆔 New device ID generated");
+        }
+        return id;
+    }
 
     /* ================= GOOGLE SIGN-IN ================= */
     function initGIS() {
@@ -80,7 +86,6 @@
 
         signinBtn.onclick = () => tokenClient.requestAccessToken({ prompt: "consent select_account" });
         logoutBtn.onclick = logout;
-
         tokenClient.requestAccessToken({ prompt: "" });
     }
 
@@ -110,7 +115,7 @@
         const data = await res.json();
         userEmail = data.email;
         document.getElementById("userEmail").textContent = userEmail;
-        log("Signed in as " + userEmail);
+        log("Signed in as xxx@gmail.com"); //+ userEmail);
     }
 
     /* ================= DRIVE HELPERS ================= */
@@ -125,11 +130,41 @@
         options.headers ||= {};
         options.headers.Authorization = `Bearer ${accessToken}`;
         const res = await fetch(url, options);
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    }
+
+    async function driveMultipartUpload({metadata, content, contentType = "application/json" }) {
+        const boundary = "-------access4-" + crypto.randomUUID();
+
+        const body =
+            `--${boundary}\r\n` +
+            `Content-Type: application/json; charset=UTF-8\r\n\r\n` +
+            JSON.stringify(metadata) + "\r\n" +
+            `--${boundary}\r\n` +
+            `Content-Type: ${contentType}\r\n\r\n` +
+            content + "\r\n" +
+            `--${boundary}--`;
+
+        const res = await fetch(
+            "https://www.googleapis.com/upload/drive/v3/files" +
+            "?uploadType=multipart&supportsAllDrives=true",
+            {
+                method: "POST",
+                headers: {
+                    Authorization: `Bearer ${accessToken}`,
+                    "Content-Type": `multipart/related; boundary=${boundary}`
+                },
+                body
+            }
+        );
+
         if (!res.ok) {
             const text = await res.text();
-            throw new Error(`Drive error ${res.status}: ${text}`);
+            throw new Error(`Multipart upload failed ${res.status}: ${text}`);
         }
-        return res.json();
+
+        return res;
     }
 
     async function verifyWritable(folderId) {
@@ -139,14 +174,22 @@
         log("? Drive access verified (read OK)");
     }
 
-    async function verifySharedRoot() { await driveFetch(buildDriveUrl(`files/${ACCESS4_ROOT_ID}`,{fields:"id"})); }
+    async function verifySharedRoot() {
+        await driveFetch(buildDriveUrl(`files/${ACCESS4_ROOT_ID}`,{fields:"id"}));
+    }
 
+    /* ================= AUTH ================= */
     async function ensureAuthorization() {
         const q = `'${ACCESS4_ROOT_ID}' in parents and name='${AUTH_FILE_NAME}'`;
         const res = await driveFetch(buildDriveUrl("files",{q,fields:"files(id)"}));
-        if (!res.files.length) { log("? authorized.json not found, creating genesis authorization..."); await createGenesisAuthorization(); return; }
+        if (!res.files.length) {
+            log("? authorized.json not found, creating genesis authorization...");
+            await createGenesisAuthorization();
+            return;
+        }
         const data = await driveFetch(buildDriveUrl(`files/${res.files[0].id}`,{alt:"media"}));
-        if (!data.admins.includes(userEmail) && !data.members.includes(userEmail)) throw new Error("Unauthorized user");
+        if (!data.admins.includes(userEmail) && !data.members.includes(userEmail))
+            throw new Error("Unauthorized user");
         log("? Authorized user verified");
     }
 
@@ -159,94 +202,185 @@
         await driveFetch(buildDriveUrl(`files/${file.id}`,{uploadType:"media"}),{
             method:"PATCH",
             headers:{"Content-Type":"application/json"},
-            body:JSON.stringify({admins:[userEmail],members:[userEmail],created:new Date().toISOString(),version:1})
+            body:JSON.stringify({
+                admins:[userEmail],
+                members:[userEmail],
+                created:new Date().toISOString(),
+                version:1
+            })
         });
         log(`? Genesis authorization created for ${userEmail}`);
     }
 
-    /* ================= IDENTITY ================= */
-    function identityKey() { return `access4.identity::${userEmail}`; }
-    function loadIdentity() { const raw = localStorage.getItem(identityKey()); return raw ? JSON.parse(raw) : null; }
-    function saveIdentity(id) { localStorage.setItem(identityKey(), JSON.stringify(id)); }
+    /* ================= IDENTITY (4.1) ================= */
+    function identityKey() {
+        return `access4.identity::${userEmail}::${getDeviceId()}`;
+    }
+
+    function loadIdentity() {
+        const raw = localStorage.getItem(identityKey());
+        return raw ? JSON.parse(raw) : null;
+    }
+
+    function saveIdentity(id) {
+        localStorage.setItem(identityKey(), JSON.stringify(id));
+    }
 
     /* ================= CRYPTO ================= */
     async function deriveKey(pwd,kdf) {
-        const mat = await crypto.subtle.importKey("raw",new TextEncoder().encode(pwd),"PBKDF2",false,["deriveKey"]);
-        return crypto.subtle.deriveKey({name:"PBKDF2",salt:Uint8Array.from(atob(kdf.salt),c=>c.charCodeAt(0)),iterations:kdf.iterations,hash:"SHA-256"},
-            mat,{name:"AES-GCM",length:256},false,["encrypt","decrypt"]);
+        const mat = await crypto.subtle.importKey(
+            "raw",
+            new TextEncoder().encode(pwd),
+            "PBKDF2",
+            false,
+            ["deriveKey"]
+        );
+        return crypto.subtle.deriveKey(
+            {
+                name:"PBKDF2",
+                salt:Uint8Array.from(atob(kdf.salt),c=>c.charCodeAt(0)),
+                iterations:kdf.iterations,
+                hash:"SHA-256"
+            },
+            mat,
+            {name:"AES-GCM",length:256},
+            false,
+            ["encrypt","decrypt"]
+        );
     }
-    async function encrypt(data,key){ const iv=crypto.getRandomValues(new Uint8Array(12)); const enc=await crypto.subtle.encrypt({name:"AES-GCM",iv},key,data); return {iv:btoa(String.fromCharCode(...iv)), data:btoa(String.fromCharCode(...new Uint8Array(enc)))};}
-    async function decrypt(enc,key){ return crypto.subtle.decrypt({name:"AES-GCM", iv:Uint8Array.from(atob(enc.iv),c=>c.charCodeAt(0))}, key, Uint8Array.from(atob(enc.data),c=>c.charCodeAt(0))); }
+
+    async function encrypt(data,key){
+        const iv=crypto.getRandomValues(new Uint8Array(12));
+        const enc=await crypto.subtle.encrypt({name:"AES-GCM",iv},key,data);
+        return {
+            iv:btoa(String.fromCharCode(...iv)),
+            data:btoa(String.fromCharCode(...new Uint8Array(enc)))
+        };
+    }
+
+    async function decrypt(enc,key){
+        return crypto.subtle.decrypt(
+            {name:"AES-GCM", iv:Uint8Array.from(atob(enc.iv),c=>c.charCodeAt(0))},
+            key,
+            Uint8Array.from(atob(enc.data),c=>c.charCodeAt(0))
+        );
+    }
 
     /* ================= CREATE IDENTITY ================= */
     async function createIdentity(pwd) {
-        log("?? Generating new device identity key pair");
-        const pair = await crypto.subtle.generateKey({ name:"RSA-OAEP", modulusLength:2048, publicExponent:new Uint8Array([1,0,1]), hash:"SHA-256" },true,["encrypt","decrypt"]);
+        log("🔐 Generating new device identity key pair");
+        const pair = await crypto.subtle.generateKey(
+            { name:"RSA-OAEP", modulusLength:2048, publicExponent:new Uint8Array([1,0,1]), hash:"SHA-256" },
+            true,
+            ["encrypt","decrypt"]
+        );
+
         const priv = await crypto.subtle.exportKey("pkcs8", pair.privateKey);
         const pub = await crypto.subtle.exportKey("spki", pair.publicKey);
         const saltBytes = crypto.getRandomValues(new Uint8Array(16));
+
         const kdf={salt:btoa(String.fromCharCode(...saltBytes)),iterations:100000};
         const key=await deriveKey(pwd,kdf);
         const enc=await encrypt(priv,key);
 
-        function arrayBufferToBase64Chunked(buf){ const chunkSize=0x8000; let result=""; const uint8=new Uint8Array(buf); for(let i=0;i<uint8.length;i+=chunkSize){ result+=String.fromCharCode(...uint8.subarray(i,i+chunkSize)); } return btoa(result); }
+        function ab2b64(buf){
+            return btoa(String.fromCharCode(...new Uint8Array(buf)));
+        }
 
-        saveIdentity({encryptedPrivateKey:enc,publicKey:arrayBufferToBase64Chunked(pub),kdf});
+        saveIdentity({
+            encryptedPrivateKey:enc,
+            publicKey:ab2b64(pub),
+            kdf,
+            deviceId:getDeviceId(),
+            email:userEmail,
+            created:new Date().toISOString()
+        });
+
         log("✅ New identity created and stored locally");
 
-        if (biometricIntent && !biometricRegistered) { log("?? Biometric enrollment intent detected, enrolling now..."); await enrollBiometric(pwd); biometricRegistered=true; }
+        if (biometricIntent && !biometricRegistered) {
+            log("👆 Biometric enrollment intent detected, enrolling now...");
+            await enrollBiometric(pwd);
+            biometricRegistered = true;
+        }
     }
 
-    /* ================= UNIFIED UNLOCK FLOW ================= */
+    /* ================= UNLOCK FLOW ================= */
     async function unlockIdentityFlow(pwd) {
         if(!pwd||pwd.length<7) throw new Error("Weak password");
-        log("?? Unlock attempt started");
+        log("🔓 Unlock attempt started");
 
         if(!accessToken) throw new Error("Access token missing");
 
         const id=loadIdentity();
-        if(!id){ log("?? No local identity found, creating new one"); await createIdentity(pwd); }
-        else{
-            log("?? Local identity found");
-            if(!id.encryptedPrivateKey||!id.encryptedPrivateKey.iv||!id.encryptedPrivateKey.data||!id.kdf){ log("⚠️ Malformed identity detected, recreating"); await createIdentity(pwd); }
-            else{
-                let decrypted=false;
-                try{ const key=await deriveKey(pwd,id.kdf); await decrypt(id.encryptedPrivateKey,key); decrypted=true; log("✅ Identity successfully decrypted"); }
-                catch(e){ log("⚠️ Identity decryption failed on this device (Safari limitation)"); }
-                if(!decrypted){ log("🔁 Recreating device identity for Safari compatibility"); await createIdentity(pwd); }
+        if(!id){
+            log("📁 No local identity found, creating new one");
+            await createIdentity(pwd);
+        } else {
+            log("📁 Local identity found");
+            let decrypted=false;
+            try {
+                const key=await deriveKey(pwd,id.kdf);
+                await decrypt(id.encryptedPrivateKey,key);
+                decrypted=true;
+                log("✅ Identity successfully decrypted");
+            } catch {
+                log("⚠️ Identity decryption failed on this device (Safari limitation)");
+            }
+            if(!decrypted){
+                log("🔁 Recreating device identity for Safari compatibility");
+                await createIdentity(pwd);
             }
         }
 
         unlockedPassword=pwd;
-        if(biometricIntent && !biometricRegistered){ await enrollBiometric(pwd); biometricRegistered=true; }
+        if(biometricIntent && !biometricRegistered){
+            await enrollBiometric(pwd);
+            biometricRegistered=true;
+        }
 
-        log("?? Proceeding to Step 4: public key exchange");
-        await ensureAccountPublicKey();
+        log("🔑 Proceeding to Step 4.1: device public key exchange");
+        await ensureDevicePublicKey();
     }
 
-    /* ================= DOM CLICK ================= */
-    unlockBtn.onclick = async()=>{ try{ await unlockIdentityFlow(passwordInput.value); } catch(e){ log("❌ Unlock failed: "+e.message); }};
+    unlockBtn.onclick = async()=> {
+        try { await unlockIdentityFlow(passwordInput.value); }
+        catch(e){ log("❌ Unlock failed: "+e.message); }
+    };
 
     /* ================= BIOMETRIC ================= */
-    function bioCredKey(){ return `access4.bio.cred::${userEmail}`; }
-    function bioPwdKey(){ return `access4.bio.pwd::${userEmail}`; }
+    function bioCredKey(){
+        return `access4.bio.cred::${userEmail}::${getDeviceId()}`;
+    }
+    function bioPwdKey(){
+        return `access4.bio.pwd::${userEmail}::${getDeviceId()}`;
+    }
+
+    resetBioBtn.onclick = () => {
+        localStorage.removeItem(bioCredKey());
+        localStorage.removeItem(bioPwdKey());
+        biometricRegistered = false;
+        biometricIntent = false;
+        log("⚠️ Biometric registration cleared for testing");
+    };
 
     async function enrollBiometric(pwd){
         if(!window.PublicKeyCredential) return;
-        const cred = await navigator.credentials.create({ publicKey:{
-            challenge:crypto.getRandomValues(new Uint8Array(32)),
-            rp:{name:"Access4"},
-            user:{id:crypto.getRandomValues(new Uint8Array(16)),name:userEmail,displayName:userEmail},
-            pubKeyCredParams:[{type:"public-key",alg:-7}],
-            authenticatorSelection:{userVerification:"required"},
-            timeout:60000
-        }});
+        const cred = await navigator.credentials.create({
+            publicKey:{
+                challenge:crypto.getRandomValues(new Uint8Array(32)),
+                rp:{name:"Access4"},
+                user:{id:crypto.getRandomValues(new Uint8Array(16)),name:userEmail,displayName:userEmail},
+                pubKeyCredParams:[{type:"public-key",alg:-7}],
+                authenticatorSelection:{userVerification:"required"},
+                timeout:60000
+            }
+        });
         localStorage.setItem(bioCredKey(), btoa(String.fromCharCode(...new Uint8Array(cred.rawId))));
         localStorage.setItem(bioPwdKey(), btoa(pwd));
-        log("?? Hidden biometric shortcut enrolled");
+        log("🧬 Hidden biometric shortcut enrolled");
     }
 
-    // called directly from single tap gesture
     async function biometricAuthenticateFromGesture() {
         if (!window.PublicKeyCredential) {
             log("⚠️ Biometric not supported on this browser");
@@ -261,65 +395,142 @@
         }
 
         try {
-            log("?? Triggering biometric prompt...");
-            const assertion = await navigator.credentials.get({
-                publicKey: {
-                    challenge: crypto.getRandomValues(new Uint8Array(32)),
-                    allowCredentials: [{
-                        type: "public-key",
-                        id: Uint8Array.from(atob(rawId), c => c.charCodeAt(0))
+            log("👆 Triggering biometric prompt...");
+            await navigator.credentials.get({
+                publicKey:{
+                    challenge:crypto.getRandomValues(new Uint8Array(32)),
+                    allowCredentials:[{
+                        type:"public-key",
+                        id:Uint8Array.from(atob(rawId),c=>c.charCodeAt(0))
                     }],
-                    userVerification: "required"
+                    userVerification:"required"
                 }
             });
             log("✅ Biometric authentication prompt completed successfully");
-            log("?? Using stored password to unlock identity...");
+            log("🔓 Using stored password to unlock identity...");
             await unlockIdentityFlow(atob(storedPwd));
-        } catch (e) {
-            log("⚠️ Biometric prompt failed or canceled: " + e.message);
+        } catch(e){
+            log("⚠️ Biometric prompt failed or canceled: "+e.message);
         }
     }
 
-    /* ================= STEP 4: ACCOUNT PUBLIC KEY ================= */
-    async function ensureAccountPublicKey(){ const folder=await findOrCreateFolder(); const filename=`${userEmail}.json`; const q=`'${folder}' in parents and name='${filename}'`; const res=await driveFetch(buildDriveUrl("files",{q,fields:"files(id)"})); if(res.files.length>0){log("? Account public key already exists in Drive"); return;} const id=loadIdentity(); if(!id) throw new Error("Local identity missing"); const pubData={email:userEmail,publicKey:id.publicKey,created:new Date().toISOString()}; const boundary="-------314159265358979323846"; const body=`--${boundary}\r\nContent-Type: application/json\r\n\r\n`+JSON.stringify({name:filename,parents:[folder]})+"\r\n"+`--${boundary}\r\nContent-Type: application/json\r\n\r\n`+JSON.stringify(pubData)+`\r\n--${boundary}--`; await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart",{method:"POST", headers:{Authorization:`Bearer ${accessToken}`,"Content-Type":`multipart/related; boundary=${boundary}`},body}); log("? Account public key uploaded"); }
+    /* ================= STEP 4.1: DEVICE PUBLIC KEY ================= */
+    async function ensureDevicePublicKey() {
+        const folder = await findOrCreateUserFolder();
 
-    async function findOrCreateFolder(){ const q=`'${ACCESS4_ROOT_ID}' in parents and name='${PUBKEY_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder'`; const res=await driveFetch(buildDriveUrl("files",{q,fields:"files(id)"})); if(res.files.length>0) return res.files[0].id; log("?? Pub-keys folder not found, creating..."); const folder=await driveFetch(buildDriveUrl("files"),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:PUBKEY_FOLDER_NAME,mimeType:"application/vnd.google-apps.folder",parents:[ACCESS4_ROOT_ID]})}); log(`?? Pub-keys folder created: ${folder.id}`); return folder.id; }
+        const deviceId = getDeviceId();
+        const filename = `${userEmail}__${deviceId}.json`;
+
+        const q = `'${folder}' in parents and name='${filename}'`;
+        const res = await driveFetch(buildDriveUrl("files", { q, fields: "files(id)" }));
+
+        if (res.files.length > 0) {
+            log("?? Device public key already exists in Drive");
+            return;
+        }
+
+        const id = loadIdentity();
+        if (!id) throw new Error("Local identity missing");
+
+        // Compute fingerprint
+        const pubBytes = Uint8Array.from(atob(id.publicKey), c => c.charCodeAt(0));
+        const hashBuffer = await crypto.subtle.digest("SHA-256", pubBytes);
+        const fingerprint = btoa(String.fromCharCode(...new Uint8Array(hashBuffer)));
+
+        // Device metadata
+        const deviceName = `${navigator.platform} - ${navigator.userAgent}`.substring(0, 64);
+        const browser = navigator.userAgentData?.brands?.map(b => b.brand).join(",") || navigator.userAgent;
+        const os = navigator.platform;
+
+        const pubData = {
+            version: "4.1",
+            account: userEmail,
+            deviceId,
+            created: new Date().toISOString(),
+            algorithm: {
+                type: "RSA",
+                usage: ["wrapKey"],
+                modulusLength: 2048,
+                hash: "SHA-256"
+            },
+            publicKey: {
+                format: "spki",
+                encoding: "base64",
+                data: id.publicKey
+            },
+            fingerprint,
+            deviceName,
+            browser,
+            os
+        };
+
+        await driveMultipartUpload({
+            metadata: { name: filename, parents: [folder] },
+            content: JSON.stringify(pubData)
+        });
+
+        log("?? Device public key uploaded (4.1 with full metadata)");
+    }
+
+    async function findOrCreateUserFolder(){
+        const rootQ = `'${ACCESS4_ROOT_ID}' in parents and name='${PUBKEY_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder'`;
+        const rootRes = await driveFetch(buildDriveUrl("files",{q:rootQ,fields:"files(id)"}));
+        const root = rootRes.files.length ? rootRes.files[0].id :
+            (await driveFetch(buildDriveUrl("files"),{
+                method:"POST",
+                headers:{"Content-Type":"application/json"},
+                body:JSON.stringify({
+                    name:PUBKEY_FOLDER_NAME,
+                    mimeType:"application/vnd.google-apps.folder",
+                    parents:[ACCESS4_ROOT_ID]
+                })
+            })).id;
+
+        const userQ = `'${root}' in parents and name='${userEmail}' and mimeType='application/vnd.google-apps.folder'`;
+        const userRes = await driveFetch(buildDriveUrl("files",{q:userQ,fields:"files(id)"}));
+        if(userRes.files.length) return userRes.files[0].id;
+
+        const folder = await driveFetch(buildDriveUrl("files"),{
+            method:"POST",
+            headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({
+                name:userEmail,
+                mimeType:"application/vnd.google-apps.folder",
+                parents:[root]
+            })
+        });
+
+        return folder.id;
+    }
 
     /* ================= HIDDEN GESTURE ================= */
-
     function armBiometric() {
         biometricIntent = true;
-        log("?? Hidden biometric intent armed");
+        log("👆 Hidden biometric intent armed");
 
-        // If password already unlocked and biometric not yet registered, enroll immediately
         if (unlockedPassword && !biometricRegistered) {
-            log("?? Password already unlocked, enrolling biometric immediately...");
-            enrollBiometric(unlockedPassword).then(() => {
-                biometricRegistered = true;
-            });
+            log("🔐 Password already unlocked, enrolling biometric immediately...");
+            enrollBiometric(unlockedPassword).then(()=>biometricRegistered=true);
         }
     }
 
-    // Long press handler
     (()=>{
-        const t = document.getElementById("titleGesture");
-        let timer = null;
-
-        t.addEventListener("pointerdown", () => {
-            timer = setTimeout(armBiometric, 5000);
-        });
-        ["pointerup","pointerleave","pointercancel"].forEach(e => t.addEventListener(e, () => clearTimeout(timer)));
-
-        // Single tap triggers biometric if already registered
-        t.addEventListener("click", async () => {
-            if (!biometricRegistered) return;
+        const t=document.getElementById("titleGesture");
+        let timer=null;
+        t.addEventListener("pointerdown",()=>timer=setTimeout(armBiometric,5000));
+        ["pointerup","pointerleave","pointercancel"].forEach(e=>t.addEventListener(e,()=>clearTimeout(timer)));
+        t.addEventListener("click",async()=>{
+            if(!biometricRegistered) return;
             await biometricAuthenticateFromGesture();
         });
     })();
 
-
     /* ================= LOGOUT ================= */
-    function logout(){ accessToken=null; userEmail=null; location.reload(); }
+    function logout(){
+        accessToken=null;
+        userEmail=null;
+        location.reload();
+    }
 
     window.onload=initGIS;
 </script>
