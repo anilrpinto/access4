@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8" />
-    <title>Access4 – Ver 6.5 (Step 4.1 Device-Scoped Identity)</title>
+    <title>Access4 – Ver 6.5 (Step 5.1 Envelope creation, encryption and decryption local only)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
     <style>
@@ -39,6 +39,7 @@
 
 <button id="resetBioBtn">Reset Biometric</button>
 
+<br/><button onclick="testStep5_1()">Test Step 5.1</button><br/>
 <h3>Log</h3>
 <pre id="log"></pre>
 
@@ -501,6 +502,177 @@
         });
 
         return folder.id;
+    }
+
+    /* ================= STEP 5: DEVICE PUBLIC KEY ================= */
+
+    async function generateContentKey() {
+        return crypto.subtle.generateKey(
+            { name: "AES-GCM", length: 256 },
+            true,
+            ["encrypt", "decrypt"]
+        );
+    }
+
+    /* --- Encrypt Payload with CEK --- */
+    async function encryptPayload(plainText, cek) {
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const encoded = new TextEncoder().encode(plainText);
+
+        const ciphertext = await crypto.subtle.encrypt(
+            { name: "AES-GCM", iv },
+            cek,
+            encoded
+        );
+
+        return {
+            iv: btoa(String.fromCharCode(...iv)),
+            data: btoa(String.fromCharCode(...new Uint8Array(ciphertext)))
+        };
+    }
+
+    /* --- Wrap CEK for a Device Public Key --- */
+    async function wrapContentKeyForDevice(cek, devicePublicKeyBase64) {
+        const pubKeyBytes = Uint8Array.from(atob(devicePublicKeyBase64), c => c.charCodeAt(0));
+
+        const publicKey = await crypto.subtle.importKey(
+            "spki",
+            pubKeyBytes,
+            { name: "RSA-OAEP", hash: "SHA-256" },
+            false,
+            ["wrapKey"]
+        );
+
+        const wrapped = await crypto.subtle.wrapKey(
+            "raw",
+            cek,
+            publicKey,
+            { name: "RSA-OAEP" }
+        );
+
+        return btoa(String.fromCharCode(...new Uint8Array(wrapped)));
+    }
+
+    /* ---Unwrap CEK Using Local Private Key --- */
+    async function unwrapContentKey(wrappedKeyBase64) {
+        const id = loadIdentity();
+        if (!id) throw new Error("Local identity missing");
+
+        const pwd = unlockedPassword;
+        if (!pwd) throw new Error("Identity not unlocked");
+
+        const key = await deriveKey(pwd, id.kdf);
+        const privBuf = await decrypt(id.encryptedPrivateKey, key);
+
+        const privateKey = await crypto.subtle.importKey(
+            "pkcs8",
+            privBuf,
+            { name: "RSA-OAEP", hash: "SHA-256" },
+            false,
+            ["unwrapKey"]
+        );
+
+        const wrappedBytes = Uint8Array.from(atob(wrappedKeyBase64), c => c.charCodeAt(0));
+
+        return crypto.subtle.unwrapKey(
+            "raw",
+            wrappedBytes,
+            privateKey,
+            { name: "RSA-OAEP" },
+            { name: "AES-GCM", length: 256 },
+            false,
+            ["decrypt"]
+        );
+    }
+
+    async function createEnvelope(plainText, devicePublicKeyRecord) {
+        const cek = await generateContentKey();
+        const payload = await encryptPayload(plainText, cek);
+
+        const wrappedKey = await wrapContentKeyForDevice(
+            cek,
+            devicePublicKeyRecord.publicKey.data
+        );
+
+        return {
+            version: "1.0",
+            cipher: {
+                payload: "AES-256-GCM",
+                keyWrap: "RSA-OAEP-SHA256"
+            },
+            payload,
+            keys: [{
+                account: devicePublicKeyRecord.account,
+                deviceId: devicePublicKeyRecord.deviceId,
+                keyId: devicePublicKeyRecord.fingerprint,
+                keyVersion: devicePublicKeyRecord.version,
+                wrappedKey
+            }],
+            created: new Date().toISOString()
+        };
+    }
+
+    async function openEnvelope(envelope) {
+        const entry = envelope.keys.find(k => k.deviceId === getDeviceId());
+        if (!entry) throw new Error("No key entry for this device");
+
+        const cek = await unwrapContentKey(entry.wrappedKey);
+
+        const iv = Uint8Array.from(atob(envelope.payload.iv), c => c.charCodeAt(0));
+        const data = Uint8Array.from(atob(envelope.payload.data), c => c.charCodeAt(0));
+
+        const decrypted = await crypto.subtle.decrypt(
+            { name: "AES-GCM", iv },
+            cek,
+            data
+        );
+
+        return new TextDecoder().decode(decrypted);
+    }
+
+    async function testStep5_1() {
+        log("🧪 Step 5.1 test started");
+
+        // 1️⃣ Ensure identity is unlocked
+        const id = loadIdentity();
+        if (!id) throw new Error("No local identity");
+
+        if (!unlockedPassword) {
+            throw new Error("Identity must be unlocked first");
+        }
+
+        // 2️⃣ Construct a mock device public-key record
+        const deviceRecord = {
+            account: userEmail,
+            deviceId: getDeviceId(),
+            version: "1.0",
+            fingerprint: id.fingerprint,
+            publicKey: {
+                data: id.publicKey
+            }
+        };
+
+        if (!deviceRecord.fingerprint) {
+            log("WARN: Envelope created without keyId (Step 5.1 test mode)");
+        }
+
+        // 3️⃣ Encrypt test payload
+        const message = "Hello Step 5.1 – envelope crypto works ✅";
+
+        const envelope = await createEnvelope(message, deviceRecord);
+        log("📦 Envelope created: " + JSON.stringify(envelope));
+
+        // 4️⃣ Decrypt it
+        const decrypted = await openEnvelope(envelope);
+
+        log("🔓 Decrypted payload: " + decrypted);
+
+        // 5️⃣ Assert
+        if (decrypted !== message) {
+            throw new Error("❌ Step 5.1 FAILED: plaintext mismatch");
+        }
+
+        log("✅ Step 5.1 PASSED");
     }
 
     /* ================= HIDDEN GESTURE ================= */
