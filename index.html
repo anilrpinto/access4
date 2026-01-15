@@ -433,33 +433,48 @@
         const id = loadIdentity();
         if (!id) throw new Error("Local identity missing");
 
-        // Compute fingerprint
+        // --- Compute fingerprint (canonical keyId) ---
         const pubBytes = Uint8Array.from(atob(id.publicKey), c => c.charCodeAt(0));
         const hashBuffer = await crypto.subtle.digest("SHA-256", pubBytes);
-        const fingerprint = btoa(String.fromCharCode(...new Uint8Array(hashBuffer)));
+        const fingerprint = btoa(
+            String.fromCharCode(...new Uint8Array(hashBuffer))
+        );
 
-        // Device metadata
-        const deviceName = `${navigator.platform} - ${navigator.userAgent}`.substring(0, 64);
-        const browser = navigator.userAgentData?.brands?.map(b => b.brand).join(",") || navigator.userAgent;
+        // --- Device metadata ---
+        const deviceName =
+            `${navigator.platform} - ${navigator.userAgent}`.substring(0, 64);
+        const browser =
+            navigator.userAgentData?.brands?.map(b => b.brand).join(",") ||
+            navigator.userAgent;
         const os = navigator.platform;
 
         const pubData = {
-            version: "4.1",
+            version: "1",
             account: userEmail,
             deviceId,
+
+            // 🔑 Key identity & lifecycle (Step 5.11)
+            keyId: fingerprint,          // canonical identifier
+            fingerprint,                 // cryptographic fingerprint
+            state: "active",              // active | deprecated | revoked
+            role: "device",               // device | recovery (future)
+            supersedes: null,             // populated on rotation
+
             created: new Date().toISOString(),
+
             algorithm: {
                 type: "RSA",
                 usage: ["wrapKey"],
                 modulusLength: 2048,
                 hash: "SHA-256"
             },
+
             publicKey: {
                 format: "spki",
                 encoding: "base64",
                 data: id.publicKey
             },
-            fingerprint,
+
             deviceName,
             browser,
             os
@@ -470,7 +485,7 @@
             content: JSON.stringify(pubData)
         });
 
-        log("?? Device public key uploaded (4.1 with full metadata)");
+        log("?? Device public key uploaded (4.1 + key lifecycle metadata)");
     }
 
     async function findOrCreateUserFolder(){
