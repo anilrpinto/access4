@@ -218,7 +218,7 @@
         return `access4.identity::${userEmail}::${getDeviceId()}`;
     }
 
-    function loadIdentity() {
+    async function loadIdentity() {
         const raw = localStorage.getItem(identityKey());
         return raw ? JSON.parse(raw) : null;
     }
@@ -278,20 +278,20 @@
 
         const priv = await crypto.subtle.exportKey("pkcs8", pair.privateKey);
         const pub = await crypto.subtle.exportKey("spki", pair.publicKey);
+        const pubB64 = btoa(String.fromCharCode(...new Uint8Array(pub)));
+        const fingerprint = await computeFingerprintFromPublicKey(pubB64);
+
         const saltBytes = crypto.getRandomValues(new Uint8Array(16));
 
-        const kdf={salt:btoa(String.fromCharCode(...saltBytes)),iterations:100000};
-        const key=await deriveKey(pwd,kdf);
-        const enc=await encrypt(priv,key);
-
-        function ab2b64(buf){
-            return btoa(String.fromCharCode(...new Uint8Array(buf)));
-        }
+        const kdf = {salt:btoa(String.fromCharCode(...saltBytes)),iterations:100000};
+        const key = await deriveKey(pwd, kdf);
+        const enc = await encrypt(priv, key);
 
         saveIdentity({
             encryptedPrivateKey:enc,
-            publicKey:ab2b64(pub),
+            publicKey:pubB64,
             kdf,
+            fingerprint,
             deviceId:getDeviceId(),
             email:userEmail,
             created:new Date().toISOString()
@@ -306,6 +306,12 @@
         }
     }
 
+    async function computeFingerprintFromPublicKey(base64Spki) {
+        const pubBytes = Uint8Array.from(atob(base64Spki), c => c.charCodeAt(0));
+        const hash = await crypto.subtle.digest("SHA-256", pubBytes);
+        return btoa(String.fromCharCode(...new Uint8Array(hash)));
+    }
+
     /* ================= UNLOCK FLOW ================= */
     async function unlockIdentityFlow(pwd) {
         if(!pwd||pwd.length<7) throw new Error("Weak password");
@@ -313,7 +319,7 @@
 
         if(!accessToken) throw new Error("Access token missing");
 
-        const id=loadIdentity();
+        const id = await loadIdentity();
         if(!id){
             log("📁 No local identity found, creating new one");
             await createIdentity(pwd);
@@ -430,21 +436,17 @@
             return;
         }
 
-        const id = loadIdentity();
+        const id = await loadIdentity();
         if (!id) throw new Error("Local identity missing");
 
         // --- Compute fingerprint (canonical keyId) ---
         const pubBytes = Uint8Array.from(atob(id.publicKey), c => c.charCodeAt(0));
         const hashBuffer = await crypto.subtle.digest("SHA-256", pubBytes);
-        const fingerprint = btoa(
-            String.fromCharCode(...new Uint8Array(hashBuffer))
-        );
+        const fingerprint = btoa(String.fromCharCode(...new Uint8Array(hashBuffer)));
 
         // --- Device metadata ---
-        const deviceName =
-            `${navigator.platform} - ${navigator.userAgent}`.substring(0, 64);
-        const browser =
-            navigator.userAgentData?.brands?.map(b => b.brand).join(",") ||
+        const deviceName = `${navigator.platform} - ${navigator.userAgent}`.substring(0, 64);
+        const browser = navigator.userAgentData?.brands?.map(b => b.brand).join(",") ||
             navigator.userAgent;
         const os = navigator.platform;
 
@@ -570,7 +572,7 @@
 
     /* ---Unwrap CEK Using Local Private Key --- */
     async function unwrapContentKey(wrappedKeyBase64) {
-        const id = loadIdentity();
+        const id = await loadIdentity();
         if (!id) throw new Error("Local identity missing");
 
         const pwd = unlockedPassword;
@@ -601,13 +603,15 @@
     }
 
     async function createEnvelope(plainText, devicePublicKeyRecord) {
+
+        if (!isKeyUsable(devicePublicKeyRecord)) {
+            throw new Error("Cannot encrypt for inactive key");
+        }
+
         const cek = await generateContentKey();
         const payload = await encryptPayload(plainText, cek);
 
-        const wrappedKey = await wrapContentKeyForDevice(
-            cek,
-            devicePublicKeyRecord.publicKey.data
-        );
+        const wrappedKey = await wrapContentKeyForDevice(cek, devicePublicKeyRecord.publicKey.data);
 
         return {
             version: "1.0",
@@ -628,9 +632,10 @@
     }
 
     async function openEnvelope(envelope) {
-        const entry = envelope.keys.find(k => k.deviceId === getDeviceId());
-        if (!entry) throw new Error("No key entry for this device");
 
+        validateEnvelope(envelope);
+
+        const entry = await selectDecryptableKey(envelope);
         const cek = await unwrapContentKey(entry.wrappedKey);
 
         const iv = Uint8Array.from(atob(envelope.payload.iv), c => c.charCodeAt(0));
@@ -645,11 +650,44 @@
         return new TextDecoder().decode(decrypted);
     }
 
+    function validateEnvelope(envelope) {
+        if (!envelope.version) throw new Error("Envelope missing version");
+        if (!Array.isArray(envelope.keys) || !envelope.keys.length)
+            throw new Error("Envelope has no key entries");
+
+        for (const k of envelope.keys) {
+            if (!k.keyId) throw new Error("Key entry missing keyId");
+            if (!k.deviceId) throw new Error("Key entry missing deviceId");
+            if (!k.wrappedKey) throw new Error("Key entry missing wrappedKey");
+        }
+    }
+
+    async function selectDecryptableKey(envelope) {
+        const id = await loadIdentity();
+        if (!id || !id.fingerprint) {
+            throw new Error("Local identity fingerprint missing");
+        }
+
+        const entry = envelope.keys.find(
+            k => k.keyId === id.fingerprint
+        );
+
+        if (!entry) {
+            throw new Error("No decryptable key for this identity");
+        }
+
+        return entry;
+    }
+
+    function isKeyUsable(keyRecord) {
+        return keyRecord.state === "active";
+    }
+
     async function testStep5_1() {
         log("🧪 Step 5.1 test started");
 
         // 1️⃣ Ensure identity is unlocked
-        const id = loadIdentity();
+        const id = await loadIdentity();
         if (!id) throw new Error("No local identity");
 
         if (!unlockedPassword) {
@@ -660,8 +698,10 @@
         const deviceRecord = {
             account: userEmail,
             deviceId: getDeviceId(),
-            version: "1.0",
+            version: "1",
             fingerprint: id.fingerprint,
+            state: "active",          // ✅ REQUIRED
+            role: "device",           // (optional but good)
             publicKey: {
                 data: id.publicKey
             }
