@@ -604,8 +604,8 @@
 
     async function createEnvelope(plainText, devicePublicKeyRecord) {
 
-        if (!isKeyUsable(devicePublicKeyRecord)) {
-            throw new Error("Cannot encrypt for inactive key");
+        if (!isKeyUsableForEncryption(devicePublicKeyRecord)) {
+            throw new Error("Cannot encrypt for non-active key");
         }
 
         const cek = await generateContentKey();
@@ -663,24 +663,32 @@
     }
 
     async function selectDecryptableKey(envelope) {
+
         const id = await loadIdentity();
-        if (!id || !id.fingerprint) {
-            throw new Error("Local identity fingerprint missing");
-        }
+        //const deviceId = getDeviceId();
 
         const entry = envelope.keys.find(
-            k => k.keyId === id.fingerprint
+            k => k.deviceId === id.deviceId
         );
 
         if (!entry) {
-            throw new Error("No decryptable key for this identity");
+            throw new Error("No key entry for this device");
+        }
+
+        if (id?.fingerprint && entry.keyId !== id.fingerprint) {
+            log("⚠️ KeyId mismatch — envelope encrypted to a previous or different key");
         }
 
         return entry;
     }
 
-    function isKeyUsable(keyRecord) {
-        return keyRecord.state === "active";
+    function isKeyUsableForEncryption(pubKeyRecord) {
+        return pubKeyRecord.state === "active";
+    }
+
+    function isKeyUsableForDecryption(pubKeyRecord) {
+        return pubKeyRecord.state === "active" ||
+               pubKeyRecord.state === "deprecated";
     }
 
     async function testStep5_1() {
