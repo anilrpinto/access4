@@ -15,6 +15,19 @@ let unlockedPassword = null;
 let biometricIntent = false;
 let biometricRegistered = false;
 
+let keyRegistry = {
+    version: 1,
+    loadedAt: null,
+
+    accounts: {},
+
+    flat: {
+        activeDevices: [],
+        deprecatedDevices: [],
+        recoveryKeys: []
+    }
+};
+
 /* ================= LOG ================= */
 function log(msg) {
     document.getElementById("log").textContent += msg + "\n";
@@ -865,6 +878,188 @@ function isKeyUsableForDecryption(pubKeyRecord) {
     pubKeyRecord.state === "deprecated";
 }
 
+/* ------------------- Public key Registry building steps ---------------- */
+function resetKeyRegistry() {
+    keyRegistry.accounts = {};
+    keyRegistry.flat.activeDevices = [];
+    keyRegistry.flat.deprecatedDevices = [];
+    keyRegistry.flat.recoveryKeys = [];
+    keyRegistry.loadedAt = new Date().toISOString();
+}
+
+function normalizePublicKey(raw) {
+    if (!raw || typeof raw !== "object") {
+        throw new Error("Invalid public key JSON");
+    }
+
+    if (!raw.keyId || !raw.fingerprint || !raw.publicKey) {
+        throw new Error("Missing required public key fields");
+    }
+
+    return {
+        version: Number(raw.version) || 1,
+
+        account: raw.account || null,
+        role: raw.role,
+
+        keyId: raw.keyId,
+        fingerprint: raw.fingerprint,
+        state: raw.state || "active",
+
+        deviceId: raw.role === "device" ? raw.deviceId : null,
+        supersedes: raw.supersedes || null,
+        created: raw.created || null,
+
+        algorithm: {
+            type: raw.algorithm?.type,
+            usage: raw.algorithm?.usage || [],
+            modulusLength: raw.algorithm?.modulusLength,
+            hash: raw.algorithm?.hash
+        },
+
+        publicKey: {
+            format: raw.publicKey.format,
+            encoding: raw.publicKey.encoding,
+            data: raw.publicKey.data
+        },
+
+        meta: {
+            deviceName: raw.deviceName || null,
+            browser: raw.browser || null,
+            os: raw.os || null
+        }
+    };
+}
+
+function registerPublicKey(key) {
+    if (!key || !key.fingerprint) {
+        throw new Error("Cannot register invalid key");
+    }
+
+    // --- account bucket ---
+    if (!keyRegistry.accounts[key.account]) {
+        keyRegistry.accounts[key.account] = {
+            devices: {},
+            recovery: {}
+        };
+    }
+
+    const accountBucket = keyRegistry.accounts[key.account];
+
+    // --- role routing ---
+    if (key.role === "device") {
+        accountBucket.devices[key.fingerprint] = key;
+
+        if (key.state === "active") {
+            keyRegistry.flat.activeDevices.push(key);
+        } else if (key.state === "deprecated") {
+            keyRegistry.flat.deprecatedDevices.push(key);
+        }
+    }
+
+    if (key.role === "recovery") {
+        accountBucket.recovery[key.fingerprint] = key;
+        keyRegistry.flat.recoveryKeys.push(key);
+    }
+}
+
+function validateKeyRegistry(registry) {
+    if (!registry.loadedAt) {
+        throw new Error("Registry missing loadedAt timestamp");
+    }
+
+    const seen = new Set();
+
+    for (const key of [
+        ...registry.flat.activeDevices,
+        ...registry.flat.deprecatedDevices,
+        ...registry.flat.recoveryKeys
+    ]) {
+        if (!key.fingerprint) {
+            throw new Error("Registry contains key without fingerprint");
+        }
+
+        if (seen.has(key.fingerprint)) {
+            throw new Error("Duplicate fingerprint in registry: " + key.fingerprint);
+        }
+
+        seen.add(key.fingerprint);
+    }
+}
+
+function buildSupersedenceIndex(keys) {
+    const superseded = new Set();
+
+    for (const key of keys) {
+        if (key.supersedes) {
+            superseded.add(key.supersedes);
+        }
+    }
+
+    return superseded;
+}
+
+function resolveEffectiveActiveDevices(flat) {
+    const superseded = buildSupersedenceIndex([
+        ...flat.activeDevices,
+        ...flat.deprecatedDevices
+    ]);
+
+    return flat.activeDevices.filter(key => {
+        // Must be active
+        if (key.state !== "active") return false;
+
+        // Must NOT be superseded by another key
+        if (superseded.has(key.fingerprint)) return false;
+
+        return true;
+    });
+}
+
+function finalizeKeyRegistry(registry) {
+    Object.freeze(registry.flat.activeDevices);
+    Object.freeze(registry.flat.deprecatedDevices);
+    Object.freeze(registry.flat.recoveryKeys);
+    Object.freeze(registry.flat);
+    Object.freeze(registry.accounts);
+    Object.freeze(registry);
+}
+
+async function buildKeyRegistryFromDrive(rawPublicKeyJsons) {
+    resetKeyRegistry();
+
+    for (const raw of rawPublicKeyJsons) {
+        const normalized = normalizePublicKey(raw);
+        registerPublicKey(normalized);
+    }
+
+    keyRegistry.loadedAt = new Date().toISOString();
+
+    // Validate structural integrity
+    validateKeyRegistry(keyRegistry);
+
+    // Resolve terminal active devices
+    const activeDevices =
+    resolveEffectiveActiveDevices(keyRegistry.flat);
+
+    // 🔒 Freeze resolved device lists
+    keyRegistry.flat.activeDevices = Object.freeze(
+        activeDevices.map(d => Object.freeze(d))
+    );
+
+    keyRegistry.flat.deprecatedDevices = Object.freeze(
+        keyRegistry.flat.deprecatedDevices.map(d => Object.freeze(d))
+    );
+
+    // 🔒 Freeze flat view
+    Object.freeze(keyRegistry.flat);
+
+    // 🔒 Freeze entire registry
+    Object.freeze(keyRegistry);
+
+    return keyRegistry;
+}
+
 /* ================= HIDDEN GESTURE ================= */
 function armBiometric() {
     biometricIntent = true;
@@ -895,9 +1090,6 @@ function logout() {
 }
 
 window.onload = initGIS;
-
-
-
 
 /* ----------------- TESTS -------------------*/
 async function testStep5_1() {
@@ -993,5 +1185,88 @@ async function testStep5_15_3() {
     if (decrypted !== message) throw new Error("❌ Step 5.15.3 FAILED: plaintext mismatch");
 
     log("✅ Step 5.15.3 PASSED");
+}
+
+async function testNormalizePublicKey() {
+    log("🧪 Phase 2A.2 – normalizePublicKey() test started");
+
+    // 🔒 Static sample — EXACT format fetched from Drive
+    const rawPublicKeyFromDrive = {
+        "version": "1",
+        "account": "axxx@gmail.com",
+        "deviceId": "06480138-79dd-4a23-8c97-8204f186f649",
+        "keyId": "UgjDkqV55rfP9EwU9czbmMtstkKQjzTUO86ypxD2mLM=",
+        "fingerprint": "UgjDkqV55rfP9EwU9czbmMtstkKQjzTUO86ypxD2mLM=",
+        "state": "active",
+        "role": "device",
+        "supersedes": null,
+        "created": "2026-01-17T22:54:12.842Z",
+        "algorithm": {
+            "type": "RSA",
+            "usage": ["wrapKey"],
+            "modulusLength": 2048,
+            "hash": "SHA-256"
+        },
+        "publicKey": {
+            "format": "spki",
+            "encoding": "base64",
+            "data": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA8U2g..."
+        },
+        "deviceName": "Linux armv81 - Mozilla/5.0",
+        "browser": "Google Chrome,Chromium",
+        "os": "Linux armv81"
+    };
+
+    // 1️⃣ Normalize
+    const normalized = normalizePublicKey(rawPublicKeyFromDrive);
+
+    // 2️⃣ Log clearly
+    log("🔍 Normalized public key:");
+    log(JSON.stringify(normalized, null, 2));
+
+    // 3️⃣ Assertions (minimal but strict)
+    if (!normalized.keyId) throw new Error("Missing keyId after normalization");
+    if (!normalized.fingerprint) throw new Error("Missing fingerprint");
+    if (!normalized.publicKey?.data) throw new Error("Missing publicKey.data");
+    if (normalized.role !== "device") throw new Error("Role mismatch");
+    if (normalized.state !== "active") throw new Error("State mismatch");
+
+    log("✅ Phase 2A.2 PASSED — normalization is stable and deterministic");
+}
+
+async function testStep2A_fullRegistryPipeline() {
+    log("🧪 Step 2A.4.3 – full registry pipeline test");
+
+    const raws = [
+        {
+            account: userEmail,
+            role: "device",
+            deviceId: "d1",
+            fingerprint: "A",
+            keyId: "A",
+            state: "deprecated",
+            publicKey: { format: "spki", encoding: "base64", data: "AAA" }
+        },
+        {
+            account: userEmail,
+            role: "device",
+            deviceId: "d1",
+            fingerprint: "B",
+            keyId: "B",
+            state: "active",
+            supersedes: "A",
+            publicKey: { format: "spki", encoding: "base64", data: "BBB" }
+        }
+    ];
+
+    const registry = await buildKeyRegistryFromDrive(raws);
+
+    if (registry.flat.activeDevices.length !== 1) {
+        throw new Error("Expected exactly one effective active device");
+    }
+
+    log("📦 Final registry:");
+    log(JSON.stringify(registry.flat.activeDevices, null, 2));
+    log("✅ Step 2A.4.3 PASSED");
 }
 
