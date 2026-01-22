@@ -28,6 +28,15 @@ let keyRegistry = {
     }
 };
 
+const driveLockState = {
+    held: false,
+    envelopeName: null,
+    self: null,
+    lock: null,
+    heartbeat: null
+};
+
+
 /* ================= LOG ================= */
 function log(msg) {
     document.getElementById("log").textContent += msg + "\n";
@@ -552,6 +561,36 @@ async function biometricAuthenticateFromGesture() {
     }
 }
 
+
+/* ================= HIDDEN GESTURE ================= */
+function armBiometric() {
+    biometricIntent = true;
+    log("👆 Hidden biometric intent armed");
+
+    if (unlockedPassword && !biometricRegistered) {
+        log("🔐 Password already unlocked, enrolling biometric immediately...");
+        enrollBiometric(unlockedPassword).then(() => biometricRegistered = true);
+    }
+}
+
+(() => {
+    const t = document.getElementById("titleGesture");
+    let timer = null;
+    t.addEventListener("pointerdown", () => timer = setTimeout(armBiometric, 5000));
+    ["pointerup", "pointerleave", "pointercancel"].forEach(e => t.addEventListener(e, () => clearTimeout(timer)));
+    t.addEventListener("click", async () => {
+        if (!biometricRegistered) return;
+        await biometricAuthenticateFromGesture();
+    });
+})();
+
+/* ================= LOGOUT ================= */
+function logout() {
+    accessToken = null;
+    userEmail = null;
+    location.reload();
+}
+
 /* ================= STEP 4.1: DEVICE PUBLIC KEY ================= */
 async function ensureDevicePublicKey() {
     const folder = await findOrCreateUserFolder();
@@ -1060,36 +1099,278 @@ async function buildKeyRegistryFromDrive(rawPublicKeyJsons) {
     return keyRegistry;
 }
 
-/* ================= HIDDEN GESTURE ================= */
-function armBiometric() {
-    biometricIntent = true;
-    log("👆 Hidden biometric intent armed");
+/* ------------------- Envelope check+acquire lock helpers ---------------- */
+function evaluateEnvelopeLock(lockJson, selfIdentity) {
+    const now = Date.now();
 
-    if (unlockedPassword && !biometricRegistered) {
-        log("🔐 Password already unlocked, enrolling biometric immediately...");
-        enrollBiometric(unlockedPassword).then(() => biometricRegistered = true);
+    if (!lockJson || lockJson.version !== 1) {
+        return Object.freeze({
+            status: "free",
+            reason: "no-lock-or-invalid",
+            lock: null
+        });
+    }
+
+    const expiresAt = Date.parse(lockJson.expiresAt);
+    if (Number.isNaN(expiresAt) || expiresAt <= now) {
+        return Object.freeze({
+            status: "free",
+            reason: "lock-expired",
+            lock: null
+        });
+    }
+
+    if (
+    lockJson.owner?.account === selfIdentity.account &&
+    lockJson.owner?.deviceId === selfIdentity.deviceId
+    ) {
+        return Object.freeze({
+            status: "owned",
+            reason: "lock-owned-by-self",
+            lock: Object.freeze(lockJson)
+        });
+    }
+
+    return Object.freeze({
+        status: "locked",
+        reason: "lock-owned-by-other",
+        lock: Object.freeze(lockJson)
+    });
+}
+
+function createLockPayload(self, envelopeName, generation) {
+    const now = Date.now();
+    const ttlMs = 30000;
+
+    return {
+        version: 1,
+        envelope: envelopeName,
+
+        owner: {
+            account: self.account,
+            deviceId: self.deviceId
+        },
+
+        lockId: crypto.randomUUID(),
+        mode: "write",
+
+        generation, // 🔒 WRITE FENCE
+
+        acquiredAt: new Date(now).toISOString(),
+        expiresAt: new Date(now + ttlMs).toISOString(),
+
+        heartbeatIntervalMs: 10000
+    };
+}
+
+async function attemptEnvelopeLock({envelopeName, self, readLockFromDrive, writeLockToDrive }) {
+    // Step 1 — Read existing lock
+    const existingLock = await readLockFromDrive(envelopeName);
+    const evaluation = evaluateEnvelopeLock(existingLock, self);
+
+    if (evaluation.status === "locked") {
+        return Object.freeze({
+            acquired: false,
+            reason: "locked-by-other",
+            lock: evaluation.lock
+        });
+    }
+
+    // Step 2 — Create new lock
+    const currentGeneration = readEnvelopeGeneration(existingEnvelope);
+    const newLock = createLockPayload(self, envelopeName, currentGeneration);
+    await writeLockToDrive(envelopeName, newLock);
+
+    // Step 3 — Re-read to confirm
+    const confirmLock = await readLockFromDrive(envelopeName);
+    const confirmEval = evaluateEnvelopeLock(confirmLock, self);
+
+    if (confirmEval.status === "owned") {
+        return Object.freeze({
+            acquired: true,
+            reason: "lock-acquired",
+            lock: confirmLock
+        });
+    }
+
+    return Object.freeze({
+        acquired: false,
+        reason: "race-lost",
+        lock: confirmLock
+    });
+}
+
+const mockDrive = {
+    lock: null
+};
+
+async function mockReadLock() {
+    return mockDrive.lock;
+}
+
+async function mockWriteLock(_, lockJson) {
+    mockDrive.lock = lockJson;
+}
+
+function extendLock(lockJson, ttlMs) {
+    const now = Date.now();
+
+    return {
+        ...lockJson,
+        expiresAt: new Date(now + ttlMs).toISOString()
+    };
+}
+
+function startLockHeartbeat({ envelopeName, self, ttlMs, heartbeatMs, readLockFromDrive, writeLockToDrive, onLost }) {
+    let stopped = false;
+
+    const tick = async () => {
+        if (stopped) return;
+
+        try {
+            const currentLock = await readLockFromDrive(envelopeName);
+            const evalResult = evaluateEnvelopeLock(currentLock, self);
+
+            if (evalResult.status !== "owned") {
+                stopped = true;
+                onLost?.(evalResult);
+                return;
+            }
+
+            const extended = extendLock(currentLock, ttlMs);
+            await writeLockToDrive(envelopeName, extended);
+        } catch (err) {
+            // Silent failure → allow TTL to expire
+            stopped = true;
+            onLost?.({ reason: "heartbeat-failed", error: err });
+        }
+    };
+
+    const timer = setInterval(tick, heartbeatMs);
+
+    return Object.freeze({
+        stop() {
+            stopped = true;
+            clearInterval(timer);
+        }
+    });
+}
+
+async function acquireDriveWriteLock(envelopeName) {
+    const identity = await loadIdentity();
+    if (!identity) throw new Error("Identity not loaded");
+
+    const self = {
+        account: userEmail,
+        deviceId: identity.deviceId
+    };
+
+    const result = await attemptEnvelopeLock({
+        envelopeName,
+        self,
+        readLockFromDrive: mockReadLock,
+        writeLockToDrive: mockWriteLock
+    });
+
+    if (!result.acquired) {
+        throw new Error("Failed to acquire lock: " + result.reason);
+    }
+
+    driveLockState.held = true;
+    driveLockState.envelopeName = envelopeName;
+    driveLockState.self = self;
+    driveLockState.lock = result.lock;
+
+    // Start heartbeat
+    driveLockState.heartbeat = startLockHeartbeat({
+        envelopeName,
+        self,
+        ttlMs: 30000,
+        heartbeatMs: 10000,
+        readLockFromDrive: mockReadLock,
+        writeLockToDrive: mockWriteLock,
+        onLost: (info) => {
+            log("❌ Lost lock:", info);
+            driveLockState.held = false;
+        }
+    });
+
+    log("🔒 Drive write lock acquired");
+}
+
+async function mockDriveDeleteLock() {
+    mockDrive.lock = null;
+}
+
+async function releaseDriveLock() {
+    if (!driveLockState.held) {
+        log("ℹ️ No lock held — nothing to release");
+        return;
+    }
+
+    log("🔓 Releasing Drive write lock");
+
+    try {
+        driveLockState.heartbeat?.stop();
+        await mockDriveDeleteLock();
+
+        driveLockState.held = false;
+        driveLockState.envelopeName = null;
+        driveLockState.self = null;
+        driveLockState.lock = null;
+        driveLockState.heartbeat = null;
+
+        log("✅ Drive lock released");
+    } catch (e) {
+        log("⚠️ Failed to release lock (will expire naturally)");
     }
 }
 
-(() => {
-    const t = document.getElementById("titleGesture");
-    let timer = null;
-    t.addEventListener("pointerdown", () => timer = setTimeout(armBiometric, 5000));
-    ["pointerup", "pointerleave", "pointercancel"].forEach(e => t.addEventListener(e, () => clearTimeout(timer)));
-    t.addEventListener("click", async () => {
-        if (!biometricRegistered) return;
-        await biometricAuthenticateFromGesture();
-    });
-})();
-
-/* ================= LOGOUT ================= */
-function logout() {
-    accessToken = null;
-    userEmail = null;
-    location.reload();
+function readEnvelopeGeneration(envelopeJson) {
+    return Number(envelopeJson?.generation) || 0;
 }
 
-window.onload = initGIS;
+function assertWriteFence(lock, envelope) {
+    const envGen = Number(envelope?.generation) || 0;
+
+    if (lock.generation !== envGen) {
+        throw new Error(
+            `Write fence violated — lock gen ${lock.generation}, envelope gen ${envGen}`
+        );
+    }
+}
+
+async function writeEnvelopeWithLock({envelopeName, envelope, lockState, writeFn}) {
+    if (!lockState?.lock) {
+        throw new Error("No active lock — write denied");
+    }
+
+    // Fence check
+    assertWriteFence(lockState.lock, envelope);
+
+    // Let caller mutate a copy
+    const workingCopy = structuredClone(envelope);
+
+    await writeFn(workingCopy);
+
+    // Increment generation AFTER mutation
+    const prevGen = Number(workingCopy.generation) || 0;
+    workingCopy.generation = prevGen + 1;
+
+    // Persist
+    await writeEnvelopeToDrive(envelopeName, workingCopy);
+
+    // Update local view
+    envelope.generation = workingCopy.generation;
+
+    return workingCopy;
+}
+
+// TEMP STUB — Phase 2C only
+async function writeEnvelopeToDrive(envelopeName, envelopeJson) {
+    log(`📝 [STUB] writeEnvelopeToDrive(${envelopeName})`);
+    log(JSON.stringify(envelopeJson, null, 2));
+}
 
 /* ----------------- TESTS -------------------*/
 async function testStep5_1() {
@@ -1270,3 +1551,225 @@ async function testStep2A_fullRegistryPipeline() {
     log("✅ Step 2A.4.3 PASSED");
 }
 
+async function testStep2B_1() {
+    console.clear();
+    log("🧪 Step 2B.1 — Lock discovery & validation");
+
+    const identity = await loadIdentity();
+
+    const self = {
+        account: userEmail,
+        deviceId: identity.deviceId
+    };
+
+    const activeForeignLock = {
+        version: 1,
+        envelope: "envelope.json",
+        owner: {
+            account: "other@gmail.com",
+            deviceId: "other-device"
+        },
+        lockId: "lock-123",
+        mode: "write",
+        acquiredAt: new Date(Date.now() - 5000).toISOString(),
+        expiresAt: new Date(Date.now() + 20000).toISOString(),
+        heartbeatIntervalMs: 10000
+    };
+
+    const expiredLock = {
+        ...activeForeignLock,
+        expiresAt: new Date(Date.now() - 1000).toISOString()
+    };
+
+    log("▶ Active foreign lock:");
+    log(JSON.stringify(evaluateEnvelopeLock(activeForeignLock, self)));
+
+    log("▶ Expired lock:");
+    log(JSON.stringify(evaluateEnvelopeLock(expiredLock, self)));
+
+    log("▶ No lock:");
+    log(JSON.stringify(evaluateEnvelopeLock(null, self)));
+
+    log("✅ Step 2B.1 PASSED");
+}
+
+async function testStep2B_2() {
+    console.clear();
+    log("🧪 Step 2B.2 — Lock acquisition");
+
+    const identity = await loadIdentity();
+
+    const self = {
+        account: userEmail,
+        deviceId: identity.deviceId
+    };
+
+    // First device acquires lock
+    const result1 = await attemptEnvelopeLock({
+        envelopeName: "envelope.json",
+        self,
+        readLockFromDrive: mockReadLock,
+        writeLockToDrive: mockWriteLock
+    });
+
+    log("▶ First attempt:");
+    log(JSON.stringify(result1));
+
+    // Second device tries to acquire
+    const other = {
+        account: "other@gmail.com",
+        deviceId: "other-device"
+    };
+
+    const result2 = await attemptEnvelopeLock({
+        envelopeName: "envelope.json",
+        self: other,
+        readLockFromDrive: mockReadLock,
+        writeLockToDrive: mockWriteLock
+    });
+
+    log("▶ Second attempt:");
+    log(JSON.stringify(result2));
+
+    log("Final lock:");
+    log(JSON.stringify(mockDrive.lock));
+
+    log("✅ Step 2B.2 PASSED");
+}
+
+async function testStep2B_3() {
+    console.clear();
+    log("🧪 Step 2B.3 — Lock heartbeat");
+
+    const identity = await loadIdentity();
+
+    const self = {
+        account: userEmail,
+        deviceId: identity.deviceId
+    };
+
+    // Seed lock (as if acquired)
+    mockDrive.lock = createLockPayload(self, "envelope.json");
+
+    const originalExpiry = mockDrive.lock.expiresAt;
+    log("Initial expiresAt:" + originalExpiry);
+
+    const hb = startLockHeartbeat({
+        envelopeName: "envelope.json",
+        self,
+        ttlMs: 30000,
+        heartbeatMs: 1000,
+        readLockFromDrive: mockReadLock,
+        writeLockToDrive: mockWriteLock,
+        onLost: (info) => log("❌ Lost lock:", info)
+    });
+
+    // Let heartbeat run twice
+    await new Promise(r => setTimeout(r, 2500));
+
+    hb.stop();
+
+    log("Extended expiresAt:" + mockDrive.lock.expiresAt);
+
+    if (!originalExpiry || !mockDrive.lock.expiresAt) {
+        throw new Error("expiresAt missing — heartbeat invalid");
+    }
+
+    if (Date.parse(mockDrive.lock.expiresAt) <= Date.parse(originalExpiry)) {
+        throw new Error("Heartbeat did not extend lock");
+    }
+
+    const delta = Date.parse(mockDrive.lock.expiresAt) - Date.parse(originalExpiry);
+
+    log("TTL extended by (ms): " + delta);
+
+    log("✅ Step 2B.3 PASSED");
+}
+
+async function testStep2B_4() {
+    log("🧪 Step 2B.4 — Explicit lock release");
+
+    await acquireDriveWriteLock("envelope.json");
+
+    if (!driveLockState.held) {
+        throw new Error("Lock was not acquired");
+    }
+
+    await releaseDriveLock();
+
+    if (driveLockState.held) {
+        throw new Error("Lock still marked as held after release");
+    }
+
+    log("✅ Step 2B.4 PASSED — lock released cleanly");
+}
+
+async function testStep2C_2() {
+    console.clear();
+    log("🧪 Step 2C.2 — Lock-bound write API");
+
+    const envelopeName = "envelope.json";
+    const identity = await loadIdentity();
+
+    // Fake envelope
+    const envelope = {
+        version: "1.0",
+        generation: 3,
+        payload: {}
+    };
+
+    // Fake lock (fresh)
+    const lockState = {
+        lock: {
+            generation: 3,
+            owner: { deviceId: identity.deviceId }
+        }
+    };
+
+    // SHOULD SUCCEED
+    await writeEnvelopeWithLock({
+        envelopeName,
+        envelope,
+        lockState,
+        writeFn: async (env) => {
+            env.payload.test = "ok";
+        }
+    });
+
+    if (envelope.generation !== 4) {
+        throw new Error("Generation not incremented");
+    }
+
+    log("✅ Valid write passed");
+
+    // STALE LOCK
+    const staleLockState = {
+        lock: {
+            generation: 2,
+            owner: { deviceId: identity.deviceId }
+        }
+    };
+
+    let failed = false;
+    try {
+        await writeEnvelopeWithLock({
+            envelopeName,
+            envelope,
+            lockState: staleLockState,
+            writeFn: async () => {}
+        });
+    } catch {
+        failed = true;
+    }
+
+    if (!failed) {
+        throw new Error("Stale write should have failed");
+    }
+
+    log("✅ Stale write correctly rejected");
+    log("🎉 Step 2C.2 PASSED");
+}
+
+
+// IMPORTANT - DO NOT DELETE
+window.onload = initGIS;
