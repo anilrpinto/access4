@@ -38,21 +38,8 @@
     </div>
 
     <button id="resetBioBtn">Reset Biometric</button>
-
     <br/>
-    <button onclick="testStep5_1()">Test Step 5.1</button>
-    <button onclick="testStep5_15_3()">Test Step 5_15_3</button>
-    <br/>
-    <button onclick="testNormalizePublicKey()">Test Phase 2A.2 – Normalize Public Key</button>
-    <br/>
-    <button onclick="testStep2A_fullRegistryPipeline()">Test Step 2A.4.3 — Registry Pipeline</button>
-    <br/>
-    <button onclick="testStep2B_1()">Test Step 2B.1 – Lock discovery</button>
-    <button onclick="testStep2B_2()">Test Step 2B.2 – Lock acquisition</button>
-    <button onclick="testStep2B_3()">Test Step 2B.3 – Lock heartbeat</button>
-    <br/>
-    <button onclick="releaseDriveLock()">Release Write Lock</button>
-    <button onclick="testStep2C_2()">Test Step 2C.2 — Lock-bound write</button>
+    <button onclick="runLockTest()">Test Lock & Write Envelope</button>
     <br/>
     <h3>Log</h3>
     <pre id="log"></pre>

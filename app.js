@@ -7,6 +7,9 @@ const ACCESS4_ROOT_ID = "1zQPiXTCDlPjzgD1YZiVKsRB2s4INUS_g";
 const AUTH_FILE_NAME = "authorized.json";
 const PUBKEY_FOLDER_NAME = "pub-keys";
 
+const HEARTBEAT_INTERVAL = 10_000; // 10 seconds
+const LOCK_TTL_MS = 30_000;        // must be > heartbeat
+
 /* ================= STATE ================= */
 let tokenClient;
 let accessToken = null;
@@ -28,14 +31,7 @@ let keyRegistry = {
     }
 };
 
-const driveLockState = {
-    held: false,
-    envelopeName: null,
-    self: null,
-    lock: null,
-    heartbeat: null
-};
-
+let driveLockState = null;
 
 /* ================= LOG ================= */
 function log(msg) {
@@ -113,19 +109,24 @@ function buildDriveUrl(path, params = {}) {
     Object.entries(params).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
 }
 
+function buildDriveUploadUrl(path, params = {}) {
+    const qs = new URLSearchParams({
+        supportsAllDrives: "true",
+        includeItemsFromAllDrives: "true",
+        ...params
+    });
+    return `https://www.googleapis.com/upload/drive/v3/${path}?${qs}`;
+}
+
 async function driveFetch(url, options = {}) {
     options.headers ||= {};
     options.headers.Authorization = `Bearer ${accessToken}`;
     const res = await fetch(url, options);
-    if (!res.ok) throw new Error(await res.text());
+    if (!res.ok) throw new Error(`Drive fetch failed: ${res.status} ${res.statusText}`);
     return res.json();
 }
 
-async function driveMultipartUpload({
-    metadata,
-    content,
-    contentType = "application/json"
-}) {
+async function driveMultipartUpload({ metadata, content, contentType = "application/json" }) {
     const boundary = "-------access4-" + crypto.randomUUID();
 
     const body =
@@ -154,7 +155,80 @@ async function driveMultipartUpload({
         throw new Error(`Multipart upload failed ${res.status}: ${text}`);
     }
 
+    const json = await res.json();
+    return json;
+}
+
+// IMPORTANT:
+// Drive has separate endpoints for metadata vs file content.
+// NEVER send JSON content to drive/v3/files.
+// Use upload/drive/v3/files for media writes.
+
+async function driveApiGet(path, params = {}) {
+    return driveFetch(
+        buildDriveUrl(path, params),
+        { method: "GET" }
+    );
+}
+
+async function driveFindFileByNameInFolder(name, folderId) {
+    const q = [
+        `name='${name.replace(/'/g, "\\'")}'`,
+        `'${folderId}' in parents`,
+        `trashed=false`
+    ].join(" and ");
+
+    const res = await driveApiGet("files", { q, fields: "files(id,name,modifiedTime)" });
+
+    return res.files?.[0] || null;
+}
+
+async function driveFetchRaw(url, options = {}) {
+    options.headers ||= {};
+    options.headers.Authorization = `Bearer ${accessToken}`;
+
+    const res = await fetch(url, options);
+    if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text);
+    }
     return res;
+}
+
+async function driveReadJsonFile(fileId) {
+    const res = await driveFetchRaw(
+        buildDriveUrl(`files/${fileId}`, { alt: "media" })
+    );
+    return await res.json();
+}
+
+async function drivePatchJsonFile(fileId, json) {
+    await driveFetchRaw(
+        buildDriveUploadUrl(`files/${fileId}`, { uploadType: "media" }),
+        {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(json)
+        }
+    );
+}
+
+async function driveCreateJsonFile({ name, parents, json }) {
+    const data = await driveMultipartUpload({
+        metadata: {
+            name,
+            parents,
+            mimeType: "application/json"
+        },
+        content: JSON.stringify(json),
+        contentType: "application/json"
+    });
+
+    return data.id;
+}
+
+async function findDriveFileByName(name) {
+    return driveFindFileByNameInFolder(name, ACCESS4_ROOT_ID);
 }
 
 async function verifyWritable(folderId) {
@@ -167,7 +241,7 @@ async function verifyWritable(folderId) {
             Authorization: `Bearer ${accessToken}`
         }
     });
-    log("? Drive access verified (read OK)");
+    log("? Drive access verified (read scope OK)");
 }
 
 async function verifySharedRoot() {
@@ -704,7 +778,7 @@ async function findOrCreateUserFolder() {
     return folder.id;
 }
 
-/* ================= STEP 5: DEVICE PUBLIC KEY ================= */
+/* ================= STEP 5: ENVELOPE CRYPTO ================= */
 
 async function generateContentKey() {
     return crypto.subtle.generateKey({
@@ -1100,674 +1174,323 @@ async function buildKeyRegistryFromDrive(rawPublicKeyJsons) {
 }
 
 /* ------------------- Envelope check+acquire lock helpers ---------------- */
-function evaluateEnvelopeLock(lockJson, selfIdentity) {
+function evaluateEnvelopeLock(lock, self) {
+    if (!lock) return { status: "free" };
+
     const now = Date.now();
+    const expired = Date.parse(lock.expiresAt) <= now;
 
-    if (!lockJson || lockJson.version !== 1) {
-        return Object.freeze({
-            status: "free",
-            reason: "no-lock-or-invalid",
-            lock: null
-        });
-    }
-
-    const expiresAt = Date.parse(lockJson.expiresAt);
-    if (Number.isNaN(expiresAt) || expiresAt <= now) {
-        return Object.freeze({
-            status: "free",
-            reason: "lock-expired",
-            lock: null
-        });
-    }
+    if (expired) return { status: "free", reason: "expired" };
 
     if (
-    lockJson.owner?.account === selfIdentity.account &&
-    lockJson.owner?.deviceId === selfIdentity.deviceId
+    lock.owner.account === self.account &&
+    lock.owner.deviceId === self.deviceId
     ) {
-        return Object.freeze({
-            status: "owned",
-            reason: "lock-owned-by-self",
-            lock: Object.freeze(lockJson)
-        });
+        return { status: "owned", lock };
     }
 
-    return Object.freeze({
-        status: "locked",
-        reason: "lock-owned-by-other",
-        lock: Object.freeze(lockJson)
-    });
+    return { status: "locked", lock };
 }
 
 function createLockPayload(self, envelopeName, generation) {
     const now = Date.now();
-    const ttlMs = 30000;
-
     return {
         version: 1,
         envelope: envelopeName,
-
         owner: {
             account: self.account,
             deviceId: self.deviceId
         },
-
-        lockId: crypto.randomUUID(),
         mode: "write",
-
-        generation, // 🔒 WRITE FENCE
-
+        generation,
         acquiredAt: new Date(now).toISOString(),
-        expiresAt: new Date(now + ttlMs).toISOString(),
-
-        heartbeatIntervalMs: 10000
+        expiresAt: new Date(now + LOCK_TTL_MS).toISOString()
     };
 }
 
-async function attemptEnvelopeLock({envelopeName, self, readLockFromDrive, writeLockToDrive }) {
-    // Step 1 — Read existing lock
-    const existingLock = await readLockFromDrive(envelopeName);
-    const evaluation = evaluateEnvelopeLock(existingLock, self);
-
-    if (evaluation.status === "locked") {
-        return Object.freeze({
-            acquired: false,
-            reason: "locked-by-other",
-            lock: evaluation.lock
-        });
-    }
-
-    // Step 2 — Create new lock
-    const currentGeneration = readEnvelopeGeneration(existingEnvelope);
-    const newLock = createLockPayload(self, envelopeName, currentGeneration);
-    await writeLockToDrive(envelopeName, newLock);
-
-    // Step 3 — Re-read to confirm
-    const confirmLock = await readLockFromDrive(envelopeName);
-    const confirmEval = evaluateEnvelopeLock(confirmLock, self);
-
-    if (confirmEval.status === "owned") {
-        return Object.freeze({
-            acquired: true,
-            reason: "lock-acquired",
-            lock: confirmLock
-        });
-    }
-
-    return Object.freeze({
-        acquired: false,
-        reason: "race-lost",
-        lock: confirmLock
-    });
-}
-
-const mockDrive = {
-    lock: null
-};
-
-async function mockReadLock() {
-    return mockDrive.lock;
-}
-
-async function mockWriteLock(_, lockJson) {
-    mockDrive.lock = lockJson;
-}
-
-function extendLock(lockJson, ttlMs) {
-    const now = Date.now();
-
+function extendLock(lock, ttlMs) {
     return {
-        ...lockJson,
-        expiresAt: new Date(now + ttlMs).toISOString()
+        ...lock,
+        expiresAt: new Date(Date.now() + ttlMs).toISOString()
     };
 }
 
-function startLockHeartbeat({ envelopeName, self, ttlMs, heartbeatMs, readLockFromDrive, writeLockToDrive, onLost }) {
+function startLockHeartbeat({envelopeName, self, readLockFromDrive, writeLockToDrive, onLost}) {
     let stopped = false;
 
     const tick = async () => {
         if (stopped) return;
 
         try {
-            const currentLock = await readLockFromDrive(envelopeName);
-            const evalResult = evaluateEnvelopeLock(currentLock, self);
+            const lockFile = await readLockFromDrive(envelopeName);
+            const diskLock = lockFile?.json;
 
+            const evalResult = evaluateEnvelopeLock(diskLock, self);
             if (evalResult.status !== "owned") {
                 stopped = true;
                 onLost?.(evalResult);
                 return;
             }
 
-            const extended = extendLock(currentLock, ttlMs);
-            await writeLockToDrive(envelopeName, extended);
+            // 🔑 MERGE: never allow generation to move backwards
+            const mergedLock = {
+                ...diskLock,
+                generation: Math.max(
+                    diskLock?.generation ?? 0,
+                    driveLockState?.lock?.generation ?? 0
+                )
+            };
+
+            const extended = extendLock(mergedLock, LOCK_TTL_MS);
+
+            if (extended.generation < driveLockState.lock.generation) {
+                throw new Error("Heartbeat attempted to regress generation");
+            }
+
+            await writeLockToDrive(
+                envelopeName,
+                extended,
+                lockFile.fileId
+            );
+
+            log(`💓 Heartbeat OK (gen=${extended.generation}, expires ${extended.expiresAt})`);
+
         } catch (err) {
-            // Silent failure → allow TTL to expire
             stopped = true;
             onLost?.({ reason: "heartbeat-failed", error: err });
         }
     };
 
-    const timer = setInterval(tick, heartbeatMs);
+    const timer = setInterval(tick, HEARTBEAT_INTERVAL);
 
-    return Object.freeze({
+    return {
         stop() {
             stopped = true;
             clearInterval(timer);
         }
-    });
+    };
 }
 
 async function acquireDriveWriteLock(envelopeName) {
+    log("🔐 acquireDriveWriteLock: start");
+
     const identity = await loadIdentity();
-    if (!identity) throw new Error("Identity not loaded");
+    const self = { account: userEmail, deviceId: identity.deviceId };
 
-    const self = {
-        account: userEmail,
-        deviceId: identity.deviceId
-    };
+    const lockFile = await readLockFromDrive(envelopeName);
+    const evalResult = evaluateEnvelopeLock(lockFile?.json, self);
 
-    const result = await attemptEnvelopeLock({
-        envelopeName,
-        self,
-        readLockFromDrive: mockReadLock,
-        writeLockToDrive: mockWriteLock
-    });
-
-    if (!result.acquired) {
-        throw new Error("Failed to acquire lock: " + result.reason);
+    if (evalResult.status === "locked") {
+        throw new Error("Failed to acquire lock: locked-by-other");
     }
 
-    driveLockState.held = true;
-    driveLockState.envelopeName = envelopeName;
-    driveLockState.self = self;
-    driveLockState.lock = result.lock;
+    const envelope = await readEnvelopeFromDrive(envelopeName).catch(() => null);
+    const generation = envelope?.generation ?? 0;
 
-    // Start heartbeat
-    driveLockState.heartbeat = startLockHeartbeat({
+    const lock = createLockPayload(self, envelopeName, generation);
+
+    log("🔐 writing lock to Drive...");
+    const fileId = await writeLockToDrive(envelopeName, lock, lockFile?.fileId);
+
+    log("🔐 lock written, fileId:", fileId);
+
+    driveLockState = {
         envelopeName,
+        fileId,
+        lock,
         self,
-        ttlMs: 30000,
-        heartbeatMs: 10000,
-        readLockFromDrive: mockReadLock,
-        writeLockToDrive: mockWriteLock,
-        onLost: (info) => {
-            log("❌ Lost lock:", info);
-            driveLockState.held = false;
-        }
-    });
+        heartbeat: startLockHeartbeat({
+            envelopeName,
+            self,
+            readLockFromDrive,
+            writeLockToDrive,
+            onLost: info => log("❌ Lock lost: " + JSON.stringify(info))
+        })
+    };
 
-    log("🔒 Drive write lock acquired");
-}
-
-async function mockDriveDeleteLock() {
-    mockDrive.lock = null;
+    log("✅ acquireDriveWriteLock completed");
+    return driveLockState;
 }
 
 async function releaseDriveLock() {
-    if (!driveLockState.held) {
-        log("ℹ️ No lock held — nothing to release");
-        return;
-    }
+    if (!driveLockState?.fileId) return;
 
-    log("🔓 Releasing Drive write lock");
+    driveLockState.heartbeat?.stop();
+
+    const cleared = {
+        ...driveLockState.lock,
+        expiresAt: new Date(0).toISOString()
+    };
+
+    await writeLockToDrive(
+        driveLockState.envelopeName,
+        cleared,
+        driveLockState.fileId
+    );
+
+    log("🔓 Drive lock released");
+    driveLockState = null;
+}
+
+/* ================= WRITE ENVELOPE WITH LOCK ================= */
+async function writeEnvelopeWithLock(envelopeName, envelopeData) {
+
+    log("➡️ Entered writeEnvelopeWithLock()");
+
+    if (!driveLockState || driveLockState.envelopeName !== envelopeName) {
+        throw new Error("Cannot write: Drive lock not held for this envelope");
+    }
 
     try {
-        driveLockState.heartbeat?.stop();
-        await mockDriveDeleteLock();
+        // 1️⃣ Find envelope file (metadata only)
+        const envelopeFile = await findDriveFileByName(envelopeName);
 
-        driveLockState.held = false;
-        driveLockState.envelopeName = null;
-        driveLockState.self = null;
-        driveLockState.lock = null;
-        driveLockState.heartbeat = null;
+        let currentEnvelope = null;
 
-        log("✅ Drive lock released");
-    } catch (e) {
-        log("⚠️ Failed to release lock (will expire naturally)");
-    }
-}
+        if (envelopeFile) {
+            try {
+                currentEnvelope = await driveReadJsonFile(envelopeFile.id);
+            } catch {
+                log("⚠️ Failed to parse existing envelope — will overwrite");
+            }
+        }
 
-function readEnvelopeGeneration(envelopeJson) {
-    return Number(envelopeJson?.generation) || 0;
-}
+        // 2️⃣ Increment generation
+        const currentGen = currentEnvelope?.generation ?? 0;
+        const newGeneration = currentGen + 1;
 
-function assertWriteFence(lock, envelope) {
-    const envGen = Number(envelope?.generation) || 0;
+        // 3️⃣ Build new envelope
+        const newEnvelopeContent = {
+            ...envelopeData,
+            generation: newGeneration,
+            lastModifiedBy: driveLockState.self.deviceId,
+            lastModifiedAt: new Date().toISOString()
+        };
 
-    if (lock.generation !== envGen) {
-        throw new Error(
-            `Write fence violated — lock gen ${lock.generation}, envelope gen ${envGen}`
+        // 4️⃣ Write envelope (content-only)
+        if (envelopeFile?.id) {
+            await drivePatchJsonFile(envelopeFile.id, newEnvelopeContent);
+        } else {
+            await driveCreateJsonFile({
+                name: envelopeName,
+                parents: [ACCESS4_ROOT_ID],
+                json: newEnvelopeContent
+            });
+        }
+
+        // 5️⃣ IMPORTANT: update lock generation to match
+        driveLockState.lock.generation = newGeneration;
+
+        await writeLockToDrive(
+            envelopeName,
+            driveLockState.lock,
+            driveLockState.fileId
         );
+
+        log(`✅ Envelope "${envelopeName}" written, generation=${newGeneration}`);
+        return newEnvelopeContent;
+
+    } catch (err) {
+        log(`❌ Failed to write envelope "${envelopeName}": ${err.message}`);
+        throw err;
     }
 }
 
-async function writeEnvelopeWithLock({envelopeName, envelope, lockState, writeFn}) {
-    if (!lockState?.lock) {
-        throw new Error("No active lock — write denied");
+async function writeEnvelopeSafely(envelopeName, envelopeData, maxRetries = 3, retryDelayMs = 1000) {
+    let attempt = 0;
+
+    while (attempt < maxRetries) {
+        attempt++;
+
+        // Ensure we hold the lock
+        if (!driveLockState || driveLockState.envelopeName !== envelopeName) {
+            log(`🔒 Attempting to acquire lock for "${envelopeName}" (attempt ${attempt})`);
+            try {
+                await acquireDriveWriteLock(envelopeName);
+            } catch (err) {
+                log(`⚠️ Lock acquisition failed: ${err.message}`);
+                await new Promise(r => setTimeout(r, retryDelayMs));
+                continue;
+            }
+        }
+
+        try {
+            const result = await writeEnvelopeWithLock(envelopeName, envelopeData);
+            return result;
+        } catch (err) {
+            log(`⚠️ Write attempt failed: ${err.message}`);
+            // If lock was lost mid-write, retry
+            await new Promise(r => setTimeout(r, retryDelayMs));
+        }
     }
 
-    // Fence check
-    assertWriteFence(lockState.lock, envelope);
-
-    // Let caller mutate a copy
-    const workingCopy = structuredClone(envelope);
-
-    await writeFn(workingCopy);
-
-    // Increment generation AFTER mutation
-    const prevGen = Number(workingCopy.generation) || 0;
-    workingCopy.generation = prevGen + 1;
-
-    // Persist
-    await writeEnvelopeToDrive(envelopeName, workingCopy);
-
-    // Update local view
-    envelope.generation = workingCopy.generation;
-
-    return workingCopy;
+    throw new Error(`Failed to write envelope "${envelopeName}" after ${maxRetries} attempts`);
 }
 
-// TEMP STUB — Phase 2C only
-async function writeEnvelopeToDrive(envelopeName, envelopeJson) {
-    log(`📝 [STUB] writeEnvelopeToDrive(${envelopeName})`);
-    log(JSON.stringify(envelopeJson, null, 2));
+
+/*-------------- Drive lock file io helpers recently added after baseline  ------------------------*/
+async function readLockFromDrive(envelopeName) {
+    const lockName = `${envelopeName}.lock`;
+
+    const file = await findDriveFileByName(lockName);
+    if (!file) return null;
+
+    const json = await driveReadJsonFile(file.id);
+
+    return {
+        fileId: file.id,
+        json
+    };
 }
+
+async function writeLockToDrive(envelopeName, lockJson, existingFileId = null) {
+    const lockName = `${envelopeName}.lock`;
+
+    if (existingFileId) {
+        // ✅ Content-only update
+        await drivePatchJsonFile(existingFileId, lockJson);
+        return existingFileId;
+    }
+
+    // ✅ New file creation
+    return await driveCreateJsonFile({
+        name: lockName,
+        parents: [ACCESS4_ROOT_ID],
+        json: lockJson
+    });
+}
+
+async function readEnvelopeFromDrive(envelopeName) {
+    const file = await findDriveFileByName(envelopeName);
+    if (!file) return null;
+
+    const json = await driveReadJsonFile(file.id);
+
+    return {
+        fileId: file.id,
+        json
+    };
+}
+
 
 /* ----------------- TESTS -------------------*/
-async function testStep5_1() {
-    log("🧪 Step 5.1 test started");
 
-    // 1️⃣ Ensure identity is unlocked
-    const id = await loadIdentity();
-    if (!id) throw new Error("No local identity");
-
-    if (!unlockedPassword) {
-        throw new Error("Identity must be unlocked first");
-    }
-
-    // 2️⃣ Construct a mock device public-key record
-    const deviceRecord = {
-        account: userEmail,
-        deviceId: getDeviceId(),
-        version: "1",
-        fingerprint: id.fingerprint,
-        state: "active", // ✅ REQUIRED
-        role: "device", // (optional but good)
-        publicKey: {
-            data: id.publicKey
-        }
-    };
-
-    if (!deviceRecord.fingerprint) {
-        log("WARN: Envelope created without keyId (Step 5.1 test mode)");
-    }
-
-    // 3️⃣ Encrypt test payload
-    const message = "Hello Step 5.1 – envelope crypto works ✅";
-
-    const envelope = await createEnvelope(message, deviceRecord);
-    log("📦 Envelope created: " + JSON.stringify(envelope));
-
-    // 4️⃣ Decrypt it
-    const decrypted = await openEnvelope(envelope);
-
-    log("🔓 Decrypted payload: " + decrypted);
-
-    // 5️⃣ Assert
-    if (decrypted !== message) {
-        throw new Error("❌ Step 5.1 FAILED: plaintext mismatch");
-    }
-
-    log("✅ Step 5.1 PASSED");
-}
-
-async function testStep5_15_3() {
-    log("🧪 Step 5.15.3 rotation test started");
-
-    if (!unlockedPassword) throw new Error("Identity must be unlocked first");
-
-    const oldId = await loadIdentity();
-    if (!oldId) throw new Error("No local identity to rotate");
-
-    // 1️⃣ Rotate the device identity
-    log("🔁 Rotating device identity key");
-    await rotateDeviceIdentity(unlockedPassword);
-
-    const newId = await loadIdentity();
-    log("✅ Device rotated successfully");
-    log("↪ Old fingerprint: " + oldId.fingerprint);
-    log("↪ New fingerprint: " + newId.fingerprint);
-
-    // 2️⃣ Create an envelope using the old keyId (simulate old data)
-    const oldDeviceRecord = {
-        account: userEmail,
-        deviceId: getDeviceId(),
-        version: "1",
-        fingerprint: oldId.fingerprint,
-        state: "active",
-        role: "device",
-        publicKey: { data: oldId.publicKey }
-    };
-
-    const message = "Hello Step 5.15.3 – rotation test ✅";
-    const envelope = await createEnvelope(message, oldDeviceRecord);
-
-    log("📦 Envelope created with old keyId");
-
-    // 3️⃣ Open the envelope — should detect rotation and decrypt using new identity
-    const entry = await selectDecryptableKey(envelope);
-    if (entry.keyId !== newId.fingerprint) {
-        log("🔁 Envelope encrypted with previous device key — rotation detected");
-    }
-
-    const decrypted = await openEnvelope(envelope);
-
-    log("🔓 Envelope decrypted after rotation: " + decrypted);
-
-    if (decrypted !== message) throw new Error("❌ Step 5.15.3 FAILED: plaintext mismatch");
-
-    log("✅ Step 5.15.3 PASSED");
-}
-
-async function testNormalizePublicKey() {
-    log("🧪 Phase 2A.2 – normalizePublicKey() test started");
-
-    // 🔒 Static sample — EXACT format fetched from Drive
-    const rawPublicKeyFromDrive = {
-        "version": "1",
-        "account": "axxx@gmail.com",
-        "deviceId": "06480138-79dd-4a23-8c97-8204f186f649",
-        "keyId": "UgjDkqV55rfP9EwU9czbmMtstkKQjzTUO86ypxD2mLM=",
-        "fingerprint": "UgjDkqV55rfP9EwU9czbmMtstkKQjzTUO86ypxD2mLM=",
-        "state": "active",
-        "role": "device",
-        "supersedes": null,
-        "created": "2026-01-17T22:54:12.842Z",
-        "algorithm": {
-            "type": "RSA",
-            "usage": ["wrapKey"],
-            "modulusLength": 2048,
-            "hash": "SHA-256"
-        },
-        "publicKey": {
-            "format": "spki",
-            "encoding": "base64",
-            "data": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA8U2g..."
-        },
-        "deviceName": "Linux armv81 - Mozilla/5.0",
-        "browser": "Google Chrome,Chromium",
-        "os": "Linux armv81"
-    };
-
-    // 1️⃣ Normalize
-    const normalized = normalizePublicKey(rawPublicKeyFromDrive);
-
-    // 2️⃣ Log clearly
-    log("🔍 Normalized public key:");
-    log(JSON.stringify(normalized, null, 2));
-
-    // 3️⃣ Assertions (minimal but strict)
-    if (!normalized.keyId) throw new Error("Missing keyId after normalization");
-    if (!normalized.fingerprint) throw new Error("Missing fingerprint");
-    if (!normalized.publicKey?.data) throw new Error("Missing publicKey.data");
-    if (normalized.role !== "device") throw new Error("Role mismatch");
-    if (normalized.state !== "active") throw new Error("State mismatch");
-
-    log("✅ Phase 2A.2 PASSED — normalization is stable and deterministic");
-}
-
-async function testStep2A_fullRegistryPipeline() {
-    log("🧪 Step 2A.4.3 – full registry pipeline test");
-
-    const raws = [
-        {
-            account: userEmail,
-            role: "device",
-            deviceId: "d1",
-            fingerprint: "A",
-            keyId: "A",
-            state: "deprecated",
-            publicKey: { format: "spki", encoding: "base64", data: "AAA" }
-        },
-        {
-            account: userEmail,
-            role: "device",
-            deviceId: "d1",
-            fingerprint: "B",
-            keyId: "B",
-            state: "active",
-            supersedes: "A",
-            publicKey: { format: "spki", encoding: "base64", data: "BBB" }
-        }
-    ];
-
-    const registry = await buildKeyRegistryFromDrive(raws);
-
-    if (registry.flat.activeDevices.length !== 1) {
-        throw new Error("Expected exactly one effective active device");
-    }
-
-    log("📦 Final registry:");
-    log(JSON.stringify(registry.flat.activeDevices, null, 2));
-    log("✅ Step 2A.4.3 PASSED");
-}
-
-async function testStep2B_1() {
-    console.clear();
-    log("🧪 Step 2B.1 — Lock discovery & validation");
-
-    const identity = await loadIdentity();
-
-    const self = {
-        account: userEmail,
-        deviceId: identity.deviceId
-    };
-
-    const activeForeignLock = {
-        version: 1,
-        envelope: "envelope.json",
-        owner: {
-            account: "other@gmail.com",
-            deviceId: "other-device"
-        },
-        lockId: "lock-123",
-        mode: "write",
-        acquiredAt: new Date(Date.now() - 5000).toISOString(),
-        expiresAt: new Date(Date.now() + 20000).toISOString(),
-        heartbeatIntervalMs: 10000
-    };
-
-    const expiredLock = {
-        ...activeForeignLock,
-        expiresAt: new Date(Date.now() - 1000).toISOString()
-    };
-
-    log("▶ Active foreign lock:");
-    log(JSON.stringify(evaluateEnvelopeLock(activeForeignLock, self)));
-
-    log("▶ Expired lock:");
-    log(JSON.stringify(evaluateEnvelopeLock(expiredLock, self)));
-
-    log("▶ No lock:");
-    log(JSON.stringify(evaluateEnvelopeLock(null, self)));
-
-    log("✅ Step 2B.1 PASSED");
-}
-
-async function testStep2B_2() {
-    console.clear();
-    log("🧪 Step 2B.2 — Lock acquisition");
-
-    const identity = await loadIdentity();
-
-    const self = {
-        account: userEmail,
-        deviceId: identity.deviceId
-    };
-
-    // First device acquires lock
-    const result1 = await attemptEnvelopeLock({
-        envelopeName: "envelope.json",
-        self,
-        readLockFromDrive: mockReadLock,
-        writeLockToDrive: mockWriteLock
-    });
-
-    log("▶ First attempt:");
-    log(JSON.stringify(result1));
-
-    // Second device tries to acquire
-    const other = {
-        account: "other@gmail.com",
-        deviceId: "other-device"
-    };
-
-    const result2 = await attemptEnvelopeLock({
-        envelopeName: "envelope.json",
-        self: other,
-        readLockFromDrive: mockReadLock,
-        writeLockToDrive: mockWriteLock
-    });
-
-    log("▶ Second attempt:");
-    log(JSON.stringify(result2));
-
-    log("Final lock:");
-    log(JSON.stringify(mockDrive.lock));
-
-    log("✅ Step 2B.2 PASSED");
-}
-
-async function testStep2B_3() {
-    console.clear();
-    log("🧪 Step 2B.3 — Lock heartbeat");
-
-    const identity = await loadIdentity();
-
-    const self = {
-        account: userEmail,
-        deviceId: identity.deviceId
-    };
-
-    // Seed lock (as if acquired)
-    mockDrive.lock = createLockPayload(self, "envelope.json");
-
-    const originalExpiry = mockDrive.lock.expiresAt;
-    log("Initial expiresAt:" + originalExpiry);
-
-    const hb = startLockHeartbeat({
-        envelopeName: "envelope.json",
-        self,
-        ttlMs: 30000,
-        heartbeatMs: 1000,
-        readLockFromDrive: mockReadLock,
-        writeLockToDrive: mockWriteLock,
-        onLost: (info) => log("❌ Lost lock:", info)
-    });
-
-    // Let heartbeat run twice
-    await new Promise(r => setTimeout(r, 2500));
-
-    hb.stop();
-
-    log("Extended expiresAt:" + mockDrive.lock.expiresAt);
-
-    if (!originalExpiry || !mockDrive.lock.expiresAt) {
-        throw new Error("expiresAt missing — heartbeat invalid");
-    }
-
-    if (Date.parse(mockDrive.lock.expiresAt) <= Date.parse(originalExpiry)) {
-        throw new Error("Heartbeat did not extend lock");
-    }
-
-    const delta = Date.parse(mockDrive.lock.expiresAt) - Date.parse(originalExpiry);
-
-    log("TTL extended by (ms): " + delta);
-
-    log("✅ Step 2B.3 PASSED");
-}
-
-async function testStep2B_4() {
-    log("🧪 Step 2B.4 — Explicit lock release");
-
-    await acquireDriveWriteLock("envelope.json");
-
-    if (!driveLockState.held) {
-        throw new Error("Lock was not acquired");
-    }
-
-    await releaseDriveLock();
-
-    if (driveLockState.held) {
-        throw new Error("Lock still marked as held after release");
-    }
-
-    log("✅ Step 2B.4 PASSED — lock released cleanly");
-}
-
-async function testStep2C_2() {
-    console.clear();
-    log("🧪 Step 2C.2 — Lock-bound write API");
-
-    const envelopeName = "envelope.json";
-    const identity = await loadIdentity();
-
-    // Fake envelope
-    const envelope = {
-        version: "1.0",
-        generation: 3,
-        payload: {}
-    };
-
-    // Fake lock (fresh)
-    const lockState = {
-        lock: {
-            generation: 3,
-            owner: { deviceId: identity.deviceId }
-        }
-    };
-
-    // SHOULD SUCCEED
-    await writeEnvelopeWithLock({
-        envelopeName,
-        envelope,
-        lockState,
-        writeFn: async (env) => {
-            env.payload.test = "ok";
-        }
-    });
-
-    if (envelope.generation !== 4) {
-        throw new Error("Generation not incremented");
-    }
-
-    log("✅ Valid write passed");
-
-    // STALE LOCK
-    const staleLockState = {
-        lock: {
-            generation: 2,
-            owner: { deviceId: identity.deviceId }
-        }
-    };
-
-    let failed = false;
+async function runLockTest() {
     try {
-        await writeEnvelopeWithLock({
-            envelopeName,
-            envelope,
-            lockState: staleLockState,
-            writeFn: async () => {}
-        });
-    } catch {
-        failed = true;
-    }
+        const envelopeName = "envelope-test.json";
+        const envelopeData = { message: "Hello Drive!", createdAt: new Date().toISOString() };
 
-    if (!failed) {
-        throw new Error("Stale write should have failed");
-    }
+        log("🚀 Starting test: acquire lock → write envelope → release lock");
 
-    log("✅ Stale write correctly rejected");
-    log("🎉 Step 2C.2 PASSED");
+        await acquireDriveWriteLock(envelopeName);
+
+        await writeEnvelopeWithLock(envelopeName, envelopeData);
+        await releaseDriveLock();
+
+        log("🎉 Test completed successfully");
+    } catch (err) {
+        log("❌ Test failed: " + err.message);
+    }
 }
 
 
