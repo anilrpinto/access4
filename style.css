@@ -1,0 +1,148 @@
+:root {
+    --header-bg: #4A6572; /* bluish-gray */
+    --primary-color: #1E90FF;
+    --text-color: #ffffff;
+    --bg-color: #f5f7fa;
+}
+
+body {
+    margin: 0;
+    font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+    background-color: var(--bg-color);
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+}
+
+/* --- COMMON HEADER --- */
+header {
+    width: 100%;
+    background-color: var(--header-bg);
+    color: var(--text-color);
+    padding: 1.5rem 1rem;
+    text-align: center;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+
+    display: flex;
+    flex-direction: column; /* stack title + logout vertically */
+    justify-content: center;
+    align-items: center;
+    gap: 0.5rem; /* small space between title and button */
+}
+
+header h1 {
+    margin: 0;
+    font-size: 1.8rem;
+    font-weight: bold;
+}
+
+/* --- MAIN CONTENT --- */
+main {
+    width: 90%;
+    max-width: 400px;
+    margin: 2rem auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+/* Buttons and input */
+button, input {
+    width: 100%;
+    padding: 0.75rem 1rem;
+    font-size: 1rem;
+    border-radius: 6px;
+    border: 1px solid #ccc;
+    box-sizing: border-box;
+}
+
+button {
+    background-color: var(--primary-color);
+    color: #fff;
+    border: none;
+    cursor: pointer;
+    font-weight: bold;
+    transition: background 0.2s;
+}
+
+button:disabled {
+    background-color: #999;
+    cursor: not-allowed;
+}
+
+input {
+    border: 1px solid #ccc;
+    font-size: 1rem;
+}
+
+label {
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+    display: block;
+    font-size: 1rem;
+}
+
+/* Hide password section initially */
+#passwordSection {
+    display: none;
+}
+
+#confirmPasswordSection {
+    display: none;
+}
+
+.unlock-message {
+    margin-top: 12px;
+    min-height: 1.2em;
+    font-size: 0.95rem;
+    text-align: center;
+    transition: opacity 0.2s ease;
+}
+
+.unlock-message.error {
+    color: #b3261e; /* material red */
+}
+
+.unlock-message.success {
+    color: #0f6d3c; /* calm green */
+}
+
+/* --- LOG BOX --- */
+#log {
+    width: 100%;
+    flex: 1;
+    overflow-y: auto;
+    background: #e0e0e0;
+    border-radius: 6px;
+    padding: 0.5rem;
+    font-size: 0.85rem;
+    white-space: pre-wrap;
+}
+
+/* --- VIEWS --- */
+#loginView, #unlockedView {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+}
+
+#unlockedView {
+    display: none; /* hidden initially */
+}
+
+/* Responsive adjustments */
+@media (min-width: 600px) {
+    main {
+        margin-top: 3rem;
+    }
+}
+
+@media (min-width: 900px) {
+    header h1 {
+        font-size: 2rem;
+    }
+
+    main {
+        max-width: 500px;
+    }
+}

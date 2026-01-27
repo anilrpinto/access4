@@ -14,6 +14,7 @@ const LOCK_TTL_MS = 30_000;        // must be > heartbeat
 let tokenClient;
 let accessToken = null;
 let userEmail = null;
+let needsIdentitySetup = false;
 let unlockedPassword = null;
 let biometricIntent = false;
 let biometricRegistered = false;
@@ -33,9 +34,55 @@ let keyRegistry = {
 
 let driveLockState = null;
 
+/* ================= DOM ================= */
+let userEmailSpan;
+let signinBtn;
+let passwordSection;
+let confirmPasswordSection;
+let unlockBtn;
+let logoutBtn;
+
+let loginView;
+let unlockedView;
+let passwordInput;
+let confirmPasswordInput;
+let logEl;
+
+const UNLOCK_ERROR_DEFS = {
+    WEAK_PASSWORD: {
+        code: "WEAK_PASSWORD",
+        message: "Password must be at least 7 characters long."
+    },
+    NO_ACCESS_TOKEN: {
+        code: "NO_ACCESS_TOKEN",
+        message: "Authentication not ready. Please sign in again."
+    },
+    INCORRECT_PASSWORD: {
+        code: "INCORRECT_PASSWORD",
+        message: "Incorrect password. Please try again."
+    },
+    SAFARI_RECOVERY: {
+        code: "SAFARI_RECOVERY",
+        message: "Browser recovery required. Identity was recreated."
+    },
+    PASSWORD_SETUP_REQUIRED: {
+        code: "PASSWORD_SETUP_REQUIRED",
+        message: "Detected need for a password set up."
+    },
+    NO_IDENTITY: {
+        code: "NO_IDENTITY",
+        message: "No identity found on this device. Please create one first."
+    },
+    UNKNOWN: {
+        code: "UNKNOWN_ERROR",
+        message: "An unexpected error occurred."
+    }
+};
+
+
 /* ================= LOG ================= */
 function log(msg) {
-    document.getElementById("log").textContent += msg + "\n";
+    logEl.textContent += msg + "\n";
 }
 
 /* ================= DEVICE ID (4.1) ================= */
@@ -60,11 +107,6 @@ function initGIS() {
         scope: SCOPES,
         callback: handleAuth
     });
-
-    signinBtn.onclick = () => tokenClient.requestAccessToken({
-        prompt: "consent select_account"
-    });
-    logoutBtn.onclick = logout;
     tokenClient.requestAccessToken({
         prompt: ""
     });
@@ -83,9 +125,43 @@ async function handleAuth(resp) {
 
     signinBtn.disabled = true;
     logoutBtn.disabled = false;
-    passwordBox.style.display = "block";
+    passwordSection.style.display = "block";
 
     biometricRegistered = !!localStorage.getItem(bioCredKey());
+
+    onAuthReady(userEmail);
+}
+
+function onLoad() {
+    // Cache DOM
+    userEmailSpan = document.getElementById("userEmailSpan");
+    signinBtn = document.getElementById("signinBtn");
+    passwordSection = document.getElementById("passwordSection");
+    confirmPasswordSection = document.getElementById("confirmPasswordSection");
+    unlockBtn = document.getElementById("unlockBtn");
+    logoutBtn = document.getElementById("logoutBtn");
+
+    loginView = document.getElementById("loginView");
+    unlockedView = document.getElementById("unlockedView");
+    passwordInput = document.getElementById("passwordInput");
+    confirmPasswordInput = document.getElementById("confirmPasswordInput");
+    logEl = document.getElementById("log");
+
+    // Initial UI state
+    passwordSection.style.display = "none";
+    confirmPasswordSection.style.display = "none";
+    unlockedView.style.display = "none";
+
+    // Wire handlers
+    signinBtn.onclick = handleSignInClick;
+    unlockBtn.onclick = handleUnlockClick;
+    logoutBtn.onclick = handleLogoutClick;
+
+    setupTitleGesture();
+
+    initLoginUI();
+
+    log("UI ready");
 }
 
 /* ================= USER ================= */
@@ -97,7 +173,7 @@ async function fetchUserEmail() {
     });
     const data = await res.json();
     userEmail = data.email;
-    document.getElementById("userEmail").textContent = userEmail;
+    userEmailSpan.textContent = userEmail;
     log("Signed in as xxx@gmail.com"); //+ userEmail);
 }
 
@@ -313,6 +389,19 @@ function saveIdentity(id) {
 }
 
 /* ================= CRYPTO ================= */
+async function createPasswordVerifier(key) {
+    const data = new TextEncoder().encode("identity-ok");
+    return encrypt(data, key);
+}
+
+async function verifyPasswordVerifier(verifier, key) {
+    const buf = await decrypt(verifier, key);
+    const text = new TextDecoder().decode(buf);
+    if (text !== "identity-ok") {
+        throw new Error("INVALID_PASSWORD");
+    }
+}
+
 async function deriveKey(pwd, kdf) {
     const mat = await crypto.subtle.importKey(
         "raw",
@@ -378,10 +467,7 @@ async function generateDeviceKeypair() {
     };
 }
 
-async function buildIdentityFromKeypair({
-    privateKeyPkcs8,
-    publicKeySpki
-}, pwd, opts = {}) {
+async function buildIdentityFromKeypair({privateKeyPkcs8, publicKeySpki}, pwd, opts = {}) {
     const pubB64 = btoa(String.fromCharCode(...new Uint8Array(publicKeySpki)));
     const fingerprint = await computeFingerprintFromPublicKey(pubB64);
 
@@ -392,9 +478,11 @@ async function buildIdentityFromKeypair({
     };
 
     const key = await deriveKey(pwd, kdf);
+    const passwordVerifier = await createPasswordVerifier(key);
     const encryptedPrivateKey = await encrypt(privateKeyPkcs8, key);
 
     return {
+        passwordVerifier,
         encryptedPrivateKey,
         publicKey: pubB64,
         fingerprint,
@@ -499,63 +587,138 @@ async function computeFingerprintFromPublicKey(base64Spki) {
     return btoa(String.fromCharCode(...new Uint8Array(hash)));
 }
 
+function identityNeedsPasswordSetup(id) {
+    return id && !id.passwordVerifier;
+}
+
 /* ================= UNLOCK FLOW ================= */
 async function unlockIdentityFlow(pwd) {
-    if (!pwd || pwd.length < 7) throw new Error("Weak password");
+    if (!pwd || pwd.length < 7) {
+        const e = new Error(UNLOCK_ERROR_DEFS.WEAK_PASSWORD.message);
+        e.code = UNLOCK_ERROR_DEFS.WEAK_PASSWORD.code;
+        throw e;
+    }
+
     log("🔓 Unlock attempt started");
 
-    if (!accessToken) throw new Error("Access token missing");
+    if (!accessToken) {
+        const e = new Error(UNLOCK_ERROR_DEFS.NO_ACCESS_TOKEN.message);
+        e.code = UNLOCK_ERROR_DEFS.NO_ACCESS_TOKEN.code;
+        throw e;
+    }
 
     let id = await loadIdentity();
+
+    if (id && identityNeedsPasswordSetup(id)) {
+        log("🧭 Identity missing password verifier — attempting auto-migration");
+
+        try {
+            await migrateIdentityWithVerifier(id, pwd);
+            id = await loadIdentity();
+        } catch {
+            const e = new Error(UNLOCK_ERROR_DEFS.INCORRECT_PASSWORD.message);
+            e.code = UNLOCK_ERROR_DEFS.INCORRECT_PASSWORD.code;
+            throw e;
+        }
+    }
+
+    // ─────────────────────────────
+    // First-time identity creation (LOCKED)
+    // ─────────────────────────────
     if (!id) {
-        log("📁 No local identity found, creating new one");
-        await createIdentity(pwd);
-        id = await loadIdentity();
+        log("❌ No local identity found — cannot unlock");
+        const e = new Error(UNLOCK_ERROR_DEFS.NO_IDENTITY.message);
+        e.code = UNLOCK_ERROR_DEFS.NO_IDENTITY.code;
+        throw e;
     } else {
         log("📁 Local identity found");
+
+        // ─────────────────────────────
+        // 🔐 AUTHORITATIVE PASSWORD CHECK
+        // ─────────────────────────────
+        let key;
+        try {
+            key = await deriveKey(pwd, id.kdf);
+            await verifyPasswordVerifier(id.passwordVerifier, key);
+            log("🔐 Password verified");
+        } catch {
+            const e = new Error(UNLOCK_ERROR_DEFS.INCORRECT_PASSWORD.message);
+            e.code = UNLOCK_ERROR_DEFS.INCORRECT_PASSWORD.code;
+            throw e;
+        }
+
+        // ─────────────────────────────
+        // 🔓 Attempt private key decrypt
+        // (Safari may fail here)
+        // ─────────────────────────────
         let decrypted = false;
         try {
-            const key = await deriveKey(pwd, id.kdf);
             await decrypt(id.encryptedPrivateKey, key);
             decrypted = true;
             log("✅ Identity successfully decrypted");
         } catch {
-            log("⚠️ Identity decryption failed on this device (Safari limitation)");
+            log("⚠️ Safari crypto limitation detected");
         }
 
-        // --- Auto-rotate if envelope shows previous key was used
-        if (!decrypted || id.supersedes) {
-            log("🔁 Local identity superseded or decryption failed — rotating device key");
+        // ─────────────────────────────
+        // 🔁 Rotation allowed ONLY after
+        // password verification
+        // ─────────────────────────────
+        if (id.supersedes || !decrypted) {
+            log("🔁 Identity superseded or Safari-limited — rotating device key");
             await rotateDeviceIdentity(pwd);
-            id = await loadIdentity(); // reload new identity
+            id = await loadIdentity();
             decrypted = true;
         }
 
+        // ─────────────────────────────
+        // 🔁 Final Safari recovery path
+        // ─────────────────────────────
         if (!decrypted) {
-            log("🔁 Recreating device identity for Safari compatibility");
+            log("🔁 Safari recovery path — recreating identity");
             await createIdentity(pwd);
             id = await loadIdentity();
+
+            if (!id) {
+                const e = new Error(UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.message);
+                e.code = UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.code;
+                throw e;
+            }
         }
     }
 
+    // ─────────────────────────────
+    // Session unlocked
+    // ─────────────────────────────
     unlockedPassword = pwd;
+
     if (biometricIntent && !biometricRegistered) {
         await enrollBiometric(pwd);
         biometricRegistered = true;
     }
 
-    log("🔑 Proceeding to Step 4.1: device public key exchange");
+    log("🔑 Proceeding to device public key exchange");
     await ensureDevicePublicKey();
+
+    return id;
 }
 
+async function migrateIdentityWithVerifier(id, pwd) {
+    log("🛠️ Migrating identity to add password verifier");
 
-unlockBtn.onclick = async () => {
-    try {
-        await unlockIdentityFlow(passwordInput.value);
-    } catch (e) {
-        log("❌ Unlock failed: " + e.message);
-    }
-};
+    const key = await deriveKey(pwd, id.kdf);
+
+    // Prove password correctness by decrypting private key
+    await decrypt(id.encryptedPrivateKey, key);
+
+    // Create and attach verifier
+    id.passwordVerifier = await createPasswordVerifier(key);
+
+    saveIdentity(id);
+
+    log("✅ Identity auto-migrated with password verifier");
+}
+
 
 /* ================= BIOMETRIC ================= */
 function bioCredKey() {
@@ -565,14 +728,6 @@ function bioCredKey() {
 function bioPwdKey() {
     return `access4.bio.pwd::${userEmail}::${getDeviceId()}`;
 }
-
-resetBioBtn.onclick = () => {
-    localStorage.removeItem(bioCredKey());
-    localStorage.removeItem(bioPwdKey());
-    biometricRegistered = false;
-    biometricIntent = false;
-    log("⚠️ Biometric registration cleared for testing");
-};
 
 async function enrollBiometric(pwd) {
     if (!window.PublicKeyCredential) return;
@@ -635,7 +790,6 @@ async function biometricAuthenticateFromGesture() {
     }
 }
 
-
 /* ================= HIDDEN GESTURE ================= */
 function armBiometric() {
     biometricIntent = true;
@@ -647,22 +801,25 @@ function armBiometric() {
     }
 }
 
-(() => {
+// attach gesture logic
+function setupTitleGesture() {
     const t = document.getElementById("titleGesture");
+    if (!t) return; // defensive, avoids silent crash
+
     let timer = null;
-    t.addEventListener("pointerdown", () => timer = setTimeout(armBiometric, 5000));
-    ["pointerup", "pointerleave", "pointercancel"].forEach(e => t.addEventListener(e, () => clearTimeout(timer)));
+
+    t.addEventListener("pointerdown", () => {
+        timer = setTimeout(armBiometric, 5000);
+    });
+
+    ["pointerup", "pointerleave", "pointercancel"].forEach(e =>
+    t.addEventListener(e, () => clearTimeout(timer))
+    );
+
     t.addEventListener("click", async () => {
         if (!biometricRegistered) return;
         await biometricAuthenticateFromGesture();
     });
-})();
-
-/* ================= LOGOUT ================= */
-function logout() {
-    accessToken = null;
-    userEmail = null;
-    location.reload();
 }
 
 /* ================= STEP 4.1: DEVICE PUBLIC KEY ================= */
@@ -1473,6 +1630,22 @@ async function readEnvelopeFromDrive(envelopeName) {
 }
 
 
+
+/* ================= LOGOUT ================= */
+function logout() {
+    unlockedView.style.display = "none";
+    loginView.style.display = "block";
+
+    signinBtn.disabled = false;
+    passwordSection.style.display = "none";
+    passwordInput.value = "";
+    confirmPasswordInput.value = "";
+
+    accessToken = null;
+    userEmail = null;
+    location.reload();
+}
+
 /* ----------------- TESTS -------------------*/
 
 async function runLockTest() {
@@ -1494,5 +1667,161 @@ async function runLockTest() {
 }
 
 
+/* ----------------- UI action handlers -------------------*/
+// Ensure UI starts in a safe locked state
+function initLoginUI() {
+    passwordSection.style.display = "none";
+    confirmPasswordSection.style.display = "none";
+    unlockBtn.disabled = true;
+    unlockMessage.textContent = "";
+}
+
+function resetUnlockUi() {
+    // ✅ Reset inputs & enable button for create
+    passwordInput.value = "";
+    confirmPasswordInput.value = "";
+    unlockBtn.disabled = false;
+}
+
+function handleSignInClick() {
+    signinBtn.disabled = true;
+    logEl.textContent = "";
+    passwordSection.style.display = "block";
+
+    tokenClient.requestAccessToken({ prompt: "consent select_account" });
+}
+
+async function onAuthReady(email) {
+    userEmailSpan.textContent = email;
+
+    try {
+        const id = await loadIdentity();
+
+        if (!id) {
+            // New device → create identity
+            showCreatePasswordUI();
+            log("🆔 New device detected, prompting password creation");
+            resetUnlockUi();
+            return;
+        }
+
+        if (!id.passwordVerifier) {
+            // Legacy identity → migration
+            showUnlockPasswordUI({ migration: true });
+            log("🧭 Identity missing password verifier — migration mode");
+            resetUnlockUi();
+            return;
+        }
+
+        // Returning user → unlock
+        showUnlockPasswordUI();
+        log("📁 Existing device detected, prompting unlock");
+        resetUnlockUi();
+
+    } catch (e) {
+        log("❌ Error loading identity: " + e.message);
+        unlockMessage.textContent = "Failed to load identity. Try again.";
+    }
+}
+
+function showCreatePasswordUI() {
+    passwordSection.style.display = "block";
+    confirmPasswordSection.style.display = "block"; // confirmation required
+    unlockBtn.textContent = "Create Password";
+    unlockBtn.onclick = handleCreatePasswordClick;
+    unlockMessage.textContent = "";
+}
+
+function showUnlockPasswordUI(options = {}) {
+    passwordSection.style.display = "block";
+    confirmPasswordSection.style.display = "none"; // no confirm for unlock
+    unlockBtn.textContent = "Unlock";
+    unlockBtn.onclick = handleUnlockClick;
+
+    unlockMessage.textContent = options.migration
+        ? "Identity missing password verifier — enter your password to upgrade."
+        : "";
+}
+
+function hideLoginUI() {
+    loginView.style.display = "none";
+}
+
+function showUnlockedUI() {
+    unlockedView.style.display = "flex";
+}
+
+async function handleUnlockClick() {
+    const pwd = passwordInput.value;
+
+    showUnlockMessage(""); // clear previous
+
+    if (!pwd) {
+        showUnlockMessage("Password cannot be empty");
+        return;
+    }
+
+    try {
+        await unlockIdentityFlow(pwd);
+        hideLoginUI();
+        showUnlockedUI();
+        log("🔑 Unlock successful!");
+    } catch (e) {
+        const def = Object.values(UNLOCK_ERROR_DEFS)
+            .find(d => d.code === e.code);
+
+        showUnlockMessage(def?.message || e.message || "Unlock failed");
+        log("❌ Unlock failed: " + (def?.message || e.message));
+    }
+}
+
+async function handleCreatePasswordClick()  {
+    const pwd = passwordInput.value;
+    const confirm = confirmPasswordInput.value;
+
+    if (!pwd || pwd.length < 7) {
+        showUnlockMessage("Password too weak");
+        return;
+    }
+
+    if (pwd !== confirm) {
+        showUnlockMessage("Passwords do not match");
+        return;
+    }
+
+    try {
+        await createIdentity(pwd);
+        hideLoginUI();
+        showUnlockedUI();
+        log("✅ New identity created and unlocked");
+    } catch (e) {
+        showUnlockMessage(e.message);
+    }
+}
+
+function showUnlockMessage(msg, type = "error") {
+    const el = document.getElementById("unlockMessage");
+    if (!el) return;
+
+    el.textContent = msg;
+    el.className = `unlock-message ${type}`;
+}
+
+// Button to invoke it doens't exist in the latest ui, add to enable (for testing biometric behavior)
+function handleResetBiometricClick() {
+    localStorage.removeItem(bioCredKey());
+    localStorage.removeItem(bioPwdKey());
+    biometricRegistered = false;
+    biometricIntent = false;
+    log("⚠️ Biometric registration cleared for testing");
+};
+
+function handleLogoutClick() {
+    logout();
+}
+
 // IMPORTANT - DO NOT DELETE
-window.onload = initGIS;
+window.onload = async () => {
+    onLoad();
+    await initGIS();
+};

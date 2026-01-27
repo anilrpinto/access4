@@ -1,49 +1,52 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8" />
-    <title>Access4 – Ver 6.5 (Step 5.15.3 rotation testing)</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-
-    <style>
-        body { font-family: monospace; max-width: 900px; margin: auto; padding: 12px; }
-        button { margin: 6px 0; }
-        pre { background: #f4f4f4; padding: 10px; white-space: pre-wrap; }
-        #passwordBox { display:none; margin-top:16px; }
-        #titleGesture {
-            user-select:none;
-            -webkit-user-select:none;
-            -webkit-touch-callout:none;
-            cursor: pointer;
-        }
-    </style>
-
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Access4 Login</title>
+    <link rel="stylesheet" href="style.css">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
-
 <body>
 
-    <h2 id="titleGesture">Access4 – Ver 6.5 (Step 5.15.3 rotation testing)</h2>
+<!-- LOGIN VIEW -->
+<div id="loginView">
+    <header>
+        <h1 id="titleGesture">Login</h1>
+    </header>
 
-    <div>
-        Signed in as: <b><span id="userEmail">Not signed in</span></b><br>
-        <button id="signinBtn">Sign in with Google</button>
-        <button id="logoutBtn" disabled>Logout</button>
-    </div>
+    <main>
+        <!-- Sign-in button -->
+        <button id="signinBtn">Sign in with Google</button><br>
+        Signed in as: <b><span id="userEmailSpan">Not signed in</span></b><br>
+        <!-- Password input appears after sign-in -->
+        <div id="passwordSection">
+            <label>Password</label>
+            <input type="password" id="passwordInput">
 
-    <div id="passwordBox">
-        <h3>Device Password</h3>
-        <input id="passwordInput" type="password" style="width:100%" />
-        <button id="unlockBtn">Unlock</button>
-    </div>
+            <div id="confirmPasswordSection">
+                <label>Confirm Password</label>
+                <input type="password" id="confirmPasswordInput">
+            </div>
 
-    <button id="resetBioBtn">Reset Biometric</button>
-    <br/>
-    <button onclick="runLockTest()">Test Lock & Write Envelope</button>
-    <br/>
-    <h3>Log</h3>
-    <pre id="log"></pre>
+            <button id="unlockBtn">Unlock</button>
+        </div>
+        <div id="unlockMessage" class="unlock-message"></div>
+    </main>
+</div>
 
-    <script src="app.js"></script>
+<!-- UNLOCKED VIEW -->
+<div id="unlockedView">
+    <header>
+        <h1>Unlocked</h1>
+    </header>
+
+    <main class="unlocked-main">
+        <button id="logoutBtn">Logout</button>
+        <pre id="log"></pre>
+    </main>
+</div>
+
+<script src="app.js" defer></script>
 </body>
 </html>
