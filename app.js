@@ -182,9 +182,22 @@ async function fetchUserEmail() {
 /* ================= DRIVE HELPERS ================= */
 function buildDriveUrl(path, params = {}) {
     params.supportsAllDrives = true;
-    params.includeItemsFromAllDrives = true;
+    // Commented as only needed for LIST calls not GET
+    //params.includeItemsFromAllDrives = true;
     return `https://www.googleapis.com/drive/v3/${path}?` +
     Object.entries(params).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
+}
+
+function buildDriveListUrl(params = {}) {
+    return buildDriveUrl("files", {
+        ...params,
+        supportsAllDrives: true,
+        includeItemsFromAllDrives: true
+    });
+}
+
+async function driveList(params) {
+    return driveFetch(buildDriveListUrl(params));
 }
 
 function buildDriveUploadUrl(path, params = {}) {
@@ -495,6 +508,32 @@ async function buildIdentityFromKeypair({privateKeyPkcs8, publicKeySpki}, pwd, o
         ...opts
     };
 }
+
+async function encryptPrivateKeyWithPassword(privateKey, password) {
+    // 1️⃣ Export private key (raw)
+    const rawPrivate = await crypto.subtle.exportKey("raw", privateKey);
+
+    // 2️⃣ Derive AES key from password
+    const kdf = {
+        salt: crypto.getRandomValues(new Uint8Array(16)),
+        iterations: 200_000,
+        hash: "SHA-256"
+    };
+
+    const aesKey = await deriveKey(password, kdf);
+
+    // 3️⃣ Encrypt
+    const encrypted = await encrypt(rawPrivate, aesKey);
+
+    // 4️⃣ Package
+    return {
+        version: 1,
+        kdf,
+        cipher: "AES-256-GCM",
+        encrypted
+    };
+}
+
 
 /* ================= CREATE IDENTITY ================= */
 async function createIdentity(pwd) {
@@ -942,6 +981,76 @@ async function findOrCreateUserFolder() {
 
     return folder.id;
 }
+
+/* ================= RECOVERY KEY ================= */
+async function hasRecoveryKeyOnDrive() {
+    try {
+        const files = await driveList({
+            q: `'${ACCESS4_ROOT_ID}' in parents and name='recovery' and mimeType='application/vnd.google-apps.folder'`,
+            pageSize: 1
+        });
+
+        if (!files.length) return false;
+
+        const recoveryFolderId = files[0].id;
+
+        const contents = await driveList({
+            q: `'${recoveryFolderId}' in parents and name='recovery.public.json'`,
+            pageSize: 1
+        });
+
+        return contents.length === 1;
+    } catch (e) {
+        log("❌ Recovery key check failed: " + e.message);
+        throw e; // block entry — this is mandatory
+    }
+}
+
+async function ensureRecoveryFolder() {
+    const q = `'${ACCESS4_ROOT_ID}' in parents and name='recovery' and mimeType='application/vnd.google-apps.folder'`;
+    const res = await driveFetch(buildDriveUrl("files", {
+        q,
+        fields: "files(id)"
+    }));
+
+    if (res.files.length) {
+        return res.files[0].id;
+    }
+
+    const folder = await driveFetch(buildDriveUrl("files"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            name: "recovery",
+            mimeType: "application/vnd.google-apps.folder",
+            parents: [ACCESS4_ROOT_ID]
+        })
+    });
+
+    return folder.id;
+}
+
+async function exportRecoveryPublicJson(publicKey) {
+    const raw = await crypto.subtle.exportKey("raw", publicKey);
+
+    return {
+        type: "recovery",
+        role: "recovery",
+        keyId: crypto.randomUUID(),
+        fingerprint: await fingerprintKey(raw),
+        created: Date.now(),
+        algorithm: {
+            type: "X25519",
+            usage: ["deriveKey"]
+        },
+        publicKey: {
+            format: "raw",
+            encoding: "base64",
+            data: btoa(String.fromCharCode(...new Uint8Array(raw)))
+        }
+    };
+}
+
 
 /* ================= STEP 5: ENVELOPE CRYPTO ================= */
 
@@ -1497,6 +1606,52 @@ async function releaseDriveLock() {
     driveLockState = null;
 }
 
+async function addRecoveryKeyToEnvelope({ publicKey, keyId }) {
+    const envelopeName = "envelope.json";
+
+    console.log("🛟 Adding recovery key to envelope...");
+
+    // 1️⃣ Load existing envelope from Drive
+    const envelopeFile = await readEnvelopeFromDrive(envelopeName);
+    if (!envelopeFile) {
+        throw new Error("Envelope missing — cannot add recovery key");
+    }
+
+    const envelope = envelopeFile.json;
+
+    // 2️⃣ Check if recovery key already exists
+    if (envelope.keys?.some(k => k.role === "recovery")) {
+        console.log("🛟 Recovery key already present in envelope");
+        return;
+    }
+
+    // 3️⃣ Unwrap CEK using the first active device key
+    console.log("🔑 Unwrapping CEK with active device key...");
+    const cek = await unwrapContentKey(
+        envelope.keys[0].wrappedKey,
+        envelope.keys[0].keyId
+    );
+    console.log("✅ CEK unwrapped:", cek);
+
+    // 4️⃣ Wrap CEK for the new recovery key
+    // Pass the original CryptoKey, NOT an exported ArrayBuffer
+    console.log("🔒 Wrapping CEK for recovery key...");
+    const wrappedKey = await wrapContentKeyForDevice(cek, publicKey);
+    console.log("✅ CEK wrapped for recovery key");
+
+    // 5️⃣ Add recovery key to envelope
+    envelope.keys.push({
+        role: "recovery",
+        keyId,
+        wrappedKey
+    });
+
+    // 6️⃣ Write updated envelope safely
+    await writeEnvelopeSafely(envelopeName, envelope);
+    console.log("✅ Recovery key added to envelope and saved");
+}
+
+
 /* ================= WRITE ENVELOPE WITH LOCK ================= */
 async function writeEnvelopeWithLock(envelopeName, envelopeData) {
 
@@ -1756,17 +1911,6 @@ function setAuthMode(mode, options = {}) {
         unlockBtn.textContent = "Create Password";
         unlockBtn.onclick = handleCreatePasswordClick;
     }
-
-    if (mode === "recovery") {
-        confirmPasswordSection.style.display = "block";
-        unlockBtn.textContent = "Create Recovery Password";
-        unlockBtn.onclick = handleCreateRecoveryClick;
-
-        showUnlockMessage(
-            "Recovery password required. Store this safely — it is needed for account recovery.",
-            "unlock-message"
-        );
-    }
 }
 
 async function handleUnlockClick() {
@@ -1819,43 +1963,144 @@ async function handleCreatePasswordClick()  {
 }
 
 async function proceedAfterPasswordSuccess() {
-    if (!(await hasRecoveryKey())) {
-        log("🛟 No recovery key found — prompting recovery setup");
-        setAuthMode("recovery");
-        return;
-    }
-    log("🔑 recovery key already present");
+    await ensureRecoveryKey();   // 🔑 may block UI
     showUnlockedUI();
     log("🔑 Unlock successful!");
 }
 
+async function ensureRecoveryKey() {
+    if (await hasRecoveryKeyOnDrive()) {
+        log("🛟 Recovery key already present");
+        return;
+    }
+
+    log("🛟 No recovery key found — blocking for recovery setup");
+    await promptRecoverySetup();   // ← UI + user input
+}
+
+function promptRecoverySetup() {
+    return new Promise(resolve => {
+        // reuse existing inputs
+        resetUnlockUi();
+
+        passwordSection.style.display = "block";
+        confirmPasswordSection.style.display = "block";
+
+        unlockBtn.textContent = "Create Recovery Password";
+        unlockBtn.disabled = false;
+
+        showUnlockMessage(
+            "Create a recovery password. This allows account recovery if all devices are lost.",
+            "unlock-message"
+        );
+
+        unlockBtn.onclick = async () => {
+            try {
+                await handleCreateRecoveryClick();
+                resolve();
+            } catch (e) {
+                unlockBtn.disabled = false;
+                showUnlockMessage(e.message || "Recovery setup failed", "unlock-message error");
+            }
+        };
+    });
+}
+
 async function handleCreateRecoveryClick() {
+    console.log("🛟 Starting recovery key creation");
+
     const pwd = passwordInput.value;
     const confirm = confirmPasswordInput.value;
 
     if (!pwd || pwd.length < 7) {
-        showUnlockMessage("Recovery password must be at least 7 characters.", "unlock-message error");
-        return;
+        throw new Error("Recovery password must be at least 7 characters.");
     }
-
     if (pwd !== confirm) {
-        showUnlockMessage("Recovery passwords do not match.", "unlock-message error");
-        return;
+        throw new Error("Recovery passwords do not match.");
     }
 
     unlockBtn.disabled = true;
     showUnlockMessage("Creating recovery key…");
 
-    // TEMP: simulate success
-    await new Promise(r => setTimeout(r, 500));
-    localStorage.setItem("recoveryKeyPresent", "yes");
+    // 1️⃣ Generate RSA keypair (same as device)
+    const keypair = await crypto.subtle.generateKey(
+        {
+            name: "RSA-OAEP",
+            modulusLength: 2048,
+            publicExponent: new Uint8Array([1, 0, 1]),
+            hash: "SHA-256"
+        },
+        true,
+        ["encrypt", "decrypt"]
+    );
 
-    log("🛟 Recovery key established");
+    console.log("✅ Recovery keypair generated");
 
-    showUnlockMessage("Recovery setup complete.", "unlock-message success");
+    // 2️⃣ Export ONCE — same as device
+    const privateKeyPkcs8 = await crypto.subtle.exportKey(
+        "pkcs8",
+        keypair.privateKey
+    );
 
-    showUnlockedUI();
+    const publicKeySpki = await crypto.subtle.exportKey(
+        "spki",
+        keypair.publicKey
+    );
+
+    console.log("✅ Recovery keys exported");
+
+    // 3️⃣ Reuse device identity builder EXACTLY
+    const recoveryIdentity = await buildIdentityFromKeypair(
+        { privateKeyPkcs8, publicKeySpki },
+        pwd,
+        {
+            type: "recovery",
+            createdBy: getDeviceId()
+        }
+    );
+
+    console.log("✅ Private key encrypted with recovery password");
+
+    // 4️⃣ Ensure recovery folder
+    const recoveryFolderId = await ensureRecoveryFolder();
+
+    // 5️⃣ Write private recovery file
+    await driveCreateJsonFile({
+        name: "recovery.private.json",
+        parents: [recoveryFolderId],
+        json: recoveryIdentity
+    });
+
+    console.log("✅ recovery.private.json written");
+
+    // 6️⃣ Write public recovery file (derived from same object)
+    await driveCreateJsonFile({
+        name: "recovery.public.json",
+        parents: [recoveryFolderId],
+        json: {
+            publicKey: recoveryIdentity.publicKey,
+            fingerprint: recoveryIdentity.fingerprint,
+            created: recoveryIdentity.created,
+            type: "recovery"
+        }
+    });
+
+    console.log("✅ recovery.public.json written");
+
+    // 7️⃣ Add to envelope
+    await addRecoveryKeyToEnvelope({
+        publicKey: publicKeySpki,
+        keyId: recoveryIdentity.fingerprint
+    });
+
+    console.log("🛟 Recovery key successfully established");
+
+    showUnlockMessage("Recovery key created!", "unlock-message success");
+    unlockBtn.disabled = false;
 }
+
+
+
 
 function showUnlockedUI() {
     loginView.style.display = "none";
