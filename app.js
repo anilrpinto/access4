@@ -33,6 +33,8 @@ let keyRegistry = {
 };
 
 let driveLockState = null;
+let unlockInProgress = false;
+let authMode;
 
 /* ================= DOM ================= */
 let userEmailSpan;
@@ -823,6 +825,12 @@ function setupTitleGesture() {
 }
 
 /* ================= STEP 4.1: DEVICE PUBLIC KEY ================= */
+async function hasRecoveryKey() {
+    // TEMP: replace with Drive check later
+    const marker = localStorage.getItem("recoveryKeyPresent");
+    return !!marker;
+}
+
 async function ensureDevicePublicKey() {
     const folder = await findOrCreateUserFolder();
     const id = await loadIdentity();
@@ -1681,6 +1689,7 @@ function resetUnlockUi() {
     passwordInput.value = "";
     confirmPasswordInput.value = "";
     unlockBtn.disabled = false;
+    showUnlockMessage("");
 }
 
 function handleSignInClick() {
@@ -1699,24 +1708,21 @@ async function onAuthReady(email) {
 
         if (!id) {
             // New device → create identity
-            showCreatePasswordUI();
+            setAuthMode("create");
             log("🆔 New device detected, prompting password creation");
-            resetUnlockUi();
             return;
         }
 
         if (!id.passwordVerifier) {
             // Legacy identity → migration
-            showUnlockPasswordUI({ migration: true });
+            setAuthMode("unlock", { migration: true });
             log("🧭 Identity missing password verifier — migration mode");
-            resetUnlockUi();
             return;
         }
 
         // Returning user → unlock
-        showUnlockPasswordUI();
+        setAuthMode("unlock");
         log("📁 Existing device detected, prompting unlock");
-        resetUnlockUi();
 
     } catch (e) {
         log("❌ Error loading identity: " + e.message);
@@ -1724,34 +1730,50 @@ async function onAuthReady(email) {
     }
 }
 
-function showCreatePasswordUI() {
+function setAuthMode(mode, options = {}) {
+    authMode = mode;
+
+    // reset fields
+    resetUnlockUi();
+
+    // ✅ Always enable unlockBtn when switching mode
+    unlockBtn.disabled = false;
+
     passwordSection.style.display = "block";
-    confirmPasswordSection.style.display = "block"; // confirmation required
-    unlockBtn.textContent = "Create Password";
-    unlockBtn.onclick = handleCreatePasswordClick;
-    unlockMessage.textContent = "";
-}
 
-function showUnlockPasswordUI(options = {}) {
-    passwordSection.style.display = "block";
-    confirmPasswordSection.style.display = "none"; // no confirm for unlock
-    unlockBtn.textContent = "Unlock";
-    unlockBtn.onclick = handleUnlockClick;
+    if (mode === "unlock") {
+        confirmPasswordSection.style.display = "none";
+        unlockBtn.textContent = "Unlock";
+        unlockBtn.onclick = handleUnlockClick;
 
-    unlockMessage.textContent = options.migration
-        ? "Identity missing password verifier — enter your password to upgrade."
-        : "";
-}
+        showUnlockMessage(options.migration
+            ? "Identity missing password verifier — enter your password to upgrade."
+            : "");
+    }
 
-function hideLoginUI() {
-    loginView.style.display = "none";
-}
+    if (mode === "create") {
+        confirmPasswordSection.style.display = "block";
+        unlockBtn.textContent = "Create Password";
+        unlockBtn.onclick = handleCreatePasswordClick;
+    }
 
-function showUnlockedUI() {
-    unlockedView.style.display = "flex";
+    if (mode === "recovery") {
+        confirmPasswordSection.style.display = "block";
+        unlockBtn.textContent = "Create Recovery Password";
+        unlockBtn.onclick = handleCreateRecoveryClick;
+
+        showUnlockMessage(
+            "Recovery password required. Store this safely — it is needed for account recovery.",
+            "unlock-message"
+        );
+    }
 }
 
 async function handleUnlockClick() {
+
+    if (unlockInProgress) return;
+
+    unlockInProgress  = true;
     const pwd = passwordInput.value;
 
     showUnlockMessage(""); // clear previous
@@ -1763,9 +1785,7 @@ async function handleUnlockClick() {
 
     try {
         await unlockIdentityFlow(pwd);
-        hideLoginUI();
-        showUnlockedUI();
-        log("🔑 Unlock successful!");
+        await proceedAfterPasswordSuccess();
     } catch (e) {
         const def = Object.values(UNLOCK_ERROR_DEFS)
             .find(d => d.code === e.code);
@@ -1791,12 +1811,55 @@ async function handleCreatePasswordClick()  {
 
     try {
         await createIdentity(pwd);
-        hideLoginUI();
-        showUnlockedUI();
+        await proceedAfterPasswordSuccess();
         log("✅ New identity created and unlocked");
     } catch (e) {
         showUnlockMessage(e.message);
     }
+}
+
+async function proceedAfterPasswordSuccess() {
+    if (!(await hasRecoveryKey())) {
+        log("🛟 No recovery key found — prompting recovery setup");
+        setAuthMode("recovery");
+        return;
+    }
+    log("🔑 recovery key already present");
+    showUnlockedUI();
+    log("🔑 Unlock successful!");
+}
+
+async function handleCreateRecoveryClick() {
+    const pwd = passwordInput.value;
+    const confirm = confirmPasswordInput.value;
+
+    if (!pwd || pwd.length < 7) {
+        showUnlockMessage("Recovery password must be at least 7 characters.", "unlock-message error");
+        return;
+    }
+
+    if (pwd !== confirm) {
+        showUnlockMessage("Recovery passwords do not match.", "unlock-message error");
+        return;
+    }
+
+    unlockBtn.disabled = true;
+    showUnlockMessage("Creating recovery key…");
+
+    // TEMP: simulate success
+    await new Promise(r => setTimeout(r, 500));
+    localStorage.setItem("recoveryKeyPresent", "yes");
+
+    log("🛟 Recovery key established");
+
+    showUnlockMessage("Recovery setup complete.", "unlock-message success");
+
+    showUnlockedUI();
+}
+
+function showUnlockedUI() {
+    loginView.style.display = "none";
+    unlockedView.style.display = "flex";
 }
 
 function showUnlockMessage(msg, type = "error") {
@@ -1806,6 +1869,8 @@ function showUnlockMessage(msg, type = "error") {
     el.textContent = msg;
     el.className = `unlock-message ${type}`;
 }
+
+
 
 // Button to invoke it doens't exist in the latest ui, add to enable (for testing biometric behavior)
 function handleResetBiometricClick() {
@@ -1819,6 +1884,8 @@ function handleResetBiometricClick() {
 function handleLogoutClick() {
     logout();
 }
+
+
 
 // IMPORTANT - DO NOT DELETE
 window.onload = async () => {
