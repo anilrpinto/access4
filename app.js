@@ -84,6 +84,7 @@ const UNLOCK_ERROR_DEFS = {
 
 /* ================= LOG ================= */
 function log(msg) {
+    console.log(msg);
     logEl.textContent += msg + "\n";
 }
 
@@ -984,25 +985,34 @@ async function findOrCreateUserFolder() {
 
 /* ================= RECOVERY KEY ================= */
 async function hasRecoveryKeyOnDrive() {
+    log("[hasRecoveryKeyOnDrive] in here");
+
     try {
-        const files = await driveList({
+        const res = await driveList({
             q: `'${ACCESS4_ROOT_ID}' in parents and name='recovery' and mimeType='application/vnd.google-apps.folder'`,
             pageSize: 1
         });
 
-        if (!files.length) return false;
+        const folders = res.files || [];
 
-        const recoveryFolderId = files[0].id;
+        log("[hasRecoveryKeyOnDrive] recovery folders found:" + folders.length);
 
-        const contents = await driveList({
+        if (folders.length === 0) return false;
+
+        const recoveryFolderId = folders[0].id;
+
+        const contentsRes = await driveList({
             q: `'${recoveryFolderId}' in parents and name='recovery.public.json'`,
             pageSize: 1
         });
 
+        const contents = contentsRes.files || [];
+
         return contents.length === 1;
+
     } catch (e) {
         log("❌ Recovery key check failed: " + e.message);
-        throw e; // block entry — this is mandatory
+        throw e; // mandatory block
     }
 }
 
