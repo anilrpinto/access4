@@ -166,7 +166,7 @@ function onLoad() {
     initLoginUI();
 
     ["mousemove", "keydown", "click"].forEach(e =>
-        document.addEventListener(e, resetIdleTimer)
+    document.addEventListener(e, resetIdleTimer)
     );
 
     log("UI ready");
@@ -1050,28 +1050,6 @@ async function ensureRecoveryFolder() {
     return folder.id;
 }
 
-async function exportRecoveryPublicJson(publicKey) {
-    const raw = await crypto.subtle.exportKey("raw", publicKey);
-
-    return {
-        type: "recovery",
-        role: "recovery",
-        keyId: crypto.randomUUID(),
-        fingerprint: await fingerprintKey(raw),
-        created: Date.now(),
-        algorithm: {
-            type: "X25519",
-            usage: ["deriveKey"]
-        },
-        publicKey: {
-            format: "raw",
-            encoding: "base64",
-            data: btoa(String.fromCharCode(...new Uint8Array(raw)))
-        }
-    };
-}
-
-
 /* ================= STEP 5: ENVELOPE CRYPTO ================= */
 
 async function generateContentKey() {
@@ -1130,6 +1108,7 @@ async function wrapContentKeyForDevice(cek, devicePublicKeyBase64) {
 
 /* ---Unwrap CEK Using Local Private Key (rotation-safe) --- */
 async function unwrapContentKey(wrappedKeyBase64, keyId) {
+
     const id = await loadIdentity();
     if (!id) throw new Error("Local identity missing");
 
@@ -1175,10 +1154,23 @@ async function unwrapContentKey(wrappedKeyBase64, keyId) {
         privateKey,
         { name: "RSA-OAEP" },
         { name: "AES-GCM", length: 256 },
-        false,
+        true,
         ["decrypt"]
     );
 }
+
+/* ================= ENVELOPE WRITE ASSERTION + HOUSEKEEPING HELPER ================= */
+async function assertEnvelopeWrite(envelopeName) {
+    if (!driveLockState || driveLockState.envelopeName !== envelopeName) {
+        throw new Error(`Cannot write: Drive lock not held for "${envelopeName}"`);
+    }
+
+    log(`[assertEnvelopeWrite] Ownership confirmed for envelope "${envelopeName}"`);
+
+    // Future housekeeping hook: missing device/recovery keys
+    // console.log(`[housekeeping] Envelope ownership confirmed for "${envelopeName}"`);
+}
+
 
 async function createEnvelope(plainText, devicePublicKeyRecord) {
 
@@ -1292,6 +1284,14 @@ async function ensureEnvelope() {
         await acquireDriveWriteLock(envelopeName);
     }
 
+    // Always load key registry from pub-keys on Drive
+    const rawPublicKeyJsons = await loadPublicKeyJsonsFromDrive();
+    keyRegistry = await buildKeyRegistryFromDrive(rawPublicKeyJsons);
+    const identity = await loadIdentity();
+
+    log("[ensureEnvelope] Active devices registry:" + keyRegistry.flat.activeDevices);
+    log("[ensureEnvelope] recoveryKeys registry:" + keyRegistry.flat.recoveryKeys);
+
     // Fast path
     const existing = await readEnvelopeFromDrive(envelopeName);
     if (existing?.json) {
@@ -1301,11 +1301,7 @@ async function ensureEnvelope() {
 
     log("📦 Envelope missing — creating genesis envelope");
 
-    const rawPublicKeyJsons = await loadPublicKeyJsonsFromDrive();
-    const registry = await buildKeyRegistryFromDrive(rawPublicKeyJsons);
-    const identity = await loadIdentity();
-
-    const selfKey = registry.flat.activeDevices.find(
+    const selfKey = keyRegistry.flat.activeDevices.find(
         k => k.deviceId === identity.deviceId
     );
 
@@ -1322,6 +1318,86 @@ async function ensureEnvelope() {
     return written;
 }
 
+async function wrapCEKForRegistryKeys(forceWrite = false) {
+    const envelopeName = "envelope.json";
+
+    const envelopeFile = await readEnvelopeFromDrive(envelopeName);
+    if (!envelopeFile || !envelopeFile.json) {
+        throw new Error("Envelope missing — cannot wrap CEK for registry");
+    }
+
+    const envelope = envelopeFile.json;
+
+    if (!envelope.keys || !envelope.payload) {
+        throw new Error("Invalid envelope structure for CEK housekeeping");
+    }
+
+    const activeDevices = keyRegistry.flat.activeDevices;
+    const recoveryKeys = keyRegistry.flat.recoveryKeys;
+
+    // Unwrap CEK using any current device key
+    const currentDeviceKeyEntry = envelope.keys.find(k =>
+    k.account === userEmail &&
+    k.deviceId === driveLockState.self.deviceId) || envelope.keys[0];
+
+    if (!currentDeviceKeyEntry) {
+        throw new Error("No device key available to unwrap CEK");
+    }
+
+    const cek = await unwrapContentKey(currentDeviceKeyEntry.wrappedKey, currentDeviceKeyEntry.keyId);
+    let updated = false;
+
+    // Wrap CEK for each active device not already present
+    for (const device of activeDevices) {
+        const existing = envelope.keys.find(k => k.keyId === device.fingerprint);
+        if (!existing) {
+            const wrappedKey = await wrapContentKeyForDevice(cek, device.publicKey.data);
+            envelope.keys.push({
+                role: "device",
+                account: device.account,
+                deviceId: device.deviceId,
+                keyId: device.fingerprint,
+                wrappedKey
+            });
+            log(`🔁 CEK wrapped for device ${device.deviceId}`);
+            updated = true;
+        } else if (forceWrite) {
+            // Re-wrap CEK even if key exists
+            existing.wrappedKey = await wrapContentKeyForDevice(cek, device.publicKey.data);
+            log(`♻ CEK re-wrapped for device ${device.deviceId} (forceWrite)`);
+            updated = true;
+        }
+    }
+
+    // Wrap CEK for recovery keys not already present
+    for (const recovery of recoveryKeys) {
+        const existing = envelope.keys.find(k => k.keyId === recovery.fingerprint);
+        if (!existing) {
+            const wrappedKey = await wrapContentKeyForDevice(cek, recovery.publicKey.data);
+            envelope.keys.push({
+                role: "recovery",
+                keyId: recovery.fingerprint,
+                wrappedKey
+            });
+            log(`🔁 CEK wrapped for recovery key ${recovery.fingerprint}`);
+            updated = true;
+        } else if (forceWrite) {
+            existing.wrappedKey = await wrapContentKeyForDevice(cek, recovery.publicKey.data);
+            log(`♻ CEK re-wrapped for recovery key ${recovery.fingerprint} (forceWrite)`);
+            updated = true;
+        }
+    }
+
+    // Write back if updated OR forceWrite
+    if (updated || forceWrite) {
+        log("💾 Envelope updated with wrapped keys — writing to Drive");
+        await writeEnvelopeSafely(envelopeName, envelope);
+    } else {
+        log("✅ Envelope up to date — skipping write");
+    }
+
+    return envelope;
+}
 
 /* ------------------- Public key Registry building steps ---------------- */
 function resetKeyRegistry() {
@@ -1336,6 +1412,8 @@ function normalizePublicKey(raw) {
     if (!raw || typeof raw !== "object") {
         throw new Error("Invalid public key JSON");
     }
+
+    //log("[normalizePublicKey] raw: " + JSON.stringify(raw));
 
     if (!raw.keyId || !raw.fingerprint || !raw.publicKey) {
         throw new Error("Missing required public key fields");
@@ -1657,7 +1735,7 @@ function startLockHeartbeat({envelopeName, self, readLockFromDrive, writeLockToD
             );
 
             driveLockState.lock = extended;   // keep local state authoritative
-            log(`💓 Heartbeat OK (gen=${extended.generation}, expires ${extended.expiresAt})`);
+            //log(`💓 Heartbeat OK (gen=${extended.generation}, expires ${extended.expiresAt})`);
             updateLockStatusUI();
         } catch (err) {
             stopped = true;
@@ -1730,7 +1808,6 @@ function handleDriveLockLost(info) {
     updateLockStatusUI();
 }
 
-
 async function releaseDriveLock() {
     if (!driveLockState?.fileId) return;
 
@@ -1754,7 +1831,7 @@ async function releaseDriveLock() {
 async function addRecoveryKeyToEnvelope({ publicKey, keyId }) {
     const envelopeName = "envelope.json";
 
-    console.log("🛟 Adding recovery key to envelope...");
+    log("🛟 Adding recovery key to envelope...");
 
     // 1️⃣ Load existing envelope from Drive
     const envelopeFile = await readEnvelopeFromDrive(envelopeName);
@@ -1762,39 +1839,65 @@ async function addRecoveryKeyToEnvelope({ publicKey, keyId }) {
         throw new Error("Envelope missing — cannot add recovery key");
     }
 
+    await assertEnvelopeWrite(envelopeName);
+
     const envelope = envelopeFile.json;
 
     // 2️⃣ Check if recovery key already exists
-    if (envelope.keys?.some(k => k.role === "recovery")) {
-        console.log("🛟 Recovery key already present in envelope");
-        return;
+    if (envelope.keys?.some(k => k.role === "recovery" && k.keyId === keyId)) {
+        log("🛟 Recovery key already present in envelope");
+    } else {
+        // 3️⃣ Unwrap CEK using the first active device key
+        log("🔑 Unwrapping CEK with active device key...");
+        const cek = await unwrapContentKey(
+            envelope.keys[0].wrappedKey,
+            envelope.keys[0].keyId
+        );
+        log("✅ CEK unwrapped");
+
+        // 4️⃣ Wrap CEK for the new recovery key
+        log("🔒 Wrapping CEK for recovery key...");
+        let wrappedKey;
+        try {
+            wrappedKey = await wrapContentKeyForDevice(cek, publicKey);
+            log("✅ CEK wrapped for recovery key");
+        } catch (err) {
+            console.error("❌ Error wrapping CEK:", err);
+            throw err;
+        }
+
+        // 5️⃣ Add recovery key to envelope
+        envelope.keys.push({
+            role: "recovery",
+            keyId,
+            wrappedKey
+        });
+
+        log("[DEBUG] Added recovery key to envelope.keys:", envelope.keys.map(k => ({
+            role: k.role,
+            keyId: k.keyId,
+            hasWrappedKey: !!k.wrappedKey
+        })));
     }
 
-    // 3️⃣ Unwrap CEK using the first active device key
-    console.log("🔑 Unwrapping CEK with active device key...");
-    const cek = await unwrapContentKey(
-        envelope.keys[0].wrappedKey,
-        envelope.keys[0].keyId
-    );
-    console.log("✅ CEK unwrapped:", cek);
+    // ---- Housekeeping CEK wrap for all devices & recovery keys (force write) ----
+    if (driveLockState?.self && driveLockState.envelopeName === envelopeName) {
+        log("🧹 Performing CEK housekeeping with force write");
+        const updatedEnvelope = await wrapCEKForRegistryKeys(true); // <- forceWrite = true
 
-    // 4️⃣ Wrap CEK for the new recovery key
-    // Pass the original CryptoKey, NOT an exported ArrayBuffer
-    console.log("🔒 Wrapping CEK for recovery key...");
-    const wrappedKey = await wrapContentKeyForDevice(cek, publicKey);
-    console.log("✅ CEK wrapped for recovery key");
+        log("[DEBUG] Updated envelope after wrapCEKForRegistryKeys:", updatedEnvelope.keys.map(k => ({
+            role: k.role,
+            keyId: k.keyId,
+            hasWrappedKey: !!k.wrappedKey
+        })));
 
-    // 5️⃣ Add recovery key to envelope
-    envelope.keys.push({
-        role: "recovery",
-        keyId,
-        wrappedKey
-    });
+        // 6️⃣ Write updated envelope safely
+        await writeEnvelopeSafely(envelopeName, updatedEnvelope);
+    }
 
-    // 6️⃣ Write updated envelope safely
-    await writeEnvelopeSafely(envelopeName, envelope);
-    console.log("✅ Recovery key added to envelope and saved");
+    log("✅ Recovery key added to envelope and saved");
 }
+
 
 
 /* ================= WRITE ENVELOPE WITH LOCK ================= */
@@ -1802,9 +1905,7 @@ async function writeEnvelopeWithLock(envelopeName, envelopeData) {
 
     log("➡️ Entered writeEnvelopeWithLock()");
 
-    if (!driveLockState || driveLockState.envelopeName !== envelopeName) {
-        throw new Error("Cannot write: Drive lock not held for this envelope");
-    }
+    await assertEnvelopeWrite(envelopeName);
 
     try {
         // 1️⃣ Find envelope file (metadata only)
@@ -1881,6 +1982,8 @@ async function writeEnvelopeSafely(envelopeName, envelopeData, maxRetries = 3, r
                 continue;
             }
         }
+
+        await assertEnvelopeWrite(envelopeName);
 
         try {
             const result = await writeEnvelopeWithLock(envelopeName, envelopeData);
@@ -2091,11 +2194,20 @@ async function handleCreatePasswordClick()  {
 }
 
 async function proceedAfterPasswordSuccess() {
+    log("[proceedAfterPasswordSuccess]")
     await ensureEnvelope();      // 🔐 guarantees CEK + envelope
     await ensureRecoveryKey();   // 🔑 may block UI
+
+    // ---- New housekeeping: wrap CEK for registry ----
+    if (driveLockState?.self && driveLockState.envelopeName === "envelope.json") {
+        log("🧹 Performing CEK housekeeping for all valid devices + recovery keys");
+        await wrapCEKForRegistryKeys();  // No parameter needed, helper handles load & write
+    }
+
     showUnlockedUI();
     log("🔑 Unlock successful!");
 }
+
 
 async function ensureRecoveryKey() {
     if (await hasRecoveryKeyOnDrive()) {
@@ -2136,7 +2248,7 @@ function promptRecoverySetup() {
 }
 
 async function handleCreateRecoveryClick() {
-    console.log("🛟 Starting recovery key creation");
+    log("🛟 Starting recovery key creation");
 
     const pwd = passwordInput.value;
     const confirm = confirmPasswordInput.value;
@@ -2162,33 +2274,20 @@ async function handleCreateRecoveryClick() {
         true,
         ["encrypt", "decrypt"]
     );
+    log("✅ Recovery keypair generated");
 
-    console.log("✅ Recovery keypair generated");
+    // 2️⃣ Export keys
+    const privateKeyPkcs8 = await crypto.subtle.exportKey("pkcs8", keypair.privateKey);
+    const publicKeySpki = await crypto.subtle.exportKey("spki", keypair.publicKey);
+    log("✅ Recovery keys exported");
 
-    // 2️⃣ Export ONCE — same as device
-    const privateKeyPkcs8 = await crypto.subtle.exportKey(
-        "pkcs8",
-        keypair.privateKey
-    );
-
-    const publicKeySpki = await crypto.subtle.exportKey(
-        "spki",
-        keypair.publicKey
-    );
-
-    console.log("✅ Recovery keys exported");
-
-    // 3️⃣ Reuse device identity builder EXACTLY
+    // 3️⃣ Build recovery identity
     const recoveryIdentity = await buildIdentityFromKeypair(
         { privateKeyPkcs8, publicKeySpki },
         pwd,
-        {
-            type: "recovery",
-            createdBy: getDeviceId()
-        }
+        { type: "recovery", createdBy: getDeviceId() }
     );
-
-    console.log("✅ Private key encrypted with recovery password");
+    log("✅ Private key encrypted with recovery password");
 
     // 4️⃣ Ensure recovery folder
     const recoveryFolderId = await ensureRecoveryFolder();
@@ -2199,31 +2298,42 @@ async function handleCreateRecoveryClick() {
         parents: [recoveryFolderId],
         json: recoveryIdentity
     });
+    log("✅ recovery.private.json written");
 
-    console.log("✅ recovery.private.json written");
+    // 6️⃣ Write public recovery file (matching device key structure)
+    const recoveryPublicJson = {
+        type: "recovery",
+        role: "recovery",
+        keyId: recoveryIdentity.fingerprint,
+        fingerprint: recoveryIdentity.fingerprint,
+        created: recoveryIdentity.created,
+        algorithm: {
+            name: "RSA-OAEP",
+            modulusLength: 2048,
+            hash: "SHA-256",
+            usage: ["encrypt"]
+        },
+        publicKey: {
+            format: "spki",
+            encoding: "base64",
+            data: btoa(String.fromCharCode(...new Uint8Array(publicKeySpki)))
+        }
+    };
 
-    // 6️⃣ Write public recovery file (derived from same object)
     await driveCreateJsonFile({
         name: "recovery.public.json",
         parents: [recoveryFolderId],
-        json: {
-            publicKey: recoveryIdentity.publicKey,
-            fingerprint: recoveryIdentity.fingerprint,
-            created: recoveryIdentity.created,
-            type: "recovery"
-        }
+        json: recoveryPublicJson
     });
+    log("✅ recovery.public.json written");
 
-    console.log("✅ recovery.public.json written");
-
-    // 7️⃣ Add to envelope
+    // 7️⃣ Add to envelope for CEK housekeeping
     await addRecoveryKeyToEnvelope({
         publicKey: publicKeySpki,
         keyId: recoveryIdentity.fingerprint
     });
 
-    console.log("🛟 Recovery key successfully established");
-
+    log("🛟 Recovery key successfully established");
     showUnlockMessage("Recovery key created!", "unlock-message success");
     unlockBtn.disabled = false;
 }
@@ -2233,7 +2343,7 @@ function updateLockStatusUI() {
     if (!driveLockState) return;
 
     const { expiresAt } = driveLockState.lock;
-    log(`🔐 You hold the envelope lock (expires ${expiresAt})`);
+    //log(`🔐 You hold the envelope lock (expires ${expiresAt})`);
 }
 
 function showUnlockedUI() {
