@@ -49,6 +49,7 @@ let unlockedView;
 let passwordInput;
 let confirmPasswordInput;
 let logEl;
+let idleTimer;
 
 const UNLOCK_ERROR_DEFS = {
     WEAK_PASSWORD: {
@@ -164,7 +165,19 @@ function onLoad() {
 
     initLoginUI();
 
+    ["mousemove", "keydown", "click"].forEach(e =>
+        document.addEventListener(e, resetIdleTimer)
+    );
+
     log("UI ready");
+}
+
+function resetIdleTimer() {
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(async () => {
+        log("[resetIdleTimer] Inactivity timeout — releasing Drive lock");
+        await releaseDriveLock();
+    }, 10 * 60 * 1000); // 10 minutes
 }
 
 /* ================= USER ================= */
@@ -198,7 +211,8 @@ function buildDriveListUrl(params = {}) {
 }
 
 async function driveList(params) {
-    return driveFetch(buildDriveListUrl(params));
+    const res = await driveFetch(buildDriveListUrl(params));
+    return res.files || [];
 }
 
 function buildDriveUploadUrl(path, params = {}) {
@@ -988,27 +1002,23 @@ async function hasRecoveryKeyOnDrive() {
     log("[hasRecoveryKeyOnDrive] in here");
 
     try {
-        const res = await driveList({
+        const folders = await driveList({
             q: `'${ACCESS4_ROOT_ID}' in parents and name='recovery' and mimeType='application/vnd.google-apps.folder'`,
             pageSize: 1
         });
 
-        const folders = res.files || [];
-
         log("[hasRecoveryKeyOnDrive] recovery folders found:" + folders.length);
 
-        if (folders.length === 0) return false;
+        if (!folders.length) return false;
 
         const recoveryFolderId = folders[0].id;
 
-        const contentsRes = await driveList({
+        const files = await driveList({
             q: `'${recoveryFolderId}' in parents and name='recovery.public.json'`,
             pageSize: 1
         });
 
-        const contents = contentsRes.files || [];
-
-        return contents.length === 1;
+        return files.length === 1;
 
     } catch (e) {
         log("❌ Recovery key check failed: " + e.message);
@@ -1265,7 +1275,6 @@ function keyMatchesOrIsSuperseded(entryKeyId, localIdentity) {
     return false;
 }
 
-
 function isKeyUsableForEncryption(pubKeyRecord) {
     return pubKeyRecord.state === "active";
 }
@@ -1274,6 +1283,45 @@ function isKeyUsableForDecryption(pubKeyRecord) {
     return pubKeyRecord.state === "active" ||
     pubKeyRecord.state === "deprecated";
 }
+
+async function ensureEnvelope() {
+    const envelopeName = "envelope.json";
+
+    // Ensure session lock is held
+    if (!driveLockState || driveLockState.envelopeName !== envelopeName) {
+        await acquireDriveWriteLock(envelopeName);
+    }
+
+    // Fast path
+    const existing = await readEnvelopeFromDrive(envelopeName);
+    if (existing?.json) {
+        log("📦 Envelope already exists");
+        return existing.json;
+    }
+
+    log("📦 Envelope missing — creating genesis envelope");
+
+    const rawPublicKeyJsons = await loadPublicKeyJsonsFromDrive();
+    const registry = await buildKeyRegistryFromDrive(rawPublicKeyJsons);
+    const identity = await loadIdentity();
+
+    const selfKey = registry.flat.activeDevices.find(
+        k => k.deviceId === identity.deviceId
+    );
+
+    if (!selfKey) {
+        throw new Error("Active device public key not found for envelope genesis");
+    }
+
+    const envelope = await createEnvelope(
+        JSON.stringify({ initialized: true }),
+        selfKey
+    );
+
+    const written = await writeEnvelopeWithLock(envelopeName, envelope);
+    return written;
+}
+
 
 /* ------------------- Public key Registry building steps ---------------- */
 function resetKeyRegistry() {
@@ -1422,22 +1470,93 @@ function finalizeKeyRegistry(registry) {
     Object.freeze(registry);
 }
 
+async function loadPublicKeyJsonsFromDrive() {
+    const publicKeyJsons = [];
+
+    // 1️⃣ Locate pub-keys folder
+    const pubKeysFolders = await driveList({
+        q: `'${ACCESS4_ROOT_ID}' in parents and name='pub-keys' and mimeType='application/vnd.google-apps.folder'`,
+        pageSize: 1
+    });
+
+    if (pubKeysFolders.length === 0) {
+        log("[loadPublicKeyJsonsFromDrive] pub-keys folder not found");
+        return publicKeyJsons;
+    }
+
+    const pubKeysRootId = pubKeysFolders[0].id;
+
+    // 2️⃣ Enumerate email subfolders
+    const accountFolders = await driveList({
+        q: `'${pubKeysRootId}' in parents and mimeType='application/vnd.google-apps.folder'`,
+        pageSize: 100
+    });
+
+    for (const accountFolder of accountFolders) {
+        // 3️⃣ Enumerate device key files
+        const deviceKeyFiles = await driveList({
+            q: `'${accountFolder.id}' in parents and mimeType='application/json'`,
+            pageSize: 100
+        });
+
+        for (const file of deviceKeyFiles) {
+            try {
+                const json = await driveReadJsonFile(file.id);
+                publicKeyJsons.push(json);
+            } catch (err) {
+                log(`[loadPublicKeyJsonsFromDrive] Failed to read ${file.name}: ${err.message}`);
+            }
+        }
+    }
+
+    // 4️⃣ Load recovery public key (optional)
+    const recoveryFolders = await driveList({
+        q: `'${ACCESS4_ROOT_ID}' in parents and name='recovery' and mimeType='application/vnd.google-apps.folder'`,
+        pageSize: 1
+    });
+
+    if (recoveryFolders.length > 0) {
+        const recoveryFolderId = recoveryFolders[0].id;
+
+        const recoveryPublicFiles = await driveList({
+            q: `'${recoveryFolderId}' in parents and name='recovery.public.json'`,
+            pageSize: 1
+        });
+
+        if (recoveryPublicFiles.length > 0) {
+            try {
+                const recoveryJson = await driveReadJsonFile(recoveryPublicFiles[0].id);
+                publicKeyJsons.push(recoveryJson);
+            } catch (err) {
+                log("[loadPublicKeyJsonsFromDrive] Failed to read recovery.public.json");
+            }
+        }
+    }
+
+    log(`[loadPublicKeyJsonsFromDrive] Loaded ${publicKeyJsons.length} public keys`);
+    return publicKeyJsons;
+}
+
 async function buildKeyRegistryFromDrive(rawPublicKeyJsons) {
     resetKeyRegistry();
 
     for (const raw of rawPublicKeyJsons) {
         const normalized = normalizePublicKey(raw);
+        if (!normalized) continue; // skip invalid
         registerPublicKey(normalized);
     }
 
     keyRegistry.loadedAt = new Date().toISOString();
 
     // Validate structural integrity
-    validateKeyRegistry(keyRegistry);
+    try {
+        validateKeyRegistry(keyRegistry);
+    } catch (e) {
+        log("⚠️ Key registry validation warning:" + e.message);
+    }
 
     // Resolve terminal active devices
-    const activeDevices =
-    resolveEffectiveActiveDevices(keyRegistry.flat);
+    const activeDevices = resolveEffectiveActiveDevices(keyRegistry.flat);
 
     // 🔒 Freeze resolved device lists
     keyRegistry.flat.activeDevices = Object.freeze(
@@ -1537,8 +1656,9 @@ function startLockHeartbeat({envelopeName, self, readLockFromDrive, writeLockToD
                 lockFile.fileId
             );
 
+            driveLockState.lock = extended;   // keep local state authoritative
             log(`💓 Heartbeat OK (gen=${extended.generation}, expires ${extended.expiresAt})`);
-
+            updateLockStatusUI();
         } catch (err) {
             stopped = true;
             onLost?.({ reason: "heartbeat-failed", error: err });
@@ -1588,13 +1708,28 @@ async function acquireDriveWriteLock(envelopeName) {
             self,
             readLockFromDrive,
             writeLockToDrive,
-            onLost: info => log("❌ Lock lost: " + JSON.stringify(info))
+            onLost: info => handleDriveLockLost(info)
         })
     };
+
+    updateLockStatusUI();
 
     log("✅ acquireDriveWriteLock completed");
     return driveLockState;
 }
+
+function handleDriveLockLost(info) {
+    log("❌ Drive lock lost: " + JSON.stringify(info));
+
+    if (driveLockState?.heartbeat) {
+        driveLockState.heartbeat.stop();
+    }
+
+    driveLockState = null;
+
+    updateLockStatusUI();
+}
+
 
 async function releaseDriveLock() {
     if (!driveLockState?.fileId) return;
@@ -1717,6 +1852,9 @@ async function writeEnvelopeWithLock(envelopeName, envelopeData) {
             driveLockState.fileId
         );
 
+        // Update UI to reflect new lock generation
+        updateLockStatusUI();
+
         log(`✅ Envelope "${envelopeName}" written, generation=${newGeneration}`);
         return newEnvelopeContent;
 
@@ -1802,10 +1940,11 @@ async function readEnvelopeFromDrive(envelopeName) {
     };
 }
 
-
-
 /* ================= LOGOUT ================= */
 function logout() {
+
+    handleDriveLockLost()
+
     unlockedView.style.display = "none";
     loginView.style.display = "block";
 
@@ -1818,27 +1957,6 @@ function logout() {
     userEmail = null;
     location.reload();
 }
-
-/* ----------------- TESTS -------------------*/
-
-async function runLockTest() {
-    try {
-        const envelopeName = "envelope-test.json";
-        const envelopeData = { message: "Hello Drive!", createdAt: new Date().toISOString() };
-
-        log("🚀 Starting test: acquire lock → write envelope → release lock");
-
-        await acquireDriveWriteLock(envelopeName);
-
-        await writeEnvelopeWithLock(envelopeName, envelopeData);
-        await releaseDriveLock();
-
-        log("🎉 Test completed successfully");
-    } catch (err) {
-        log("❌ Test failed: " + err.message);
-    }
-}
-
 
 /* ----------------- UI action handlers -------------------*/
 // Ensure UI starts in a safe locked state
@@ -1973,6 +2091,7 @@ async function handleCreatePasswordClick()  {
 }
 
 async function proceedAfterPasswordSuccess() {
+    await ensureEnvelope();      // 🔐 guarantees CEK + envelope
     await ensureRecoveryKey();   // 🔑 may block UI
     showUnlockedUI();
     log("🔑 Unlock successful!");
@@ -2110,7 +2229,12 @@ async function handleCreateRecoveryClick() {
 }
 
 
+function updateLockStatusUI() {
+    if (!driveLockState) return;
 
+    const { expiresAt } = driveLockState.lock;
+    log(`🔐 You hold the envelope lock (expires ${expiresAt})`);
+}
 
 function showUnlockedUI() {
     loginView.style.display = "none";
@@ -2140,7 +2264,10 @@ function handleLogoutClick() {
     logout();
 }
 
+/* ---------- TEMPORARY ---------*/
 
+
+/*-------- TEMPORARY ENDS -------*/
 
 // IMPORTANT - DO NOT DELETE
 window.onload = async () => {
