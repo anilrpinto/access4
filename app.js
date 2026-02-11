@@ -42,12 +42,18 @@ let signinBtn;
 let passwordSection;
 let confirmPasswordSection;
 let unlockBtn;
-let logoutBtn;
+
+let titleUnlocked;
+let plaintextInput;
+let saveBtn;
 
 let loginView;
 let unlockedView;
 let passwordInput;
 let confirmPasswordInput;
+
+let logoutBtn;
+
 let logEl;
 let idleTimer;
 
@@ -151,6 +157,10 @@ function onLoad() {
     confirmPasswordInput = document.getElementById("confirmPasswordInput");
     logEl = document.getElementById("log");
 
+    titleUnlocked = document.getElementById("titleUnlocked");
+    plaintextInput = document.getElementById("plaintextInput");
+    saveBtn = document.getElementById("saveBtn");
+
     // Initial UI state
     passwordSection.style.display = "none";
     confirmPasswordSection.style.display = "none";
@@ -160,6 +170,8 @@ function onLoad() {
     signinBtn.onclick = handleSignInClick;
     unlockBtn.onclick = handleUnlockClick;
     logoutBtn.onclick = handleLogoutClick;
+
+    saveBtn.onclick = handleSaveClick;
 
     setupTitleGesture();
 
@@ -597,7 +609,7 @@ async function rotateDeviceIdentity(pwd) {
     saveIdentity(newIdentity);
 
     log("✅ Device identity rotated");
-    log("↪ Supersedes keyId:", oldIdentity.fingerprint);
+    log("↪ Supersedes keyId: " + oldIdentity.fingerprint);
 
     // --- Drive updates (best effort) ---
     try {
@@ -678,69 +690,89 @@ async function unlockIdentityFlow(pwd) {
         }
     }
 
-    // ─────────────────────────────
-    // First-time identity creation (LOCKED)
-    // ─────────────────────────────
     if (!id) {
         log("❌ No local identity found — cannot unlock");
         const e = new Error(UNLOCK_ERROR_DEFS.NO_IDENTITY.message);
         e.code = UNLOCK_ERROR_DEFS.NO_IDENTITY.code;
         throw e;
-    } else {
-        log("📁 Local identity found");
+    }
 
-        // ─────────────────────────────
-        // 🔐 AUTHORITATIVE PASSWORD CHECK
-        // ─────────────────────────────
-        let key;
-        try {
-            key = await deriveKey(pwd, id.kdf);
-            await verifyPasswordVerifier(id.passwordVerifier, key);
-            log("🔐 Password verified");
-        } catch {
-            const e = new Error(UNLOCK_ERROR_DEFS.INCORRECT_PASSWORD.message);
-            e.code = UNLOCK_ERROR_DEFS.INCORRECT_PASSWORD.code;
-            throw e;
-        }
+    log("📁 Local identity found");
 
-        // ─────────────────────────────
-        // 🔓 Attempt private key decrypt
-        // (Safari may fail here)
-        // ─────────────────────────────
-        let decrypted = false;
+    // ─────────────────────────────
+    // 🔐 AUTHORITATIVE PASSWORD CHECK
+    // ─────────────────────────────
+    let key;
+    try {
+        key = await deriveKey(pwd, id.kdf);
+        await verifyPasswordVerifier(id.passwordVerifier, key);
+        log("🔐 Password verified");
+    } catch {
+        const e = new Error(UNLOCK_ERROR_DEFS.INCORRECT_PASSWORD.message);
+        e.code = UNLOCK_ERROR_DEFS.INCORRECT_PASSWORD.code;
+        throw e;
+    }
+
+    // ─────────────────────────────
+    // 🔓 Attempt private key decrypt
+    // ─────────────────────────────
+    let decrypted = false;
+
+    try {
+        await decrypt(id.encryptedPrivateKey, key);
+        decrypted = true;
+        log("✅ Identity successfully decrypted");
+    } catch {
+        log("⚠️ Private key decryption failed");
+    }
+
+    // ─────────────────────────────
+    // 🔁 Single rotation retry
+    // ─────────────────────────────
+    if (!decrypted) {
+        log("🔁 Attempting device key rotation");
+
+        await rotateDeviceIdentity(pwd);
+        id = await loadIdentity();
+
         try {
             await decrypt(id.encryptedPrivateKey, key);
             decrypted = true;
-            log("✅ Identity successfully decrypted");
+            log("✅ Decryption succeeded after rotation");
         } catch {
-            log("⚠️ Safari crypto limitation detected");
+            log("⚠️ Decryption still failing after rotation");
+        }
+    }
+
+    // ─────────────────────────────
+    // 🧨 Absolute Safari recovery
+    // ─────────────────────────────
+    if (!decrypted) {
+        log("🧨 Rotation failed — recreating identity");
+
+        await createIdentity(pwd);
+        id = await loadIdentity();
+
+        if (!id) {
+            const e = new Error(UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.message);
+            e.code = UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.code;
+            throw e;
         }
 
-        // ─────────────────────────────
-        // 🔁 Rotation allowed ONLY after
-        // password verification
-        // ─────────────────────────────
-        if (id.supersedes || !decrypted) {
-            log("🔁 Identity superseded or Safari-limited — rotating device key");
-            await rotateDeviceIdentity(pwd);
-            id = await loadIdentity();
+        try {
+            key = await deriveKey(pwd, id.kdf);
+            await decrypt(id.encryptedPrivateKey, key);
             decrypted = true;
+            log("✅ Decryption succeeded after recreation");
+        } catch {
+            const e = new Error(UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.message);
+            e.code = UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.code;
+            throw e;
         }
+    }
 
-        // ─────────────────────────────
-        // 🔁 Final Safari recovery path
-        // ─────────────────────────────
-        if (!decrypted) {
-            log("🔁 Safari recovery path — recreating identity");
-            await createIdentity(pwd);
-            id = await loadIdentity();
-
-            if (!id) {
-                const e = new Error(UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.message);
-                e.code = UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.code;
-                throw e;
-            }
-        }
+    if (id.supersedes) {
+        log("ℹ️ Identity supersedes previous keyId: " + id.supersedes);
     }
 
     // ─────────────────────────────
@@ -758,6 +790,7 @@ async function unlockIdentityFlow(pwd) {
 
     return id;
 }
+
 
 async function migrateIdentityWithVerifier(id, pwd) {
     log("🛠️ Migrating identity to add password verifier");
@@ -999,15 +1032,13 @@ async function findOrCreateUserFolder() {
 
 /* ================= RECOVERY KEY ================= */
 async function hasRecoveryKeyOnDrive() {
-    log("[hasRecoveryKeyOnDrive] in here");
-
     try {
         const folders = await driveList({
             q: `'${ACCESS4_ROOT_ID}' in parents and name='recovery' and mimeType='application/vnd.google-apps.folder'`,
             pageSize: 1
         });
 
-        log("[hasRecoveryKeyOnDrive] recovery folders found:" + folders.length);
+        log("[hasRecoveryKeyOnDrive] recovery folders found: " + folders.length);
 
         if (!folders.length) return false;
 
@@ -1155,14 +1186,23 @@ async function unwrapContentKey(wrappedKeyBase64, keyId) {
         { name: "RSA-OAEP" },
         { name: "AES-GCM", length: 256 },
         true,
-        ["decrypt"]
+        ["encrypt", "decrypt"]
     );
 }
 
 /* ================= ENVELOPE WRITE ASSERTION + HOUSEKEEPING HELPER ================= */
 async function assertEnvelopeWrite(envelopeName) {
-    if (!driveLockState || driveLockState.envelopeName !== envelopeName) {
-        throw new Error(`Cannot write: Drive lock not held for "${envelopeName}"`);
+
+    if (!driveLockState) {
+        throw new Error(`Cannot write: no drive lock state for "${envelopeName}"`);
+    }
+
+    if (driveLockState.envelopeName !== envelopeName) {
+        throw new Error(`Cannot write: lock does not match envelope "${envelopeName}"`);
+    }
+
+    if (driveLockState.mode !== "write") {
+        throw new Error(`Read-only session — write not permitted for envelope "${envelopeName}"`);
     }
 
     log(`[assertEnvelopeWrite] Ownership confirmed for envelope "${envelopeName}"`);
@@ -1191,6 +1231,7 @@ async function createEnvelope(plainText, devicePublicKeyRecord) {
         },
         payload,
         keys: [{
+            role: "device",
             account: devicePublicKeyRecord.account,
             deviceId: devicePublicKeyRecord.deviceId,
             keyId: devicePublicKeyRecord.fingerprint,
@@ -1202,9 +1243,14 @@ async function createEnvelope(plainText, devicePublicKeyRecord) {
 }
 
 async function openEnvelope(envelope) {
+
+    log("[openEnvelope]");
+
     validateEnvelope(envelope);
 
     const entry = await selectDecryptableKey(envelope);
+
+    log(`entry.keyId: ${entry.keyId}`);
 
     const cek = await unwrapContentKey(
         entry.wrappedKey,
@@ -1224,38 +1270,82 @@ async function openEnvelope(envelope) {
 }
 
 function validateEnvelope(envelope) {
-    if (!envelope.version) throw new Error("Envelope missing version");
-    if (!Array.isArray(envelope.keys) || !envelope.keys.length)
-    throw new Error("Envelope has no key entries");
+    if (!envelope.version) {
+        throw new Error("Envelope missing version");
+    }
+
+    if (!Array.isArray(envelope.keys) || envelope.keys.length === 0) {
+        throw new Error("Envelope has no key entries");
+    }
+
+    let hasUsableKey = false;
 
     for (const k of envelope.keys) {
-        if (!k.deviceId) throw new Error("Key entry missing deviceId");
-        if (!k.wrappedKey) throw new Error("Key entry missing wrappedKey");
+        // wrapped CEK is always required
+        if (!k.wrappedKey) {
+            throw new Error("Key entry missing wrappedKey");
+        }
 
-        // keyId is REQUIRED for rotation safety
+        // keyId is REQUIRED for rotation safety (all key types)
         if (!k.keyId) {
             throw new Error("Key entry missing keyId (rotation unsafe)");
         }
+
+        // Type-aware validation
+        if (k.role === "device") {
+            if (!k.deviceId) {
+                throw new Error("Device key entry missing deviceId");
+            }
+            hasUsableKey = true;
+        } else if (k.role === "recovery") {
+            // recovery entries intentionally do NOT have deviceId
+            // optional: validate recoveryId / method if you want
+            hasUsableKey = true;
+        } else {
+            throw new Error(`Unknown key entry role: ${k.role || "missing"}`);
+        }
+    }
+
+    if (!hasUsableKey) {
+        throw new Error("Envelope contains no usable key entries");
     }
 }
 
 async function selectDecryptableKey(envelope) {
+
     const id = await loadIdentity();
     if (!id) throw new Error("Local identity missing");
 
-    const entry = envelope.keys.find(k => {
+    if (!Array.isArray(envelope.keys)) {
+        throw new Error("Envelope missing keys array");
+    }
+
+    // 1️⃣ Prefer current device key (rotation-aware)
+    const deviceEntry = envelope.keys.find(k => {
+        if (k.role !== "device") return false;
+        if (!k.deviceId) return false;
         if (k.deviceId !== id.deviceId) return false;
-        // Rotation-aware selection
+
+        // Allow current or superseded key
         return keyMatchesOrIsSuperseded(k.keyId, id);
     });
 
-    if (!entry) throw new Error("No decryptable key for this device identity");
-
-    if (entry.keyId !== id.fingerprint) {
-        log("🔁 Envelope encrypted with previous device key — rotation detected");
+    if (deviceEntry) {
+        if (deviceEntry.keyId !== id.fingerprint) {
+            log("🔁 Envelope encrypted with previous device key — rotation detected");
+        }
+        return deviceEntry;
     }
 
-    return entry;
+    // 2️⃣ Optional fallback: recovery key (NO deviceId expected)
+    const recoveryEntry = envelope.keys.find(k => k.role === "recovery");
+
+    if (recoveryEntry) {
+        log("🛟 Falling back to recovery key for decryption");
+        return recoveryEntry;
+    }
+
+    throw new Error("No decryptable key found for this device or recovery");
 }
 
 function keyMatchesOrIsSuperseded(entryKeyId, localIdentity) {
@@ -1279,18 +1369,41 @@ function isKeyUsableForDecryption(pubKeyRecord) {
 async function ensureEnvelope() {
     const envelopeName = "envelope.json";
 
-    // Ensure session lock is held
-    if (!driveLockState || driveLockState.envelopeName !== envelopeName) {
+    // Evaluate lock mode based on lock status in drive
+    const lockFile = await readLockFromDrive(envelopeName);
+    const identity = await loadIdentity();
+    const self = { account: userEmail, deviceId: identity.deviceId };
+
+    const evalResult = evaluateEnvelopeLock(lockFile?.json, self);
+
+    if (evalResult.status === "owned") {
+        // normal write path
+        driveLockState.mode = "write";
+    }
+    else if (evalResult.status === "locked") {
+        // 👇 READ-ONLY MODE
+        log("🔒 Envelope locked by another device — entering read-only mode");
+
+        driveLockState = {
+            envelopeName,
+            fileId: lockFile.fileId,
+            lock: lockFile.json,
+            self,
+            mode: "read"
+        };
+    }
+    else {
+        // free or expired → acquire write lock
         await acquireDriveWriteLock(envelopeName);
+        driveLockState.mode = "write";
     }
 
     // Always load key registry from pub-keys on Drive
     const rawPublicKeyJsons = await loadPublicKeyJsonsFromDrive();
     keyRegistry = await buildKeyRegistryFromDrive(rawPublicKeyJsons);
-    const identity = await loadIdentity();
 
-    log("[ensureEnvelope] Active devices registry:" + keyRegistry.flat.activeDevices);
-    log("[ensureEnvelope] recoveryKeys registry:" + keyRegistry.flat.recoveryKeys);
+    log("[ensureEnvelope] Active devices registry:" + keyRegistry.flat.activeDevices.length);
+    log("[ensureEnvelope] recoveryKeys registry:" + keyRegistry.flat.recoveryKeys.length);
 
     // Fast path
     const existing = await readEnvelopeFromDrive(envelopeName);
@@ -1663,10 +1776,7 @@ function evaluateEnvelopeLock(lock, self) {
 
     if (expired) return { status: "free", reason: "expired" };
 
-    if (
-    lock.owner.account === self.account &&
-    lock.owner.deviceId === self.deviceId
-    ) {
+    if (lock.owner.account === self.account && lock.owner.deviceId === self.deviceId) {
         return { status: "owned", lock };
     }
 
@@ -1774,13 +1884,14 @@ async function acquireDriveWriteLock(envelopeName) {
     log("🔐 writing lock to Drive...");
     const fileId = await writeLockToDrive(envelopeName, lock, lockFile?.fileId);
 
-    log("🔐 lock written, fileId:", fileId);
+    log("🔐 lock written, fileId: " + fileId);
 
     driveLockState = {
         envelopeName,
         fileId,
         lock,
         self,
+        mode: "write",
         heartbeat: startLockHeartbeat({
             envelopeName,
             self,
@@ -1873,7 +1984,7 @@ async function addRecoveryKeyToEnvelope({ publicKey, keyId }) {
             wrappedKey
         });
 
-        log("[DEBUG] Added recovery key to envelope.keys:", envelope.keys.map(k => ({
+        log("[DEBUG] Added recovery key to envelope.keys: " + envelope.keys.map(k => ({
             role: k.role,
             keyId: k.keyId,
             hasWrappedKey: !!k.wrappedKey
@@ -1885,7 +1996,7 @@ async function addRecoveryKeyToEnvelope({ publicKey, keyId }) {
         log("🧹 Performing CEK housekeeping with force write");
         const updatedEnvelope = await wrapCEKForRegistryKeys(true); // <- forceWrite = true
 
-        log("[DEBUG] Updated envelope after wrapCEKForRegistryKeys:", updatedEnvelope.keys.map(k => ({
+        log("[DEBUG] Updated envelope after wrapCEKForRegistryKeys: " + updatedEnvelope.keys.map(k => ({
             role: k.role,
             keyId: k.keyId,
             hasWrappedKey: !!k.wrappedKey
@@ -1897,8 +2008,6 @@ async function addRecoveryKeyToEnvelope({ publicKey, keyId }) {
 
     log("✅ Recovery key added to envelope and saved");
 }
-
-
 
 /* ================= WRITE ENVELOPE WITH LOCK ================= */
 async function writeEnvelopeWithLock(envelopeName, envelopeData) {
@@ -2204,6 +2313,8 @@ async function proceedAfterPasswordSuccess() {
         await wrapCEKForRegistryKeys();  // No parameter needed, helper handles load & write
     }
 
+    await loadEnvelopePayloadToUI();
+
     showUnlockedUI();
     log("🔑 Unlock successful!");
 }
@@ -2338,6 +2449,112 @@ async function handleCreateRecoveryClick() {
     unlockBtn.disabled = false;
 }
 
+async function handleSaveClick() {
+    const text = plaintextInput.value;
+    if (!text) {
+        log("⚠️ Nothing to encrypt");
+        return;
+    }
+
+    try {
+        await encryptAndPersistPlaintext(text);
+        plaintextInput.value = "";
+    } catch (e) {
+        log("❌ Encryption failed: " + e.message);
+    }
+}
+
+async function encryptAndPersistPlaintext(plainText) {
+    const envelopeName = "envelope.json";
+
+    // Ensure we own the lock
+    if (!driveLockState || driveLockState.envelopeName !== envelopeName) {
+        await acquireDriveWriteLock(envelopeName);
+    }
+
+    await assertEnvelopeWrite(envelopeName);
+
+    // Load envelope
+    const envelopeFile = await readEnvelopeFromDrive(envelopeName);
+    if (!envelopeFile?.json) {
+        throw new Error("Envelope missing");
+    }
+
+    const envelope = envelopeFile.json;
+
+    console.log("[encryptAndPersistPlaintext] envelope: " + envelope)
+
+    // Unwrap CEK using this device
+    const selfEntry = envelope.keys.find(k =>
+    k.deviceId === driveLockState.self.deviceId
+    );
+
+    if (!selfEntry) {
+        throw new Error("No device key to unwrap CEK");
+    }
+
+    const cek = await unwrapContentKey(
+        selfEntry.wrappedKey,
+        selfEntry.keyId
+    );
+
+    log('cek: ${JSON.stringify(cek)}');
+
+    // Encrypt new payload
+    const payload = await encryptPayload(plainText, cek);
+
+    // Update envelope payload only
+    const updatedEnvelope = {
+        ...envelope,
+        payload
+    };
+
+    // Persist safely (generation + lock heartbeat preserved)
+    const written = await writeEnvelopeSafely(envelopeName, updatedEnvelope);
+
+    log("🔒 Payload encrypted & written to envelope");
+
+    // Verify decrypt immediately (sanity + demo)
+    const decrypted = await openEnvelope(written);
+    log("🔓 Decrypted payload:");
+    log(decrypted);
+}
+
+async function loadEnvelopePayloadToUI(envelopeName = "envelope.json") {
+    log(`📥 Loading envelope payload from Drive: ${envelopeName}`);
+
+    // 1️⃣ Read envelope file
+    const envelopeFile = await readEnvelopeFromDrive(envelopeName);
+    if (!envelopeFile) {
+        log("⚠️ Envelope file not found");
+        return;
+    }
+
+    const envelope = envelopeFile.json;
+
+    if (!envelope.payload) {
+        log("⚠️ Envelope has no payload");
+        return;
+    }
+
+    try {
+        // 2️⃣ Decrypt payload using openEnvelope()
+        const plaintext = await openEnvelope(envelope);
+
+        log(`plaintext: |${plaintext}|`);
+
+        // 3️⃣ Populate plaintext area in UI
+        plaintextInput.value = plaintext;
+
+        log("✅ Payload loaded into plaintext UI");
+    } catch (err) {
+        log("❌ Failed to decrypt envelope payload: " + err.message);
+    }
+}
+
+function isEnvelopeReadOnly() {
+    return !driveLockState || driveLockState.mode !== "write";
+}
 
 function updateLockStatusUI() {
     if (!driveLockState) return;
@@ -2349,6 +2566,11 @@ function updateLockStatusUI() {
 function showUnlockedUI() {
     loginView.style.display = "none";
     unlockedView.style.display = "flex";
+
+    if (isEnvelopeReadOnly()) {
+        saveBtn.disabled = true;
+        titleUnlocked.textContent = "Read-Only";
+    }
 }
 
 function showUnlockMessage(msg, type = "error") {

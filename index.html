@@ -38,11 +38,17 @@
 <!-- UNLOCKED VIEW -->
 <div id="unlockedView">
     <header>
-        <h1>Unlocked</h1>
+        <h1 id="titleUnlocked">Welcome</h1>
     </header>
 
     <main class="unlocked-main">
         <button id="logoutBtn">Logout</button>
+        <button id="saveBtn">Save</button>
+
+        <!-- 🔐 Encrypted Note UI -->
+        <textarea id="plaintextInput" rows="5"
+                placeholder="Type text here, encrypt it, then unlock on another device…"></textarea>
+
         <pre id="log"></pre>
     </main>
 </div>
