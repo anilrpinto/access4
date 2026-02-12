@@ -36,6 +36,10 @@ let driveLockState = null;
 let unlockInProgress = false;
 let authMode;
 
+let unlockedIdentity = null;   // Holds decrypted identity for current session
+let currentPrivateKey = null;
+let sessionUnlocked = false;
+
 /* ================= DOM ================= */
 let userEmailSpan;
 let signinBtn;
@@ -95,54 +99,10 @@ function log(msg) {
     logEl.textContent += msg + "\n";
 }
 
-/* ================= DEVICE ID (4.1) ================= */
-function deviceIdKey() {
-    return "access4.device.id";
-}
-
-function getDeviceId() {
-    let id = localStorage.getItem(deviceIdKey());
-    if (!id) {
-        id = crypto.randomUUID();
-        localStorage.setItem(deviceIdKey(), id);
-        log("🆔 New device ID generated");
-    }
-    return id;
-}
-
-/* ================= GOOGLE SIGN-IN ================= */
-function initGIS() {
-    tokenClient = google.accounts.oauth2.initTokenClient({
-        client_id: CLIENT_ID,
-        scope: SCOPES,
-        callback: handleAuth
-    });
-    tokenClient.requestAccessToken({
-        prompt: ""
-    });
-}
-
-async function handleAuth(resp) {
-    if (resp.error) return;
-
-    accessToken = resp.access_token;
-    log("✓ Access token acquired");
-
-    await fetchUserEmail();
-    await verifySharedRoot();
-    await verifyWritable(ACCESS4_ROOT_ID);
-    await ensureAuthorization();
-
-    signinBtn.disabled = true;
-    logoutBtn.disabled = false;
-    passwordSection.style.display = "block";
-
-    biometricRegistered = !!localStorage.getItem(bioCredKey());
-
-    onAuthReady(userEmail);
-}
+/* ================= BOOT + AUTHENTICATION FLOW ================= */
 
 function onLoad() {
+
     // Cache DOM
     userEmailSpan = document.getElementById("userEmailSpan");
     signinBtn = document.getElementById("signinBtn");
@@ -173,6 +133,12 @@ function onLoad() {
 
     saveBtn.onclick = handleSaveClick;
 
+    log("📌 onLoad start");
+    log("🧠 sessionStorage sv_session_private_key exists:" + !!sessionStorage.getItem("sv_session_private_key"));
+    log("🧩 in-memory unlockedIdentity:" + !!unlockedIdentity);
+    log("🧩 in-memory currentPrivateKey:" + !!currentPrivateKey);
+
+
     setupTitleGesture();
 
     initLoginUI();
@@ -184,13 +150,563 @@ function onLoad() {
     log("UI ready");
 }
 
-function resetIdleTimer() {
-    clearTimeout(idleTimer);
-    idleTimer = setTimeout(async () => {
-        log("[resetIdleTimer] Inactivity timeout — releasing Drive lock");
-        await releaseDriveLock();
-    }, 10 * 60 * 1000); // 10 minutes
+/* --------- GOOGLE SIGN-IN start --------- */
+function handleSignInClick() {
+    signinBtn.disabled = true;
+    logEl.textContent = "";
+    passwordSection.style.display = "block";
+
+    tokenClient.requestAccessToken({ prompt: "consent select_account" });
 }
+
+function initGIS() {
+    tokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: CLIENT_ID,
+        scope: SCOPES,
+        callback: handleAuth
+    });
+    tokenClient.requestAccessToken({
+        prompt: ""
+    });
+}
+
+/* --------- GOOGLE SIGN-IN end --------- */
+
+async function handleAuth(resp) {
+    if (resp.error) return;
+
+    accessToken = resp.access_token;
+    log("✓ Access token acquired");
+
+    await fetchUserEmail();
+    await verifySharedRoot();
+    await verifyWritable(ACCESS4_ROOT_ID);
+    await ensureAuthorization();
+
+    signinBtn.disabled = true;
+    logoutBtn.disabled = false;
+    passwordSection.style.display = "block";
+
+    biometricRegistered = !!localStorage.getItem(bioCredKey());
+
+    onAuthReady(userEmail);
+}
+
+async function onAuthReady(email) {
+    userEmailSpan.textContent = email;
+
+    try {
+        const id = await loadIdentity();
+
+        if (!id) {
+            // New device → create identity
+            setAuthMode("create");
+            log("🆔 New device detected, prompting password creation");
+            return;
+        }
+
+        if (!id.passwordVerifier) {
+            // Legacy identity → migration
+            setAuthMode("unlock", { migration: true });
+            log("🧭 Identity missing password verifier — migration mode");
+            return;
+        }
+
+        // Attempt session restore first
+        if (await attemptSessionRestore()) {
+            log("🔓 Session restore successful — skipping password");
+
+            log("🧩 driveLockState after session restore:" + (driveLockState ? { mode: driveLockState.mode, self: driveLockState.self } : null));
+            await ensureDevicePublicKey();
+            await proceedAfterPasswordSuccess();
+            return;
+        }
+
+        // Returning user → unlock
+        setAuthMode("unlock");
+        log("📁 Existing device detected, prompting unlock");
+
+
+    } catch (e) {
+        log("❌ Error loading identity: " + e.message);
+        unlockMessage.textContent = "Failed to load identity. Try again.";
+    }
+}
+
+function setAuthMode(mode, options = {}) {
+    authMode = mode;
+
+    // reset fields
+    resetUnlockUi();
+
+    // ✅ Always enable unlockBtn when switching mode
+    unlockBtn.disabled = false;
+
+    passwordSection.style.display = "block";
+
+    if (mode === "unlock") {
+        confirmPasswordSection.style.display = "none";
+        unlockBtn.textContent = "Unlock";
+        unlockBtn.onclick = handleUnlockClick;
+
+        showUnlockMessage(options.migration
+            ? "Identity missing password verifier — enter your password to upgrade."
+            : "");
+    }
+
+    if (mode === "create") {
+        confirmPasswordSection.style.display = "block";
+        unlockBtn.textContent = "Create Password";
+        unlockBtn.onclick = handleCreatePasswordClick;
+    }
+}
+
+/* --------- Unlock flow --------- */
+async function handleUnlockClick() {
+
+    if (unlockInProgress) return;
+
+    unlockInProgress  = true;
+    const pwd = passwordInput.value;
+
+    showUnlockMessage(""); // clear previous
+
+    if (!pwd) {
+        showUnlockMessage("Password cannot be empty");
+        return;
+    }
+
+    try {
+        await unlockIdentityFlow(pwd);
+        await proceedAfterPasswordSuccess();
+    } catch (e) {
+        const def = Object.values(UNLOCK_ERROR_DEFS)
+            .find(d => d.code === e.code);
+
+        showUnlockMessage(def?.message || e.message || "Unlock failed");
+        log("❌ Unlock failed: " + (def?.message || e.message));
+    }
+}
+
+async function unlockIdentityFlow(pwd) {
+    if (!pwd || pwd.length < 7) {
+        const e = new Error(UNLOCK_ERROR_DEFS.WEAK_PASSWORD.message);
+        e.code = UNLOCK_ERROR_DEFS.WEAK_PASSWORD.code;
+        throw e;
+    }
+
+    log("🔓 [unlockIdentityFlow] Unlock attempt started for password:" + pwd ? "***" : "(empty)");
+
+    if (!accessToken) {
+        const e = new Error(UNLOCK_ERROR_DEFS.NO_ACCESS_TOKEN.message);
+        e.code = UNLOCK_ERROR_DEFS.NO_ACCESS_TOKEN.code;
+        throw e;
+    }
+
+    let id = await loadIdentity();
+    log("📁 [unlockIdentityFlow] Identity loaded:" + !!id);
+
+    if (id && identityNeedsPasswordSetup(id)) {
+        log("🧭 Identity missing password verifier — attempting auto-migration");
+
+        try {
+            await migrateIdentityWithVerifier(id, pwd);
+            id = await loadIdentity();
+        } catch {
+            const e = new Error(UNLOCK_ERROR_DEFS.INCORRECT_PASSWORD.message);
+            e.code = UNLOCK_ERROR_DEFS.INCORRECT_PASSWORD.code;
+            throw e;
+        }
+    }
+
+    if (!id) {
+        log("❌ No local identity found — cannot unlock");
+        const e = new Error(UNLOCK_ERROR_DEFS.NO_IDENTITY.message);
+        e.code = UNLOCK_ERROR_DEFS.NO_IDENTITY.code;
+        throw e;
+    }
+
+    log("📁 Local identity found");
+
+    // ─────────────────────────────
+    // 🔐 AUTHORITATIVE PASSWORD CHECK
+    // ─────────────────────────────
+    let key;
+    try {
+        key = await deriveKey(pwd, id.kdf);
+        await verifyPasswordVerifier(id.passwordVerifier, key);
+        log("🔐 Password verified");
+    } catch {
+        const e = new Error(UNLOCK_ERROR_DEFS.INCORRECT_PASSWORD.message);
+        e.code = UNLOCK_ERROR_DEFS.INCORRECT_PASSWORD.code;
+        throw e;
+    }
+
+    log("🔐 [unlockIdentityFlow] Password verified:", key ? "***" : "(failed)");
+
+    // ─────────────────────────────
+    // 🔓 Attempt private key decrypt
+    // ─────────────────────────────
+    let decrypted = false;
+    let decryptedPrivateKeyBytes = null;
+
+    try {
+        decryptedPrivateKeyBytes = await decrypt(id.encryptedPrivateKey, key);
+        decrypted = true;
+        log("✅ Identity successfully decrypted");
+    } catch {
+        log("⚠️ Private key decryption failed");
+    }
+
+    log("✅ [unlockIdentityFlow] Identity decrypted:", decrypted);
+
+    // ─────────────────────────────
+    // 🔁 Single rotation retry
+    // ─────────────────────────────
+    if (!decrypted) {
+        log("🔁 Attempting device key rotation");
+
+        await rotateDeviceIdentity(pwd);
+        id = await loadIdentity();
+
+        try {
+            await decrypt(id.encryptedPrivateKey, key);
+            decrypted = true;
+            log("✅ Decryption succeeded after rotation");
+        } catch {
+            log("⚠️ Decryption still failing after rotation");
+        }
+    }
+
+    // ─────────────────────────────
+    // 🧨 Absolute Safari recovery
+    // ─────────────────────────────
+    if (!decrypted) {
+        log("🧨 Rotation failed — recreating identity");
+
+        await createIdentity(pwd);
+        id = await loadIdentity();
+
+        if (!id) {
+            const e = new Error(UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.message);
+            e.code = UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.code;
+            throw e;
+        }
+
+        try {
+            key = await deriveKey(pwd, id.kdf);
+            await decrypt(id.encryptedPrivateKey, key);
+            decrypted = true;
+            log("✅ Decryption succeeded after recreation");
+        } catch {
+            const e = new Error(UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.message);
+            e.code = UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.code;
+            throw e;
+        }
+    }
+
+    if (id.supersedes) {
+        log("ℹ️ Identity supersedes previous keyId: " + id.supersedes);
+    }
+
+    // ─────────────────────────────
+    // Session unlocked
+    // ─────────────────────────────
+    unlockedPassword = pwd;
+
+    await cacheDecryptedPrivateKey(decryptedPrivateKeyBytes);
+
+    // ✅ Attach decrypted key to identity and set global unlockedIdentity
+    id._sessionPrivateKey = currentPrivateKey;
+    unlockedIdentity = id;
+    sessionUnlocked = true;
+
+
+    log("🧠 unlockedIdentity set in memory for session");
+
+    if (biometricIntent && !biometricRegistered) {
+        await enrollBiometric(pwd);
+        biometricRegistered = true;
+    }
+
+    log("🔑 Proceeding to device public key exchange");
+    await ensureDevicePublicKey();
+
+    return id;
+}
+
+async function cacheDecryptedPrivateKey(decryptedPrivateKeyBytes) {
+    try {
+        if (!decryptedPrivateKeyBytes) throw new Error("No decrypted key available");
+
+        const base64 = arrayBufferToBase64(decryptedPrivateKeyBytes);
+        sessionStorage.setItem("sv_session_private_key", base64);
+
+        // Keep in-memory reference for session restore
+        currentPrivateKey = await crypto.subtle.importKey(
+            "pkcs8",
+            decryptedPrivateKeyBytes,
+            { name: "RSA-OAEP", hash: "SHA-256" },
+            false,
+            ["decrypt", "unwrapKey"]
+        );
+
+        sessionUnlocked = true;
+        log("🧠 Session private key cached");
+
+    } catch (e) {
+        log("⚠️ Session caching failed (non-fatal): " + e.message);
+    }
+}
+
+async function attemptSessionRestore() {
+    log("📌 attemptSessionRestore start");
+
+    try {
+        const stored = sessionStorage.getItem("sv_session_private_key");
+
+        log("🧠 sessionStorage private key exists: " + !!stored);
+        if (!stored) {
+            log("⚠️ No session private key found in sessionStorage");
+            return false;
+        }
+
+        log("🧠 Restoring session private key...");
+
+        const bytes = Uint8Array.from(atob(stored), c => c.charCodeAt(0));
+
+        currentPrivateKey = await crypto.subtle.importKey(
+            "pkcs8",
+            bytes,
+            { name: "RSA-OAEP", hash: "SHA-256" },
+            false,
+            ["decrypt", "unwrapKey"]
+        );
+
+        // Load identity from localStorage
+        const id = await loadIdentity(); // gets raw identity
+        log("📦 loadIdentity returned:", !!id);
+        if (!id) {
+            log("⚠️ Identity not found in localStorage despite private key");
+            return false;
+        }
+
+        // ✅ Attach session key
+        id._sessionPrivateKey = currentPrivateKey;
+
+        // ✅ Store as unlocked identity for loadIdentity()
+        unlockedIdentity = id;
+
+        sessionUnlocked = true;
+        log("🧠 Session restored from sessionStorage");
+
+
+        log("♻ Session restore check:");
+        log("   unlockedIdentity exists:" + !!unlockedIdentity);
+        log("   fingerprint:" + unlockedIdentity?.fingerprint);
+        log("   deviceId:" + unlockedIdentity?.deviceId);
+        log("   currentPrivateKey exists:" + !!currentPrivateKey);
+        log("   privateKey type:" + currentPrivateKey?.type);
+        log("   privateKey algorithm:" + JSON.stringify(currentPrivateKey?.algorithm));
+
+
+        return true;
+
+    } catch (err) {
+        log("⚠️ Session restore failed, clearing");
+        sessionStorage.removeItem("sv_session_private_key");
+        return false;
+    }
+}
+
+/* ---------------------- Session storage helpers ---------------------- */
+function arrayBufferToBase64(buffer) {
+    let binary = '';
+    const bytes = new Uint8Array(buffer);
+    const chunkSize = 0x8000; // 32k chunks
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+        const chunk = bytes.subarray(i, i + chunkSize);
+        binary += String.fromCharCode(...chunk);
+    }
+    return btoa(binary);
+}
+
+function base64ToArrayBuffer(base64) {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes.buffer;
+}
+
+async function handleCreatePasswordClick()  {
+    const pwd = passwordInput.value;
+    const confirm = confirmPasswordInput.value;
+
+    if (!pwd || pwd.length < 7) {
+        showUnlockMessage("Password too weak");
+        return;
+    }
+
+    if (pwd !== confirm) {
+        showUnlockMessage("Passwords do not match");
+        return;
+    }
+
+    try {
+        await createIdentity(pwd);
+        await proceedAfterPasswordSuccess();
+        log("✅ New identity created and unlocked");
+    } catch (e) {
+        showUnlockMessage(e.message);
+    }
+}
+
+async function proceedAfterPasswordSuccess() {
+    log("[proceedAfterPasswordSuccess] start");
+    log("🧠 unlockedIdentity exists: " + !!unlockedIdentity);
+    log("🧠 currentPrivateKey exists: " + !!currentPrivateKey);
+    log("🧩 driveLockState:", driveLockState ? { mode: driveLockState.mode, self: driveLockState.self } : null);
+
+    await ensureEnvelope();      // 🔐 guarantees CEK + envelope
+    await ensureRecoveryKey();   // 🔑 may block UI
+
+    // ---- New housekeeping: wrap CEK for registry ----
+    if (driveLockState?.self && driveLockState.envelopeName === "envelope.json") {
+        log("🧹 Performing CEK housekeeping for all valid devices + recovery keys");
+        await wrapCEKForRegistryKeys();  // helper handles load & write
+    } else {
+        log("⚠️ Skipping CEK housekeeping — driveLockState not ready or not writable");
+    }
+
+    await loadEnvelopePayloadToUI();
+
+    // Show unlocked UI in read-only mode if no write lock
+    const readOnly = !driveLockState?.self || driveLockState.mode !== "write";
+    if (readOnly) {
+        log("⚠️ Showing unlocked UI in read-only mode");
+    }
+    showUnlockedUI({ readOnly });
+
+    log("🔑 Unlock successful!");
+}
+
+
+/* --------------- CREATE IDENTITY start ----------------- */
+async function createIdentity(pwd) {
+    log("🔐 Generating new device identity key pair");
+
+    const keypair = await generateDeviceKeypair();
+    const identity = await buildIdentityFromKeypair(keypair, pwd);
+
+    saveIdentity(identity);
+
+    log("✅ New identity created and stored locally");
+
+    if (biometricIntent && !biometricRegistered) {
+        log("👆 Biometric enrollment intent detected, enrolling now...");
+        await enrollBiometric(pwd);
+        biometricRegistered = true;
+    }
+}
+
+async function rotateDeviceIdentity(pwd) {
+    log("🔁 Rotating device identity key");
+
+    const oldIdentity = await loadIdentity();
+    if (!oldIdentity) {
+        throw new Error("Cannot rotate — no existing identity");
+    }
+
+    const keypair = await generateDeviceKeypair();
+
+    const newIdentity = await buildIdentityFromKeypair(
+        keypair,
+        pwd, {
+            supersedes: oldIdentity.fingerprint,
+            previousKeys: [
+                ...(oldIdentity.previousKeys || []),
+                {
+                    fingerprint: oldIdentity.fingerprint,
+                    created: oldIdentity.created,
+                    encryptedPrivateKey: oldIdentity.encryptedPrivateKey, // <-- Store encrypted private key
+                    kdf: oldIdentity.kdf // <-- Include kdf so unwrapContentKey can derive correctly
+                }
+            ]
+        }
+    );
+
+    saveIdentity(newIdentity);
+
+    log("✅ Device identity rotated");
+    log("↪ Supersedes keyId: " + oldIdentity.fingerprint);
+
+    // --- Drive updates (best effort) ---
+    try {
+        await markPreviousDriveKeyDeprecated(oldIdentity.fingerprint); // updates old key JSON
+        await ensureDevicePublicKey();        // uploads NEW active key
+        log("☁️ Drive key lifecycle updated");
+    } catch (e) {
+        log("⚠️ Drive update failed (local rotation preserved): " + e.message);
+    }
+}
+
+async function markPreviousDriveKeyDeprecated(oldFingerprint) {
+    const folder = await findOrCreateUserFolder();
+    const filenamePattern = `${userEmail}__`; // all device keys for this user
+    const q = `'${folder}' in parents and name contains '${filenamePattern}'`;
+    const res = await driveFetch(buildDriveUrl("files", { q, fields: "files(id,name)" }));
+
+    if (!res.files.length) return; // nothing to patch
+
+    for (const file of res.files) {
+        const fileData = await driveFetch(buildDriveUrl(`files/${file.id}`, { alt: "media" }));
+        if (fileData.keyId !== oldFingerprint) continue; // not the old key
+
+        // --- PATCH only mutable fields ---
+        const patchData = {
+            state: "deprecated",
+            supersededBy: (await loadIdentity()).fingerprint
+        };
+
+        await driveFetch(buildDriveUrl(`files/${file.id}`, { uploadType: "media" }), {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(patchData)
+        });
+
+        log(`☑️ Previous device key (${oldFingerprint}) marked deprecated on Drive`);
+    }
+}
+
+async function computeFingerprintFromPublicKey(base64Spki) {
+    const pubBytes = Uint8Array.from(atob(base64Spki), c => c.charCodeAt(0));
+    const hash = await crypto.subtle.digest("SHA-256", pubBytes);
+    return btoa(String.fromCharCode(...new Uint8Array(hash)));
+}
+
+function identityNeedsPasswordSetup(id) {
+    return id && !id.passwordVerifier;
+}
+
+/* --------------- CREATE IDENTITY end ----------------- */
+
+/* ================= DEVICE ID (4.1) ================= */
+function deviceIdKey() {
+    return "access4.device.id";
+}
+
+function getDeviceId() {
+    let id = localStorage.getItem(deviceIdKey());
+    if (!id) {
+        id = crypto.randomUUID();
+        localStorage.setItem(deviceIdKey(), id);
+        log("🆔 New device ID generated");
+    }
+    return id;
+}
+
 
 /* ================= USER ================= */
 async function fetchUserEmail() {
@@ -421,9 +937,38 @@ function identityKey() {
     return `access4.identity::${userEmail}::${getDeviceId()}`;
 }
 
+/* ---------------------- Load identity ---------------------- */
 async function loadIdentity() {
+
+    log("📌 loadIdentity called");
+    log("📌 sessionUnlocked:" + !!sessionUnlocked);
+    log("📌 unlockedIdentity:" + !!unlockedIdentity);
+
+    if (sessionUnlocked && unlockedIdentity) {
+        log("✅ Returning unlockedIdentity from memory");
+        return unlockedIdentity;
+    }
+
+    return loadIdentityFromStorage();
+}
+
+/* ---------------------- Load from localStorage only ---------------------- */
+function loadIdentityFromStorage() {
     const raw = localStorage.getItem(identityKey());
-    return raw ? JSON.parse(raw) : null;
+    log("📦 Identity in localStorage exists:" + !!raw);
+    if (!raw) return null;
+
+    try {
+        const id = JSON.parse(raw);
+        log("✅ Identity loaded from localStorage");
+        if (sessionUnlocked && currentPrivateKey) {
+            id._sessionPrivateKey = currentPrivateKey;
+        }
+        return id;
+    } catch (e) {
+        log("❌ Failed to parse identity:" + e);
+        return null;
+    }
 }
 
 function saveIdentity(id) {
@@ -559,236 +1104,6 @@ async function encryptPrivateKeyWithPassword(privateKey, password) {
         cipher: "AES-256-GCM",
         encrypted
     };
-}
-
-
-/* ================= CREATE IDENTITY ================= */
-async function createIdentity(pwd) {
-    log("🔐 Generating new device identity key pair");
-
-    const keypair = await generateDeviceKeypair();
-    const identity = await buildIdentityFromKeypair(keypair, pwd);
-
-    saveIdentity(identity);
-
-    log("✅ New identity created and stored locally");
-
-    if (biometricIntent && !biometricRegistered) {
-        log("👆 Biometric enrollment intent detected, enrolling now...");
-        await enrollBiometric(pwd);
-        biometricRegistered = true;
-    }
-}
-
-async function rotateDeviceIdentity(pwd) {
-    log("🔁 Rotating device identity key");
-
-    const oldIdentity = await loadIdentity();
-    if (!oldIdentity) {
-        throw new Error("Cannot rotate — no existing identity");
-    }
-
-    const keypair = await generateDeviceKeypair();
-
-    const newIdentity = await buildIdentityFromKeypair(
-        keypair,
-        pwd, {
-            supersedes: oldIdentity.fingerprint,
-            previousKeys: [
-                ...(oldIdentity.previousKeys || []),
-                {
-                    fingerprint: oldIdentity.fingerprint,
-                    created: oldIdentity.created,
-                    encryptedPrivateKey: oldIdentity.encryptedPrivateKey, // <-- Store encrypted private key
-                    kdf: oldIdentity.kdf // <-- Include kdf so unwrapContentKey can derive correctly
-                }
-            ]
-        }
-    );
-
-    saveIdentity(newIdentity);
-
-    log("✅ Device identity rotated");
-    log("↪ Supersedes keyId: " + oldIdentity.fingerprint);
-
-    // --- Drive updates (best effort) ---
-    try {
-        await markPreviousDriveKeyDeprecated(oldIdentity.fingerprint); // updates old key JSON
-        await ensureDevicePublicKey();        // uploads NEW active key
-        log("☁️ Drive key lifecycle updated");
-    } catch (e) {
-        log("⚠️ Drive update failed (local rotation preserved): " + e.message);
-    }
-}
-
-async function markPreviousDriveKeyDeprecated(oldFingerprint) {
-    const folder = await findOrCreateUserFolder();
-    const filenamePattern = `${userEmail}__`; // all device keys for this user
-    const q = `'${folder}' in parents and name contains '${filenamePattern}'`;
-    const res = await driveFetch(buildDriveUrl("files", { q, fields: "files(id,name)" }));
-
-    if (!res.files.length) return; // nothing to patch
-
-    for (const file of res.files) {
-        const fileData = await driveFetch(buildDriveUrl(`files/${file.id}`, { alt: "media" }));
-        if (fileData.keyId !== oldFingerprint) continue; // not the old key
-
-        // --- PATCH only mutable fields ---
-        const patchData = {
-            state: "deprecated",
-            supersededBy: (await loadIdentity()).fingerprint
-        };
-
-        await driveFetch(buildDriveUrl(`files/${file.id}`, { uploadType: "media" }), {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(patchData)
-        });
-
-        log(`☑️ Previous device key (${oldFingerprint}) marked deprecated on Drive`);
-    }
-}
-
-async function computeFingerprintFromPublicKey(base64Spki) {
-    const pubBytes = Uint8Array.from(atob(base64Spki), c => c.charCodeAt(0));
-    const hash = await crypto.subtle.digest("SHA-256", pubBytes);
-    return btoa(String.fromCharCode(...new Uint8Array(hash)));
-}
-
-function identityNeedsPasswordSetup(id) {
-    return id && !id.passwordVerifier;
-}
-
-/* ================= UNLOCK FLOW ================= */
-async function unlockIdentityFlow(pwd) {
-    if (!pwd || pwd.length < 7) {
-        const e = new Error(UNLOCK_ERROR_DEFS.WEAK_PASSWORD.message);
-        e.code = UNLOCK_ERROR_DEFS.WEAK_PASSWORD.code;
-        throw e;
-    }
-
-    log("🔓 Unlock attempt started");
-
-    if (!accessToken) {
-        const e = new Error(UNLOCK_ERROR_DEFS.NO_ACCESS_TOKEN.message);
-        e.code = UNLOCK_ERROR_DEFS.NO_ACCESS_TOKEN.code;
-        throw e;
-    }
-
-    let id = await loadIdentity();
-
-    if (id && identityNeedsPasswordSetup(id)) {
-        log("🧭 Identity missing password verifier — attempting auto-migration");
-
-        try {
-            await migrateIdentityWithVerifier(id, pwd);
-            id = await loadIdentity();
-        } catch {
-            const e = new Error(UNLOCK_ERROR_DEFS.INCORRECT_PASSWORD.message);
-            e.code = UNLOCK_ERROR_DEFS.INCORRECT_PASSWORD.code;
-            throw e;
-        }
-    }
-
-    if (!id) {
-        log("❌ No local identity found — cannot unlock");
-        const e = new Error(UNLOCK_ERROR_DEFS.NO_IDENTITY.message);
-        e.code = UNLOCK_ERROR_DEFS.NO_IDENTITY.code;
-        throw e;
-    }
-
-    log("📁 Local identity found");
-
-    // ─────────────────────────────
-    // 🔐 AUTHORITATIVE PASSWORD CHECK
-    // ─────────────────────────────
-    let key;
-    try {
-        key = await deriveKey(pwd, id.kdf);
-        await verifyPasswordVerifier(id.passwordVerifier, key);
-        log("🔐 Password verified");
-    } catch {
-        const e = new Error(UNLOCK_ERROR_DEFS.INCORRECT_PASSWORD.message);
-        e.code = UNLOCK_ERROR_DEFS.INCORRECT_PASSWORD.code;
-        throw e;
-    }
-
-    // ─────────────────────────────
-    // 🔓 Attempt private key decrypt
-    // ─────────────────────────────
-    let decrypted = false;
-
-    try {
-        await decrypt(id.encryptedPrivateKey, key);
-        decrypted = true;
-        log("✅ Identity successfully decrypted");
-    } catch {
-        log("⚠️ Private key decryption failed");
-    }
-
-    // ─────────────────────────────
-    // 🔁 Single rotation retry
-    // ─────────────────────────────
-    if (!decrypted) {
-        log("🔁 Attempting device key rotation");
-
-        await rotateDeviceIdentity(pwd);
-        id = await loadIdentity();
-
-        try {
-            await decrypt(id.encryptedPrivateKey, key);
-            decrypted = true;
-            log("✅ Decryption succeeded after rotation");
-        } catch {
-            log("⚠️ Decryption still failing after rotation");
-        }
-    }
-
-    // ─────────────────────────────
-    // 🧨 Absolute Safari recovery
-    // ─────────────────────────────
-    if (!decrypted) {
-        log("🧨 Rotation failed — recreating identity");
-
-        await createIdentity(pwd);
-        id = await loadIdentity();
-
-        if (!id) {
-            const e = new Error(UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.message);
-            e.code = UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.code;
-            throw e;
-        }
-
-        try {
-            key = await deriveKey(pwd, id.kdf);
-            await decrypt(id.encryptedPrivateKey, key);
-            decrypted = true;
-            log("✅ Decryption succeeded after recreation");
-        } catch {
-            const e = new Error(UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.message);
-            e.code = UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.code;
-            throw e;
-        }
-    }
-
-    if (id.supersedes) {
-        log("ℹ️ Identity supersedes previous keyId: " + id.supersedes);
-    }
-
-    // ─────────────────────────────
-    // Session unlocked
-    // ─────────────────────────────
-    unlockedPassword = pwd;
-
-    if (biometricIntent && !biometricRegistered) {
-        await enrollBiometric(pwd);
-        biometricRegistered = true;
-    }
-
-    log("🔑 Proceeding to device public key exchange");
-    await ensureDevicePublicKey();
-
-    return id;
 }
 
 
@@ -1139,56 +1454,60 @@ async function wrapContentKeyForDevice(cek, devicePublicKeyBase64) {
 
 /* ---Unwrap CEK Using Local Private Key (rotation-safe) --- */
 async function unwrapContentKey(wrappedKeyBase64, keyId) {
-
     const id = await loadIdentity();
     if (!id) throw new Error("Local identity missing");
 
-    const pwd = unlockedPassword;
-    if (!pwd) throw new Error("Identity not unlocked");
-
-    // 1️⃣ Determine which private key must be used
-    let encryptedPrivateKey, kdf;
-
-    if (keyId === id.fingerprint) {
-        encryptedPrivateKey = id.encryptedPrivateKey;
-        kdf = id.kdf;
-    } else if (id.previousKeys?.length) {
-        const prev = id.previousKeys.find(k => k.fingerprint === keyId);
-        if (!prev) {
-            throw new Error("No matching previous private key for keyId");
-        }
-        encryptedPrivateKey = prev.encryptedPrivateKey;
-        kdf = prev.kdf;
-    } else {
-        throw new Error("No private key available for keyId");
+    // Helper to unwrap with a given CryptoKey
+    async function unwrapWithKey(privateKey) {
+        const wrappedBytes = Uint8Array.from(atob(wrappedKeyBase64), c => c.charCodeAt(0));
+        return crypto.subtle.unwrapKey(
+            "raw",
+            wrappedBytes,
+            privateKey,
+            { name: "RSA-OAEP" },
+            { name: "AES-GCM", length: 256 },
+            true,
+            ["encrypt", "decrypt"]
+        );
     }
 
-    // 2️⃣ Decrypt the correct private key
-    const derivedKey = await deriveKey(pwd, kdf);
-    const privateKeyPkcs8 = await decrypt(encryptedPrivateKey, derivedKey);
+    // 1️⃣ Try current in-memory private key if keyId matches
+    if (currentPrivateKey && keyId === id.fingerprint) {
+        console.log(`[unwrapContentKey] Using currentPrivateKey for keyId ${keyId}`);
+        return unwrapWithKey(currentPrivateKey);
+    }
 
-    // 3️⃣ Import private key
-    const privateKey = await crypto.subtle.importKey(
-        "pkcs8",
-        privateKeyPkcs8,
-        { name: "RSA-OAEP", hash: "SHA-256" },
-        false,
-        ["unwrapKey"]
-    );
+    // 2️⃣ Try previous keys
+    if (id.previousKeys?.length) {
+        const prev = id.previousKeys.find(k => k.fingerprint === keyId);
+        if (prev) {
+            if (!unlockedPassword) throw new Error("Identity not unlocked for previous key");
+            console.log(`[unwrapContentKey] Using previous key for keyId ${keyId}`);
+            const derivedKey = await deriveKey(unlockedPassword, prev.kdf);
+            const privateKeyPkcs8 = await decrypt(prev.encryptedPrivateKey, derivedKey);
+            const privateKey = await crypto.subtle.importKey(
+                "pkcs8",
+                privateKeyPkcs8,
+                { name: "RSA-OAEP", hash: "SHA-256" },
+                false,
+                ["unwrapKey"]
+            );
+            return unwrapWithKey(privateKey);
+        }
+    }
 
-    // 4️⃣ Unwrap CEK
-    const wrappedBytes = Uint8Array.from(atob(wrappedKeyBase64), c => c.charCodeAt(0));
+    // 3️⃣ Fallback: use currentPrivateKey even if fingerprint mismatch
+    if (currentPrivateKey) {
+        console.log(`[unwrapContentKey] Fallback: using currentPrivateKey despite fingerprint mismatch for keyId ${keyId}`);
+        return unwrapWithKey(currentPrivateKey);
+    }
 
-    return crypto.subtle.unwrapKey(
-        "raw",
-        wrappedBytes,
-        privateKey,
-        { name: "RSA-OAEP" },
-        { name: "AES-GCM", length: 256 },
-        true,
-        ["encrypt", "decrypt"]
-    );
+    // 4️⃣ Nothing found
+    console.error(`[unwrapContentKey] No private key available for keyId ${keyId}`);
+    throw new Error("No private key available for keyId: " + keyId);
 }
+
+
 
 /* ================= ENVELOPE WRITE ASSERTION + HOUSEKEEPING HELPER ================= */
 async function assertEnvelopeWrite(envelopeName) {
@@ -1366,72 +1685,67 @@ function isKeyUsableForDecryption(pubKeyRecord) {
     pubKeyRecord.state === "deprecated";
 }
 
+async function getDriveLockSelf() {
+    const identity = await loadIdentity();
+    if (!identity) throw new Error("Identity not unlocked — cannot ensure envelope");
+    const self = { account: userEmail, deviceId: identity.deviceId };
+    return { identity, self };
+}
+
 async function ensureEnvelope() {
     const envelopeName = "envelope.json";
 
-    // Evaluate lock mode based on lock status in drive
-    const lockFile = await readLockFromDrive(envelopeName);
-    const identity = await loadIdentity();
-    const self = { account: userEmail, deviceId: identity.deviceId };
+    // ─── Fast path: skip lock re-acquire if already initialized ───
+    if (driveLockState && driveLockState.mode) {
+        log("[ensureEnvelope] Drive lock already initialized — skipping lock acquisition");
+    } else {
+        const lockFile = await readLockFromDrive(envelopeName);
+        const { identity, self } = await getDriveLockSelf();
+        const evalResult = evaluateEnvelopeLock(lockFile?.json, self);
 
-    const evalResult = evaluateEnvelopeLock(lockFile?.json, self);
-
-    if (evalResult.status === "owned") {
-        // normal write path
-        driveLockState.mode = "write";
-    }
-    else if (evalResult.status === "locked") {
-        // 👇 READ-ONLY MODE
-        log("🔒 Envelope locked by another device — entering read-only mode");
-
-        driveLockState = {
-            envelopeName,
-            fileId: lockFile.fileId,
-            lock: lockFile.json,
-            self,
-            mode: "read"
-        };
-    }
-    else {
-        // free or expired → acquire write lock
-        await acquireDriveWriteLock(envelopeName);
-        driveLockState.mode = "write";
+        if (evalResult.status === "owned") {
+            driveLockState = { envelopeName, fileId: lockFile?.fileId, lock: lockFile?.json, self, mode: "write" };
+        } else if (evalResult.status === "locked") {
+            log("🔒 Envelope locked by another device — entering read-only mode");
+            driveLockState = { envelopeName, fileId: lockFile.fileId, lock: lockFile.json, self, mode: "read" };
+        } else {
+            await acquireDriveWriteLock(envelopeName);
+        }
     }
 
-    // Always load key registry from pub-keys on Drive
+    log("🔐 [ensureEnvelope] Drive mode:" + driveLockState.mode);
+    log("🖥 [ensureEnvelope] Drive self deviceId:" + driveLockState.self.deviceId);
+
+    // ─── Load key registry from pub-keys on Drive ───
     const rawPublicKeyJsons = await loadPublicKeyJsonsFromDrive();
     keyRegistry = await buildKeyRegistryFromDrive(rawPublicKeyJsons);
 
     log("[ensureEnvelope] Active devices registry:" + keyRegistry.flat.activeDevices.length);
     log("[ensureEnvelope] recoveryKeys registry:" + keyRegistry.flat.recoveryKeys.length);
 
-    // Fast path
+    // ─── Fast path: load existing envelope ───
     const existing = await readEnvelopeFromDrive(envelopeName);
     if (existing?.json) {
         log("📦 Envelope already exists");
         return existing.json;
     }
 
+    // ─── Genesis envelope path ───
     log("📦 Envelope missing — creating genesis envelope");
+    const { identity } = await getDriveLockSelf();
+    const selfKey = keyRegistry.flat.activeDevices.find(k => k.deviceId === identity.deviceId);
+    if (!selfKey) throw new Error("Active device public key not found for envelope genesis");
 
-    const selfKey = keyRegistry.flat.activeDevices.find(
-        k => k.deviceId === identity.deviceId
-    );
-
-    if (!selfKey) {
-        throw new Error("Active device public key not found for envelope genesis");
-    }
-
-    const envelope = await createEnvelope(
-        JSON.stringify({ initialized: true }),
-        selfKey
-    );
-
-    const written = await writeEnvelopeWithLock(envelopeName, envelope);
-    return written;
+    const envelope = await createEnvelope(JSON.stringify({ initialized: true }), selfKey);
+    return await writeEnvelopeWithLock(envelopeName, envelope);
 }
 
 async function wrapCEKForRegistryKeys(forceWrite = false) {
+
+    log("[wrapCEKForRegistryKeys] start");
+    log("🧠 [wrapCEKForRegistryKeys] unlockedIdentity:" + !!unlockedIdentity);
+    log("🧠 [wrapCEKForRegistryKeys] currentPrivateKey:" + !!currentPrivateKey);
+
     const envelopeName = "envelope.json";
 
     const envelopeFile = await readEnvelopeFromDrive(envelopeName);
@@ -1441,6 +1755,8 @@ async function wrapCEKForRegistryKeys(forceWrite = false) {
 
     const envelope = envelopeFile.json;
 
+    log("📦 [wrapCEKForRegistryKeys] envelope keys count:" + envelope?.keys?.length ?? 0);
+
     if (!envelope.keys || !envelope.payload) {
         throw new Error("Invalid envelope structure for CEK housekeeping");
     }
@@ -1448,14 +1764,27 @@ async function wrapCEKForRegistryKeys(forceWrite = false) {
     const activeDevices = keyRegistry.flat.activeDevices;
     const recoveryKeys = keyRegistry.flat.recoveryKeys;
 
+    log("🔍 [wrapCEKForRegistryKeys] Selecting device key entry...");
+    log("📧 [wrapCEKForRegistryKeys] userEmail:" + userEmail);
+    log("🖥 [wrapCEKForRegistryKeys] self.deviceId:" + driveLockState?.self?.deviceId);
+
     // Unwrap CEK using any current device key
     const currentDeviceKeyEntry = envelope.keys.find(k =>
     k.account === userEmail &&
-    k.deviceId === driveLockState.self.deviceId) || envelope.keys[0];
+    k.deviceId === driveLockState.self.deviceId) || envelope.keys[0]; // Added temporary comment to debug refresh errors
 
     if (!currentDeviceKeyEntry) {
         throw new Error("No device key available to unwrap CEK");
     }
+
+    log("✅ [wrapCEKForRegistryKeys] Selected keyId for unwrap:" + currentDeviceKeyEntry.keyId);
+    log("📦 [wrapCEKForRegistryKeys] Selected deviceId:" + currentDeviceKeyEntry.deviceId);
+
+
+    log("🔓 [wrapCEKForRegistryKeys] Attempting CEK unwrap");
+    log("🔐 [wrapCEKForRegistryKeys] unwrap keyId:" + currentDeviceKeyEntry.keyId);
+    log("🧠 [wrapCEKForRegistryKeys] unlockedIdentity fingerprint:" + unlockedIdentity?.fingerprint);
+    log("🧠 [wrapCEKForRegistryKeys] currentPrivateKey exists:" + !!currentPrivateKey);
 
     const cek = await unwrapContentKey(currentDeviceKeyEntry.wrappedKey, currentDeviceKeyEntry.keyId);
     let updated = false;
@@ -1869,7 +2198,7 @@ async function acquireDriveWriteLock(envelopeName) {
     const identity = await loadIdentity();
     const self = { account: userEmail, deviceId: identity.deviceId };
 
-    const lockFile = await readLockFromDrive(envelopeName);
+    const lockFile = await readLockFromDrive(envelopeName).catch(() => null);
     const evalResult = evaluateEnvelopeLock(lockFile?.json, self);
 
     if (evalResult.status === "locked") {
@@ -1886,9 +2215,10 @@ async function acquireDriveWriteLock(envelopeName) {
 
     log("🔐 lock written, fileId: " + fileId);
 
+    // ✅ Initialize driveLockState safely
     driveLockState = {
         envelopeName,
-        fileId,
+        fileId: fileId || null,
         lock,
         self,
         mode: "write",
@@ -2154,171 +2484,70 @@ async function readEnvelopeFromDrive(envelopeName) {
 
 /* ================= LOGOUT ================= */
 function logout() {
+    log("🔒 Logging out");
 
-    handleDriveLockLost()
+    // 1️⃣ Release Drive lock if held
+    handleDriveLockLost(); // stops heartbeat & clears local driveLockState
 
+    // 2️⃣ Clear user-specific memory
+    accessToken = null;
+    userEmail = null;
+
+    // 3️⃣ Clear UI state
     unlockedView.style.display = "none";
     loginView.style.display = "block";
 
     signinBtn.disabled = false;
+
     passwordSection.style.display = "none";
+    confirmPasswordSection.style.display = "none";
+
     passwordInput.value = "";
     confirmPasswordInput.value = "";
 
-    accessToken = null;
-    userEmail = null;
-    location.reload();
+    resetUnlockUi();
+
+    // 4️⃣ Clear biometric data (optional)
+    localStorage.removeItem(bioCredKey());
+    localStorage.removeItem(bioPwdKey());
+    biometricRegistered = false;
+    biometricIntent = false;
+
+    log("✅ Logout completed");
 }
 
 /* ----------------- UI action handlers -------------------*/
 // Ensure UI starts in a safe locked state
 function initLoginUI() {
+    // Always show login view
+    loginView.style.display = "block";
+    unlockedView.style.display = "none";
+
+    // Hide password input sections until needed
     passwordSection.style.display = "none";
     confirmPasswordSection.style.display = "none";
-    unlockBtn.disabled = true;
-    unlockMessage.textContent = "";
+
+    signinBtn.disabled = false;
+
+    // Reset any messages
+    showUnlockMessage("");
+
+    // Disable save button initially
+    saveBtn.disabled = true;
 }
 
 function resetUnlockUi() {
-    // ✅ Reset inputs & enable button for create
+    // Clear password inputs
     passwordInput.value = "";
     confirmPasswordInput.value = "";
+
+    // Reset button state
     unlockBtn.disabled = false;
+    unlockBtn.textContent = "Unlock";
+
+    // Clear messages
     showUnlockMessage("");
 }
-
-function handleSignInClick() {
-    signinBtn.disabled = true;
-    logEl.textContent = "";
-    passwordSection.style.display = "block";
-
-    tokenClient.requestAccessToken({ prompt: "consent select_account" });
-}
-
-async function onAuthReady(email) {
-    userEmailSpan.textContent = email;
-
-    try {
-        const id = await loadIdentity();
-
-        if (!id) {
-            // New device → create identity
-            setAuthMode("create");
-            log("🆔 New device detected, prompting password creation");
-            return;
-        }
-
-        if (!id.passwordVerifier) {
-            // Legacy identity → migration
-            setAuthMode("unlock", { migration: true });
-            log("🧭 Identity missing password verifier — migration mode");
-            return;
-        }
-
-        // Returning user → unlock
-        setAuthMode("unlock");
-        log("📁 Existing device detected, prompting unlock");
-
-    } catch (e) {
-        log("❌ Error loading identity: " + e.message);
-        unlockMessage.textContent = "Failed to load identity. Try again.";
-    }
-}
-
-function setAuthMode(mode, options = {}) {
-    authMode = mode;
-
-    // reset fields
-    resetUnlockUi();
-
-    // ✅ Always enable unlockBtn when switching mode
-    unlockBtn.disabled = false;
-
-    passwordSection.style.display = "block";
-
-    if (mode === "unlock") {
-        confirmPasswordSection.style.display = "none";
-        unlockBtn.textContent = "Unlock";
-        unlockBtn.onclick = handleUnlockClick;
-
-        showUnlockMessage(options.migration
-            ? "Identity missing password verifier — enter your password to upgrade."
-            : "");
-    }
-
-    if (mode === "create") {
-        confirmPasswordSection.style.display = "block";
-        unlockBtn.textContent = "Create Password";
-        unlockBtn.onclick = handleCreatePasswordClick;
-    }
-}
-
-async function handleUnlockClick() {
-
-    if (unlockInProgress) return;
-
-    unlockInProgress  = true;
-    const pwd = passwordInput.value;
-
-    showUnlockMessage(""); // clear previous
-
-    if (!pwd) {
-        showUnlockMessage("Password cannot be empty");
-        return;
-    }
-
-    try {
-        await unlockIdentityFlow(pwd);
-        await proceedAfterPasswordSuccess();
-    } catch (e) {
-        const def = Object.values(UNLOCK_ERROR_DEFS)
-            .find(d => d.code === e.code);
-
-        showUnlockMessage(def?.message || e.message || "Unlock failed");
-        log("❌ Unlock failed: " + (def?.message || e.message));
-    }
-}
-
-async function handleCreatePasswordClick()  {
-    const pwd = passwordInput.value;
-    const confirm = confirmPasswordInput.value;
-
-    if (!pwd || pwd.length < 7) {
-        showUnlockMessage("Password too weak");
-        return;
-    }
-
-    if (pwd !== confirm) {
-        showUnlockMessage("Passwords do not match");
-        return;
-    }
-
-    try {
-        await createIdentity(pwd);
-        await proceedAfterPasswordSuccess();
-        log("✅ New identity created and unlocked");
-    } catch (e) {
-        showUnlockMessage(e.message);
-    }
-}
-
-async function proceedAfterPasswordSuccess() {
-    log("[proceedAfterPasswordSuccess]")
-    await ensureEnvelope();      // 🔐 guarantees CEK + envelope
-    await ensureRecoveryKey();   // 🔑 may block UI
-
-    // ---- New housekeeping: wrap CEK for registry ----
-    if (driveLockState?.self && driveLockState.envelopeName === "envelope.json") {
-        log("🧹 Performing CEK housekeeping for all valid devices + recovery keys");
-        await wrapCEKForRegistryKeys();  // No parameter needed, helper handles load & write
-    }
-
-    await loadEnvelopePayloadToUI();
-
-    showUnlockedUI();
-    log("🔑 Unlock successful!");
-}
-
 
 async function ensureRecoveryKey() {
     if (await hasRecoveryKeyOnDrive()) {
@@ -2563,15 +2792,30 @@ function updateLockStatusUI() {
     //log(`🔐 You hold the envelope lock (expires ${expiresAt})`);
 }
 
-function showUnlockedUI() {
+function showUnlockedUI({ readOnly = false } = {}) {
+    // Hide login / password sections
     loginView.style.display = "none";
-    unlockedView.style.display = "flex";
+    passwordSection.style.display = "none";
+    confirmPasswordSection.style.display = "none";
 
-    if (isEnvelopeReadOnly()) {
+    // Show main unlocked view
+    unlockedView.style.display = "block";
+
+    // Update UI for read-only mode
+    if (readOnly) {
+        log("⚠️ Unlocked UI in read-only mode: disabling save button");
         saveBtn.disabled = true;
-        titleUnlocked.textContent = "Read-Only";
+        saveBtn.title = "Read-only mode: cannot save";
+        plaintextInput.readOnly = true;
+        titleUnlocked.textContent = "Unlocked (Read-only)";
+    } else {
+        saveBtn.disabled = false;
+        saveBtn.title = "";
+        plaintextInput.readOnly = false;
+        titleUnlocked.textContent = "Unlocked";
     }
 }
+
 
 function showUnlockMessage(msg, type = "error") {
     const el = document.getElementById("unlockMessage");
@@ -2580,7 +2824,6 @@ function showUnlockMessage(msg, type = "error") {
     el.textContent = msg;
     el.className = `unlock-message ${type}`;
 }
-
 
 
 // Button to invoke it doens't exist in the latest ui, add to enable (for testing biometric behavior)
@@ -2596,6 +2839,15 @@ function handleLogoutClick() {
     logout();
 }
 
+function resetIdleTimer() {
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(async () => {
+        log("[resetIdleTimer] Inactivity timeout — releasing Drive lock");
+        await releaseDriveLock();
+    }, 10 * 60 * 1000); // 10 minutes
+}
+
+
 /* ---------- TEMPORARY ---------*/
 
 
@@ -2603,6 +2855,16 @@ function handleLogoutClick() {
 
 // IMPORTANT - DO NOT DELETE
 window.onload = async () => {
-    onLoad();
+    await onLoad();
     await initGIS();
+
+    // Ensure app always starts in safe locked state
+    initLoginUI();
+
+    // Clear any lingering driveLockState in memory
+    driveLockState = null;
+
+    // Optional: detect if a user was partially logged in
+    // If you want logout to be final, skip restoring user session
+    // Otherwise, you could try reacquiring the lock here
 };
