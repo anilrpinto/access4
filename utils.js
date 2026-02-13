@@ -1,0 +1,16 @@
+export function deepFreeze(obj) {
+    // 1. Retrieve the property names defined on obj
+    const propNames = Object.getOwnPropertyNames(obj);
+
+    // 2. Freeze properties before freezing self
+    for (const name of propNames) {
+        const value = obj[name];
+
+        // 3. If value is an object, freeze it recursively
+        if (value && typeof value === "object") {
+            deepFreeze(value);
+        }
+    }
+
+    return Object.freeze(obj);
+}
