@@ -3,112 +3,36 @@
 import { C } from './constants.js';
 import { G } from './global.js';
 
+import * as UI from './ui.js';
+import { log, debug, info, warn, error, setLogLevel, DEBUG, INFO, WARN, ERROR } from './log.js';
 
-/* ================= DOM ================= */
-let userEmailSpan;
-let signinBtn;
-let passwordSection;
-let confirmPasswordSection;
-let unlockBtn;
-
-let titleUnlocked;
-let plaintextInput;
-let saveBtn;
-
-let loginView;
-let unlockedView;
-let passwordInput;
-let confirmPasswordInput;
-
-let logoutBtn;
-
-let logEl;
 let idleTimer;
-
-const UNLOCK_ERROR_DEFS = {
-    WEAK_PASSWORD: {
-        code: "WEAK_PASSWORD",
-        message: "Password must be at least 7 characters long."
-    },
-    NO_ACCESS_TOKEN: {
-        code: "NO_ACCESS_TOKEN",
-        message: "Authentication not ready. Please sign in again."
-    },
-    INCORRECT_PASSWORD: {
-        code: "INCORRECT_PASSWORD",
-        message: "Incorrect password. Please try again."
-    },
-    SAFARI_RECOVERY: {
-        code: "SAFARI_RECOVERY",
-        message: "Browser recovery required. Identity was recreated."
-    },
-    PASSWORD_SETUP_REQUIRED: {
-        code: "PASSWORD_SETUP_REQUIRED",
-        message: "Detected need for a password set up."
-    },
-    NO_IDENTITY: {
-        code: "NO_IDENTITY",
-        message: "No identity found on this device. Please create one first."
-    },
-    UNKNOWN: {
-        code: "UNKNOWN_ERROR",
-        message: "An unexpected error occurred."
-    }
-};
-
-
-/* ================= LOG ================= */
-function log(msg) {
-    console.log(msg);
-    logEl.textContent += msg + "\n";
-}
 
 /* ================= BOOT + AUTHENTICATION FLOW ================= */
 
 function onLoad() {
 
-    // Cache DOM
-    userEmailSpan = document.getElementById("userEmailSpan");
-    signinBtn = document.getElementById("signinBtn");
-    passwordSection = document.getElementById("passwordSection");
-    confirmPasswordSection = document.getElementById("confirmPasswordSection");
-    unlockBtn = document.getElementById("unlockBtn");
-    logoutBtn = document.getElementById("logoutBtn");
+    UI.load();
 
-    loginView = document.getElementById("loginView");
-    unlockedView = document.getElementById("unlockedView");
-    passwordInput = document.getElementById("passwordInput");
-    confirmPasswordInput = document.getElementById("confirmPasswordInput");
-    logEl = document.getElementById("log");
-
-    titleUnlocked = document.getElementById("titleUnlocked");
-    plaintextInput = document.getElementById("plaintextInput");
-    saveBtn = document.getElementById("saveBtn");
-
-    // Initial UI state
-    passwordSection.style.display = "none";
-    confirmPasswordSection.style.display = "none";
-    unlockedView.style.display = "none";
+    //setLogLevel(INFO);
 
     // Wire handlers
-    signinBtn.onclick = handleSignInClick;
-    unlockBtn.onclick = handleUnlockClick;
-    logoutBtn.onclick = handleLogoutClick;
-
-    saveBtn.onclick = handleSaveClick;
+    UI.signinBtn.onclick = handleSignInClick;
+    UI.unlockBtn.onclick = handleUnlockClick;
+    UI.logoutBtn.onclick = handleLogoutClick;
+    UI.saveBtn.onclick = handleSaveClick;
 
     log("📌 onLoad start");
-    log("🧠 sessionStorage sv_session_private_key exists:" + !!sessionStorage.getItem("sv_session_private_key"));
-    log("🧩 in-memory G.unlockedIdentity:" + !!G.unlockedIdentity);
-    log("🧩 in-memory G.currentPrivateKey:" + !!G.currentPrivateKey);
-
+    log("🧠 sessionStorage sv_session_private_key exists:", !!sessionStorage.getItem("sv_session_private_key"));
+    log("🧩 in-memory G.unlockedIdentity:", !!G.unlockedIdentity);
+    log("🧩 in-memory G.currentPrivateKey:", !!G.currentPrivateKey);
 
     setupTitleGesture();
 
     initLoginUI();
 
     ["mousemove", "keydown", "click"].forEach(e =>
-    document.addEventListener(e, resetIdleTimer)
+        document.addEventListener(e, resetIdleTimer)
     );
 
     log("UI ready");
@@ -116,11 +40,12 @@ function onLoad() {
 
 /* --------- GOOGLE SIGN-IN start --------- */
 function handleSignInClick() {
-    signinBtn.disabled = true;
-    logEl.textContent = "";
-    passwordSection.style.display = "block";
+    //signinBtn.disabled = true;
+    //logEl.textContent = "";
+    //passwordSection.style.display = "block";
 
-    tokenClient.requestAccessToken({ prompt: "consent select_account" });
+    //G.tokenClient.requestAccessToken({ prompt: "consent select_account" });
+    initGIS();
 }
 
 function initGIS() {
@@ -142,15 +67,12 @@ async function handleAuth(resp) {
     G.accessToken = resp.access_token;
     log(`✓ Access token acquired ${G.accessToken}`);
 
-    alert(`G.accessToken: ${G.accessToken}`);
     await fetchUserEmail();
     await verifySharedRoot();
     await verifyWritable(C.ACCESS4_ROOT_ID);
     await ensureAuthorization();
 
-    signinBtn.disabled = true;
-    logoutBtn.disabled = false;
-    passwordSection.style.display = "block";
+    UI.signInSuccess()
 
     G.biometricRegistered = !!localStorage.getItem(bioCredKey());
 
@@ -1462,7 +1384,7 @@ async function handleUnlockClick() {
         await unlockIdentityFlow(pwd);
         await proceedAfterPasswordSuccess();
     } catch (e) {
-        const def = Object.values(UNLOCK_ERROR_DEFS)
+        const def = Object.values(C.UNLOCK_ERROR_DEFS)
             .find(d => d.code === e.code);
 
         showUnlockMessage(def?.message || e.message || "Unlock failed");
@@ -1472,16 +1394,16 @@ async function handleUnlockClick() {
 
 async function unlockIdentityFlow(pwd) {
     if (!pwd || pwd.length < 7) {
-        const e = new Error(UNLOCK_ERROR_DEFS.WEAK_PASSWORD.message);
-        e.code = UNLOCK_ERROR_DEFS.WEAK_PASSWORD.code;
+        const e = new Error(C.UNLOCK_ERROR_DEFS.WEAK_PASSWORD.message);
+        e.code = C.UNLOCK_ERROR_DEFS.WEAK_PASSWORD.code;
         throw e;
     }
 
     log("🔓 [unlockIdentityFlow] Unlock attempt started for password:" + pwd ? "***" : "(empty)");
 
     if (!G.accessToken) {
-        const e = new Error(UNLOCK_ERROR_DEFS.NO_ACCESS_TOKEN.message);
-        e.code = UNLOCK_ERROR_DEFS.NO_ACCESS_TOKEN.code;
+        const e = new Error(C.UNLOCK_ERROR_DEFS.NO_ACCESS_TOKEN.message);
+        e.code = C.UNLOCK_ERROR_DEFS.NO_ACCESS_TOKEN.code;
         throw e;
     }
 
@@ -1495,16 +1417,16 @@ async function unlockIdentityFlow(pwd) {
             await migrateIdentityWithVerifier(id, pwd);
             id = await loadIdentity();
         } catch {
-            const e = new Error(UNLOCK_ERROR_DEFS.INCORRECT_PASSWORD.message);
-            e.code = UNLOCK_ERROR_DEFS.INCORRECT_PASSWORD.code;
+            const e = new Error(C.UNLOCK_ERROR_DEFS.INCORRECT_PASSWORD.message);
+            e.code = C.UNLOCK_ERROR_DEFS.INCORRECT_PASSWORD.code;
             throw e;
         }
     }
 
     if (!id) {
         log("❌ No local identity found — cannot unlock");
-        const e = new Error(UNLOCK_ERROR_DEFS.NO_IDENTITY.message);
-        e.code = UNLOCK_ERROR_DEFS.NO_IDENTITY.code;
+        const e = new Error(C.UNLOCK_ERROR_DEFS.NO_IDENTITY.message);
+        e.code = C.UNLOCK_ERROR_DEFS.NO_IDENTITY.code;
         throw e;
     }
 
@@ -1519,8 +1441,8 @@ async function unlockIdentityFlow(pwd) {
         await verifyPasswordVerifier(id.passwordVerifier, key);
         log("🔐 Password verified");
     } catch {
-        const e = new Error(UNLOCK_ERROR_DEFS.INCORRECT_PASSWORD.message);
-        e.code = UNLOCK_ERROR_DEFS.INCORRECT_PASSWORD.code;
+        const e = new Error(C.UNLOCK_ERROR_DEFS.INCORRECT_PASSWORD.message);
+        e.code = C.UNLOCK_ERROR_DEFS.INCORRECT_PASSWORD.code;
         throw e;
     }
 
@@ -1570,8 +1492,8 @@ async function unlockIdentityFlow(pwd) {
         id = await loadIdentity();
 
         if (!id) {
-            const e = new Error(UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.message);
-            e.code = UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.code;
+            const e = new Error(C.UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.message);
+            e.code = C.UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.code;
             throw e;
         }
 
@@ -1581,8 +1503,8 @@ async function unlockIdentityFlow(pwd) {
             decrypted = true;
             log("✅ Decryption succeeded after recreation");
         } catch {
-            const e = new Error(UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.message);
-            e.code = UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.code;
+            const e = new Error(C.UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.message);
+            e.code = C.UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.code;
             throw e;
         }
     }
@@ -2114,7 +2036,6 @@ async function encryptPrivateKeyWithPassword(privateKey, password) {
         encrypted
     };
 }
-
 
 async function migrateIdentityWithVerifier(id, pwd) {
     log("🛠️ Migrating identity to add password verifier");
@@ -2812,7 +2733,7 @@ function resetIdleTimer() {
 // IMPORTANT - DO NOT DELETE
 window.onload = async () => {
     await onLoad();
-    await initGIS();
+    //await initGIS();
 
     // Ensure app always starts in safe locked state
     initLoginUI();

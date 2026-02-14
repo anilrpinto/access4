@@ -1,3 +1,5 @@
+"use strict";
+
 export const G = {
     tokenClient: null,
     accessToken: null,
