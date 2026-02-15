@@ -1,7 +1,7 @@
 "use strict";
 
 import { G } from './global.js';
-import { log, debug, info, warn, error, setLogLevel, DEBUG, INFO, WARN, ERROR } from './log.js';
+import { log, trace, debug, info, warn, error, setLogLevel, TRACE, DEBUG, INFO, WARN, ERROR } from './log.js';
 
 export let signinBtn;
 export let passwordSection;
@@ -78,7 +78,7 @@ export function bindClick(el, callback, options = {}) {
     }, options);
 }
 
-export function signInSuccess() {
+export function promptUnlockPasword() {
     logEl.textContent = "";
     signinBtn.disabled = true;
     logoutBtn.disabled = false;
