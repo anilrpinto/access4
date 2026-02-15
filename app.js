@@ -6,73 +6,60 @@ import { G } from './global.js';
 import * as UI from './ui.js';
 import { log, debug, info, warn, error, setLogLevel, DEBUG, INFO, WARN, ERROR } from './log.js';
 
-let idleTimer;
-
-/* ================= BOOT + AUTHENTICATION FLOW ================= */
-
 function onLoad() {
 
-    UI.load();
-
     //setLogLevel(INFO);
+    log("[onLoad] entered");
+    UI.init();
 
     // Wire handlers
-    UI.signinBtn.onclick = handleSignInClick;
-    UI.unlockBtn.onclick = handleUnlockClick;
-    UI.logoutBtn.onclick = handleLogoutClick;
-    UI.saveBtn.onclick = handleSaveClick;
+    UI.bindClick(UI.signinBtn, () => initGIS());
+    UI.bindClick(UI.logoutBtn, () => logout());
+    UI.bindClick(UI.unlockBtn, handleUnlockClick);
+    UI.bindClick(UI.saveBtn, handleSaveClick);
 
-    log("📌 onLoad start");
-    log("🧠 sessionStorage sv_session_private_key exists:", !!sessionStorage.getItem("sv_session_private_key"));
-    log("🧩 in-memory G.unlockedIdentity:", !!G.unlockedIdentity);
-    log("🧩 in-memory G.currentPrivateKey:", !!G.currentPrivateKey);
-
-    setupTitleGesture();
-
-    initLoginUI();
-
-    ["mousemove", "keydown", "click"].forEach(e =>
-        document.addEventListener(e, resetIdleTimer)
-    );
-
-    log("UI ready");
-}
-
-/* --------- GOOGLE SIGN-IN start --------- */
-function handleSignInClick() {
-    //signinBtn.disabled = true;
-    //logEl.textContent = "";
-    //passwordSection.style.display = "block";
-
-    //G.tokenClient.requestAccessToken({ prompt: "consent select_account" });
-    initGIS();
+    log("[onLoad] sessionStorage sv_session_private_key exists: ", !!sessionStorage.getItem("sv_session_private_key"));
+    log("[onLoad] G.unlockedIdentity: ", !!G.unlockedIdentity);
+    log("[onLoad] G.currentPrivateKey: ", !!G.currentPrivateKey);
 }
 
 function initGIS() {
+
+    log("[initGIS] entered");
+
     G.tokenClient = google.accounts.oauth2.initTokenClient({
         client_id: C.CLIENT_ID,
         scope: C.SCOPES,
         callback: handleAuth
     });
+
+    // onload did this
     G.tokenClient.requestAccessToken({
         prompt: ""
     });
+
+    // click did this
+    //G.tokenClient.requestAccessToken({ prompt: "consent select_account" });
 }
 
 /* --------- GOOGLE SIGN-IN end --------- */
 
 async function handleAuth(resp) {
+
+    log("[handleAuth] entered");
+
     if (resp.error) return;
 
     G.accessToken = resp.access_token;
-    log(`✓ Access token acquired ${G.accessToken}`);
+    log(`[handleAuth] Access token acquired ${G.accessToken}`);
 
     await fetchUserEmail();
     await verifySharedRoot();
     await verifyWritable(C.ACCESS4_ROOT_ID);
     await ensureAuthorization();
 
-    UI.signInSuccess()
+    if (!isSessionAuthenticated())
+        UI.signInSuccess();
 
     G.biometricRegistered = !!localStorage.getItem(bioCredKey());
 
@@ -80,7 +67,8 @@ async function handleAuth(resp) {
 }
 
 async function onAuthReady(email) {
-    userEmailSpan.textContent = email;
+
+    log("[onAuthReady] entered");
 
     try {
         const id = await loadIdentity();
@@ -88,22 +76,22 @@ async function onAuthReady(email) {
         if (!id) {
             // New device → create identity
             setAuthMode("create");
-            log("🆔 New device detected, prompting password creation");
+            log("[onAuthReady] New device detected, prompting password creation");
             return;
         }
 
         if (!id.passwordVerifier) {
             // Legacy identity → migration
             setAuthMode("unlock", { migration: true });
-            log("🧭 Identity missing password verifier — migration mode");
+            log("[onAuthReady] Identity missing password verifier — migration mode");
             return;
         }
 
         // Attempt session restore first
         if (await attemptSessionRestore()) {
-            log("🔓 Session restore successful — skipping password");
+            log("[onAuthReady] Session restore successful — skipping password");
 
-            log("🧩G.driveLockState after session restore:" + (G.driveLockState ? { mode: G.driveLockState.mode, self: G.driveLockState.self } : null));
+            log("[onAuthReady] G.driveLockState after session restore:" + (G.driveLockState ? { mode: G.driveLockState.mode, self: G.driveLockState.self } : null));
             await ensureDevicePublicKey();
             await proceedAfterPasswordSuccess();
             return;
@@ -111,12 +99,12 @@ async function onAuthReady(email) {
 
         // Returning user → unlock
         setAuthMode("unlock");
-        log("📁 Existing device detected, prompting unlock");
+        log("[onAuthReady] Existing device detected, prompting unlock");
 
 
     } catch (e) {
-        log("❌ Error loading identity: " + e.message);
-        unlockMessage.textContent = "Failed to load identity. Try again.";
+        error("❌ Error loading identity: ", e.message);
+        showUnlockMessage("Failed to load identity. Try again.");
     }
 }
 
@@ -170,7 +158,7 @@ function setAuthMode(mode, options = {}) {
         unlockBtn.textContent = "Unlock";
         unlockBtn.onclick = handleUnlockClick;
 
-        showUnlockMessage(options.migration
+        UI.showUnlockMessage(options.migration
             ? "Identity missing password verifier — enter your password to upgrade."
             : "");
     }
@@ -180,6 +168,10 @@ function setAuthMode(mode, options = {}) {
         unlockBtn.textContent = "Create Password";
         unlockBtn.onclick = handleCreatePasswordClick;
     }
+}
+
+function isSessionAuthenticated() {
+    return !!sessionStorage.getItem("sv_session_private_key");
 }
 
 async function attemptSessionRestore() {
@@ -954,7 +946,7 @@ function promptRecoverySetupUI() {
         unlockBtn.textContent = "Create Recovery Password";
         unlockBtn.disabled = false;
 
-        showUnlockMessage(
+        UI.showUnlockMessage(
             "Create a recovery password. This allows account recovery if all devices are lost.",
             "unlock-message"
         );
@@ -965,7 +957,7 @@ function promptRecoverySetupUI() {
                 resolve();
             } catch (e) {
                 unlockBtn.disabled = false;
-                showUnlockMessage(e.message || "Recovery setup failed", "unlock-message error");
+                UI.showUnlockMessage(e.message || "Recovery setup failed", "unlock-message error");
             }
         };
     });
@@ -1373,10 +1365,10 @@ async function handleUnlockClick() {
     G.unlockInProgress  = true;
     const pwd = passwordInput.value;
 
-    showUnlockMessage(""); // clear previous
+    UI.showUnlockMessage(""); // clear previous
 
     if (!pwd) {
-        showUnlockMessage("Password cannot be empty");
+        UI.showUnlockMessage("Password cannot be empty");
         return;
     }
 
@@ -1387,7 +1379,7 @@ async function handleUnlockClick() {
         const def = Object.values(C.UNLOCK_ERROR_DEFS)
             .find(d => d.code === e.code);
 
-        showUnlockMessage(def?.message || e.message || "Unlock failed");
+        UI.showUnlockMessage(def?.message || e.message || "Unlock failed");
         log("❌ Unlock failed: " + (def?.message || e.message));
     }
 }
@@ -1589,12 +1581,12 @@ async function handleCreatePasswordClick()  {
     const confirm = confirmPasswordInput.value;
 
     if (!pwd || pwd.length < 7) {
-        showUnlockMessage("Password too weak");
+        UI.showUnlockMessage("Password too weak");
         return;
     }
 
     if (pwd !== confirm) {
-        showUnlockMessage("Passwords do not match");
+        UI.showUnlockMessage("Passwords do not match");
         return;
     }
 
@@ -1603,7 +1595,7 @@ async function handleCreatePasswordClick()  {
         await proceedAfterPasswordSuccess();
         log("✅ New identity created and unlocked");
     } catch (e) {
-        showUnlockMessage(e.message);
+        UI.showUnlockMessage(e.message);
     }
 }
 
@@ -1715,7 +1707,8 @@ async function fetchUserEmail() {
     });
     const data = await res.json();
     G.userEmail = data.email;
-    userEmailSpan.textContent = G.userEmail;
+
+    UI.showAuthorizedEmail(G.userEmail);
     log("Signed in as xxx@gmail.com"); //+ G.userEmail);
 }
 
@@ -2135,26 +2128,6 @@ function armBiometric() {
     }
 }
 
-// attach gesture logic
-function setupTitleGesture() {
-    const t = document.getElementById("titleGesture");
-    if (!t) return; // defensive, avoids silent crash
-
-    let timer = null;
-
-    t.addEventListener("pointerdown", () => {
-        timer = setTimeout(armBiometric, 5000);
-    });
-
-    ["pointerup", "pointerleave", "pointercancel"].forEach(e =>
-    t.addEventListener(e, () => clearTimeout(timer))
-    );
-
-    t.addEventListener("click", async () => {
-        if (!G.biometricRegistered) return;
-        await biometricAuthenticateFromGesture();
-    });
-}
 
 /* ================= STEP 4.1: DEVICE PUBLIC KEY ================= */
 async function hasRecoveryKey() {
@@ -2162,10 +2135,6 @@ async function hasRecoveryKey() {
     const marker = localStorage.getItem("recoveryKeyPresent");
     return !!marker;
 }
-
-
-
-
 
 /* ================= RECOVERY KEY ================= */
 
@@ -2325,25 +2294,6 @@ function handleDriveLockLost(info) {
     updateLockStatusUI();
 }
 
-async function releaseDriveLock() {
-    if (!G.driveLockState?.fileId) return;
-
-    G.driveLockState.heartbeat?.stop();
-
-    const cleared = {
-        ...G.driveLockState.lock,
-        expiresAt: new Date(0).toISOString()
-    };
-
-    await writeLockToDrive(
-        G.driveLockState.envelopeName,
-        cleared,
-        G.driveLockState.fileId
-    );
-
-    log("🔓 Drive lock released");
-    G.driveLockState = null;
-}
 
 async function addRecoveryKeyToEnvelope({ publicKey, keyId }) {
     const envelopeName = "envelope.json";
@@ -2432,7 +2382,7 @@ async function readLockFromDrive(envelopeName) {
 
 /* ================= LOGOUT ================= */
 function logout() {
-    log("🔒 Logging out");
+    log("[logout] Logging out...");
 
     // 1️⃣ Release Drive lock if held
     handleDriveLockLost(); // stops heartbeat & clears local G.driveLockState
@@ -2441,19 +2391,7 @@ function logout() {
     G.accessToken = null;
     G.userEmail = null;
 
-    // 3️⃣ Clear UI state
-    unlockedView.style.display = "none";
-    loginView.style.display = "block";
-
-    signinBtn.disabled = false;
-
-    passwordSection.style.display = "none";
-    confirmPasswordSection.style.display = "none";
-
-    passwordInput.value = "";
-    confirmPasswordInput.value = "";
-
-    resetUnlockUi();
+    UI.resetUnlockUi();
 
     // 4️⃣ Clear biometric data (optional)
     localStorage.removeItem(bioCredKey());
@@ -2461,41 +2399,12 @@ function logout() {
     G.biometricRegistered = false;
     G.biometricIntent = false;
 
-    log("✅ Logout completed");
+    log("[logout] Logout completed");
 }
 
 /* ----------------- UI action handlers -------------------*/
-// Ensure UI starts in a safe locked state
-function initLoginUI() {
-    // Always show login view
-    loginView.style.display = "block";
-    unlockedView.style.display = "none";
 
-    // Hide password input sections until needed
-    passwordSection.style.display = "none";
-    confirmPasswordSection.style.display = "none";
 
-    signinBtn.disabled = false;
-
-    // Reset any messages
-    showUnlockMessage("");
-
-    // Disable save button initially
-    saveBtn.disabled = true;
-}
-
-function resetUnlockUi() {
-    // Clear password inputs
-    passwordInput.value = "";
-    confirmPasswordInput.value = "";
-
-    // Reset button state
-    unlockBtn.disabled = false;
-    unlockBtn.textContent = "Unlock";
-
-    // Clear messages
-    showUnlockMessage("");
-}
 
 async function handleCreateRecoveryClick() {
     log("🛟 Starting recovery key creation");
@@ -2511,7 +2420,7 @@ async function handleCreateRecoveryClick() {
     }
 
     unlockBtn.disabled = true;
-    showUnlockMessage("Creating recovery key…");
+    UI.showUnlockMessage("Creating recovery key…");
 
     // 1️⃣ Generate RSA keypair (same as device)
     const keypair = await crypto.subtle.generateKey(
@@ -2584,7 +2493,7 @@ async function handleCreateRecoveryClick() {
     });
 
     log("🛟 Recovery key successfully established");
-    showUnlockMessage("Recovery key created!", "unlock-message success");
+    UI.showUnlockMessage("Recovery key created!", "unlock-message success");
     unlockBtn.disabled = false;
 }
 
@@ -2599,7 +2508,7 @@ async function handleSaveClick() {
         await encryptAndPersistPlaintext(text);
         plaintextInput.value = "";
     } catch (e) {
-        log("❌ Encryption failed: " + e.message);
+        error("❌ Encryption failed: " + e.message);
     }
 }
 
@@ -2694,14 +2603,6 @@ function showVaultUI({ readOnly = false } = {}) {
     }
 }
 
-function showUnlockMessage(msg, type = "error") {
-    const el = document.getElementById("unlockMessage");
-    if (!el) return;
-
-    el.textContent = msg;
-    el.className = `unlock-message ${type}`;
-}
-
 
 // Button to invoke it doens't exist in the latest ui, add to enable (for testing biometric behavior)
 function handleResetBiometricClick() {
@@ -2712,19 +2613,6 @@ function handleResetBiometricClick() {
     log("⚠️ Biometric registration cleared for testing");
 };
 
-function handleLogoutClick() {
-    logout();
-}
-
-function resetIdleTimer() {
-    clearTimeout(idleTimer);
-    idleTimer = setTimeout(async () => {
-        log("[resetIdleTimer] Inactivity timeout — releasing Drive lock");
-        await releaseDriveLock();
-    }, 10 * 60 * 1000); // 10 minutes
-}
-
-
 /* ---------- TEMPORARY ---------*/
 
 
@@ -2734,9 +2622,6 @@ function resetIdleTimer() {
 window.onload = async () => {
     await onLoad();
     //await initGIS();
-
-    // Ensure app always starts in safe locked state
-    initLoginUI();
 
     // Clear any lingering G.driveLockState in memory
     G.driveLockState = null;

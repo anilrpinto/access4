@@ -28,7 +28,12 @@ function _log(level, msg, ...args) {
 
     const message = `${ts} |${LABELS[level]}| ${msg} ${data}`;
     console.log(message);
-    logEl.textContent += message + "\n";
+
+    try {
+        logEl.textContent += message + "\n";
+    } catch (err) {
+        console.warn("logEl not yet initialized!");
+    }
 }
 
 export function error(message, ...args) {
