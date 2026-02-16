@@ -1,7 +1,7 @@
 "use strict";
 
 import { C } from './constants.js';
-import { G } from './global.js';
+import { G, clearGlobals } from './global.js';
 import { log, trace, debug, info, warn, error, setLogLevel, TRACE, DEBUG, INFO, WARN, ERROR } from './log.js';
 
 import * as UI from './ui.js';
@@ -384,7 +384,7 @@ async function proceedAfterPasswordSuccess() {
     if (readOnly) {
         warn("[proceedAfterPasswordSuccess] Showing unlocked UI in read-only mode");
     }
-    showVaultUI({ readOnly });
+    UI.showVaultUI({ readOnly, onIdle: (type) => logout() });
 
     log("[proceedAfterPasswordSuccess] Unlock successful!@");
 }
@@ -505,6 +505,28 @@ async function acquireDriveWriteLock(envelopeName) {
 
     log("[acquireDriveWriteLock] completed");
     return G.driveLockState;
+}
+
+async function releaseDriveLock() {
+    log("[releaseDriveLock] entered");
+
+    if (!G.driveLockState?.fileId) return;
+
+    G.driveLockState.heartbeat?.stop();
+
+    const cleared = {
+        ...G.driveLockState.lock,
+        expiresAt: new Date(0).toISOString()
+    };
+
+    await writeLockToDrive(
+        G.driveLockState.envelopeName,
+        cleared,
+        G.driveLockState.fileId
+    );
+
+    log("[releaseDriveLock] Drive lock released");
+    G.driveLockState = null;
 }
 
 async function loadPublicKeyJsonsFromDrive() {
@@ -1401,18 +1423,21 @@ async function handleUnlockClick() {
             .find(d => d.code === e.code);
 
         UI.showUnlockMessage(def?.message || e.message || "Unlock failed");
-        log("❌ Unlock failed:" + (def?.message || e.message));
+        error("[handleUnlockClick] Unlock failed:", (def?.message || e.message));
     }
 }
 
 async function unlockIdentityFlow(pwd) {
+
+    log("[unlockIdentityFlow] entered");
+
     if (!pwd || pwd.length < 7) {
         const e = new Error(C.UNLOCK_ERROR_DEFS.WEAK_PASSWORD.message);
         e.code = C.UNLOCK_ERROR_DEFS.WEAK_PASSWORD.code;
         throw e;
     }
 
-    log("🔓 [unlockIdentityFlow] Unlock attempt started for password:" + pwd ? "***" :"(empty)");
+    log("🔓 [unlockIdentityFlow] Unlock attempt started for password:", (pwd ? "***" : "(empty)"));
 
     if (!G.accessToken) {
         const e = new Error(C.UNLOCK_ERROR_DEFS.NO_ACCESS_TOKEN.message);
@@ -1421,10 +1446,10 @@ async function unlockIdentityFlow(pwd) {
     }
 
     let id = await loadIdentity();
-    log("📁 [unlockIdentityFlow] Identity loaded:" + !!id);
+    log("[unlockIdentityFlow] Identity loaded:", !!id);
 
     if (id && identityNeedsPasswordSetup(id)) {
-        log("🧭 Identity missing password verifier — attempting auto-migration");
+        log("[unlockIdentityFlow] Identity missing password verifier — attempting auto-migration");
 
         try {
             await migrateIdentityWithVerifier(id, pwd);
@@ -1437,13 +1462,13 @@ async function unlockIdentityFlow(pwd) {
     }
 
     if (!id) {
-        log("❌ No local identity found — cannot unlock");
+        error("[unlockIdentityFlow] No local identity found — cannot unlock");
         const e = new Error(C.UNLOCK_ERROR_DEFS.NO_IDENTITY.message);
         e.code = C.UNLOCK_ERROR_DEFS.NO_IDENTITY.code;
         throw e;
     }
 
-    log("📁 Local identity found");
+    log("[unlockIdentityFlow] Local identity found");
 
     // ─────────────────────────────
     // 🔐 AUTHORITATIVE PASSWORD CHECK
@@ -1452,14 +1477,14 @@ async function unlockIdentityFlow(pwd) {
     try {
         key = await deriveKey(pwd, id.kdf);
         await verifyPasswordVerifier(id.passwordVerifier, key);
-        log("🔐 Password verified");
+        log("[unlockIdentityFlow] Password verified");
     } catch {
         const e = new Error(C.UNLOCK_ERROR_DEFS.INCORRECT_PASSWORD.message);
         e.code = C.UNLOCK_ERROR_DEFS.INCORRECT_PASSWORD.code;
         throw e;
     }
 
-    log("🔐 [unlockIdentityFlow] Password verified:", key ? "***" :"(failed)");
+    log("[unlockIdentityFlow] Password verified:", (key ? "***" : "(failed)"));
 
     // ─────────────────────────────
     // 🔓 Attempt private key decrypt
@@ -1470,18 +1495,18 @@ async function unlockIdentityFlow(pwd) {
     try {
         decryptedPrivateKeyBytes = await decrypt(id.encryptedPrivateKey, key);
         decrypted = true;
-        log("✅ Identity successfully decrypted");
+        log("[unlockIdentityFlow] Identity successfully decrypted");
     } catch {
-        log("⚠️ Private key decryption failed");
+        error("[unlockIdentityFlow] Private key decryption failed");
     }
 
-    log("✅ [unlockIdentityFlow] Identity decrypted:", decrypted);
+    log("[unlockIdentityFlow] Identity decrypted:", decrypted);
 
     // ─────────────────────────────
     // 🔁 Single rotation retry
     // ─────────────────────────────
     if (!decrypted) {
-        log("🔁 Attempting device key rotation");
+        log("[unlockIdentityFlow] Attempting device key rotation");
 
         await rotateDeviceIdentity(pwd);
         id = await loadIdentity();
@@ -1489,9 +1514,9 @@ async function unlockIdentityFlow(pwd) {
         try {
             await decrypt(id.encryptedPrivateKey, key);
             decrypted = true;
-            log("✅ Decryption succeeded after rotation");
+            log("[unlockIdentityFlow] Decryption succeeded after rotation");
         } catch {
-            log("⚠️ Decryption still failing after rotation");
+            warn("[unlockIdentityFlow] Decryption still failing after rotation");
         }
     }
 
@@ -1499,12 +1524,13 @@ async function unlockIdentityFlow(pwd) {
     // 🧨 Absolute Safari recovery
     // ─────────────────────────────
     if (!decrypted) {
-        log("🧨 Rotation failed — recreating identity");
+        log("[unlockIdentityFlow] Rotation failed (safari behavior?) — recreating identity");
 
         await createIdentity(pwd);
         id = await loadIdentity();
 
         if (!id) {
+            error("[unlockIdentityFlow] Faied to load existing identity - ", C.UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.message);
             const e = new Error(C.UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.message);
             e.code = C.UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.code;
             throw e;
@@ -1514,8 +1540,9 @@ async function unlockIdentityFlow(pwd) {
             key = await deriveKey(pwd, id.kdf);
             await decrypt(id.encryptedPrivateKey, key);
             decrypted = true;
-            log("✅ Decryption succeeded after recreation");
+            log("[unlockIdentityFlow] Decryption succeeded after recreation");
         } catch {
+            error("[unlockIdentityFlow] post rotation decryption attempt failed - ", C.UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.message);
             const e = new Error(C.UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.message);
             e.code = C.UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.code;
             throw e;
@@ -1523,7 +1550,7 @@ async function unlockIdentityFlow(pwd) {
     }
 
     if (id.supersedes) {
-        log("ℹ️ Identity supersedes previous keyId:" + id.supersedes);
+        log("[unlockIdentityFlow] Identity supersedes previous keyId:" + id.supersedes);
     }
 
     // ─────────────────────────────
@@ -1539,20 +1566,22 @@ async function unlockIdentityFlow(pwd) {
     G.sessionUnlocked = true;
 
 
-    log("🧠 G.unlockedIdentity set in memory for session");
+    log("[unlockIdentityFlow] G.unlockedIdentity set in memory for session");
 
     if (G.biometricIntent && !G.biometricRegistered) {
         await enrollBiometric(pwd);
         G.biometricRegistered = true;
     }
 
-    log("🔑 Proceeding to device public key exchange");
+    log("[unlockIdentityFlow] Proceeding to device public key exchange");
     await ensureDevicePublicKey();
 
     return id;
 }
 
 async function cacheDecryptedPrivateKey(decryptedPrivateKeyBytes) {
+
+    log("[cacheDecryptedPrivateKey] entered");
     try {
         if (!decryptedPrivateKeyBytes) throw new Error("No decrypted key available");
 
@@ -1569,10 +1598,10 @@ async function cacheDecryptedPrivateKey(decryptedPrivateKeyBytes) {
         );
 
         G.sessionUnlocked = true;
-        log("🧠 Session private key cached");
+        log("[cacheDecryptedPrivateKey] Session private key cached");
 
     } catch (e) {
-        log("⚠️ Session caching failed (non-fatal):" + e.message);
+        warn("[cacheDecryptedPrivateKey] Session caching failed (non-fatal):" + e.message);
     }
 }
 
@@ -1980,7 +2009,6 @@ async function hasRecoveryKey() {
 
 /* ================= RECOVERY KEY ================= */
 
-
 async function ensureRecoveryFolder() {
     const q = `'${C.ACCESS4_ROOT_ID}' in parents and name='recovery' and mimeType='application/vnd.google-apps.folder'`;
     const res = await GD.driveFetch(GD.buildDriveUrl("files", {
@@ -2106,7 +2134,7 @@ function startLockHeartbeat({envelopeName, self, readLockFromDrive, writeLockToD
             );
 
             G.driveLockState.lock = extended;   // keep local state authoritative
-            //log(`💓 Heartbeat OK (gen=${extended.generation}, expires ${extended.expiresAt})`);
+            trace(`[startLockHeartbeat.tick] Heartbeat OK (gen=${extended.generation}, expires ${extended.expiresAt})`);
             updateLockStatusUI();
         } catch (err) {
             stopped = true;
@@ -2125,7 +2153,7 @@ function startLockHeartbeat({envelopeName, self, readLockFromDrive, writeLockToD
 }
 
 function handleDriveLockLost(info) {
-    log("❌ Drive lock lost:" + JSON.stringify(info));
+    warn("[handleDriveLockLost] Drive lock lost:", JSON.stringify(info));
 
     if (G.driveLockState?.heartbeat) {
         G.driveLockState.heartbeat.stop();
@@ -2226,13 +2254,16 @@ async function readLockFromDrive(envelopeName) {
 function logout() {
     log("[logout] Logging out...");
 
+    releaseDriveLock();
+
     // 1️⃣ Release Drive lock if held
     handleDriveLockLost(); // stops heartbeat & clears local G.driveLockState
 
     // 2️⃣ Clear user-specific memory
-    G.accessToken = null;
-    G.userEmail = null;
-
+    //G.accessToken = null;
+    //G.userEmail = null;
+    clearGlobals();
+    sessionStorage.removeItem("sv_session_private_key");
     UI.resetUnlockUi();
 
     // 4️⃣ Clear biometric data (optional)
@@ -2241,12 +2272,10 @@ function logout() {
     G.biometricRegistered = false;
     G.biometricIntent = false;
 
-    log("[logout] Logout completed");
+    log("[logout] completed");
 }
 
 /* ----------------- UI action handlers -------------------*/
-
-
 
 async function handleCreateRecoveryClick() {
     log("🛟 Starting recovery key creation");
@@ -2421,30 +2450,6 @@ function updateLockStatusUI() {
     //log(`🔐 You hold the envelope lock (expires ${expiresAt})`);
 }
 
-function showVaultUI({ readOnly = false } = {}) {
-    // Hide login / password sections
-    loginView.style.display = "none";
-    passwordSection.style.display = "none";
-    confirmPasswordSection.style.display = "none";
-
-    // Show main unlocked view
-    unlockedView.style.display = "block";
-
-    // Update UI for read-only mode
-    if (readOnly) {
-        log("⚠️ Unlocked UI in read-only mode: disabling save button");
-        saveBtn.disabled = true;
-        saveBtn.title = "Read-only mode: cannot save";
-        plaintextInput.readOnly = true;
-        titleUnlocked.textContent = "Unlocked (Read-only)";
-    } else {
-        saveBtn.disabled = false;
-        saveBtn.title = "";
-        plaintextInput.readOnly = false;
-        titleUnlocked.textContent = "Unlocked";
-    }
-}
-
 
 // Button to invoke it doens't exist in the latest ui, add to enable (for testing biometric behavior)
 function handleResetBiometricClick() {
@@ -2466,7 +2471,9 @@ window.onload = async () => {
     //await initGIS();
 
     // Clear any lingering G.driveLockState in memory
-    G.driveLockState = null;
+    //G.driveLockState = null;
+    clearGlobals();
+    UI.resetUnlockUi();
 
     // Optional: detect if a user was partially logged in
     // If you want logout to be final, skip restoring user session

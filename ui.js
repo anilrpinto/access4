@@ -1,5 +1,6 @@
 "use strict";
 
+import { C } from './constants.js';
 import { G } from './global.js';
 import { log, trace, debug, info, warn, error, setLogLevel, TRACE, DEBUG, INFO, WARN, ERROR } from './log.js';
 
@@ -24,6 +25,21 @@ export let logEl;
 let userEmailSpan;
 let unlockMessage;
 let idleTimer;
+let idleCallback = null;
+
+const idleEvents = ['mousedown', 'mousemove', 'keydown', 'keypress', 'click', 'scroll', 'touchstart'];
+
+const resetTimer = () => {
+    clearTimeout(idleTimer);
+
+    if (!idleCallback) return;
+
+    idleTimer = setTimeout(async () => {
+        if (typeof idleCallback === 'function') {
+            await idleCallback('idle.timeout');
+        }
+    }, C.IDLE_TIMEOUT_MS);
+};
 
 export function init() {
 
@@ -54,8 +70,6 @@ export function init() {
 
     setupTitleGesture();
     initLoginUI();
-
-    initIdleTimer();
 }
 
 export function showUnlockMessage(msg, type = "error") {
@@ -64,7 +78,6 @@ export function showUnlockMessage(msg, type = "error") {
     unlockMessage.textContent = msg;
     unlockMessage.className = `unlock-message ${type}`;
 }
-
 
 export function bindClick(el, callback, options = {}) {
     if (!el) {
@@ -128,43 +141,6 @@ function initLoginUI() {
     saveBtn.disabled = true;
 }
 
-function initIdleTimer() {
-    const resetTimer = () => {
-        clearTimeout(idleTimer);
-        idleTimer = setTimeout(async () => {
-            log("[initIdleTimer] Inactivity timeout — releasing Drive lock");
-            await releaseDriveLock();
-        }, 10 * 60 * 1000); // 10 minutes
-    };
-
-    // Events that "wake up" the timer
-    ['mousedown', 'mousemove', 'keydown', 'keypress', 'click',' scroll', 'touchstart'].forEach(evt => {
-        document.addEventListener(evt, resetTimer, { passive: true });
-    });
-
-    resetTimer(); // Start it immediately
-}
-
-async function releaseDriveLock() {
-    if (!G.driveLockState?.fileId) return;
-
-    G.driveLockState.heartbeat?.stop();
-
-    const cleared = {
-        ...G.driveLockState.lock,
-        expiresAt: new Date(0).toISOString()
-    };
-
-    await writeLockToDrive(
-        G.driveLockState.envelopeName,
-        cleared,
-        G.driveLockState.fileId
-    );
-
-    log("[releaseDriveLock] Drive lock released");
-    G.driveLockState = null;
-}
-
 export function resetUnlockUi() {
 
     // 3️⃣ Clear UI state
@@ -185,5 +161,50 @@ export function resetUnlockUi() {
     // Clear messages
     showUnlockMessage("");
 
+    idleEvents.forEach(evt => {
+        document.removeEventListener(evt, resetTimer);
+    });
+
+    clearTimeout(idleTimer);
+    idleCallback = null;
+
+    showAuthorizedEmail(null);
     signinBtn.disabled = false;
+}
+
+export function showVaultUI({ readOnly = false, onIdle = () => { warn('idle timeout fired') } } = {}) {
+
+    log("[showVaultUI] entered");
+
+    // Hide login / password sections
+    loginView.style.display = "none";
+    passwordSection.style.display = "none";
+    confirmPasswordSection.style.display = "none";
+
+    // Show main unlocked view
+    unlockedView.style.display = "block";
+
+    // Update UI for read-only mode
+    if (readOnly) {
+        warn("[showVaultUI] Unlocked UI in read-only mode: disabling save button");
+        saveBtn.disabled = true;
+        saveBtn.title = "Read-only mode: cannot save";
+        plaintextInput.readOnly = true;
+        titleUnlocked.textContent = "Unlocked (Read-only)";
+    } else {
+        saveBtn.disabled = false;
+        saveBtn.title = "";
+        plaintextInput.readOnly = false;
+        titleUnlocked.textContent = "Unlocked";
+    }
+
+    // Events that "wake up" the timer
+    // Clean up old listeners to prevent memory leaks/duplicate triggers
+    idleEvents.forEach(evt => {
+        document.removeEventListener(evt, resetTimer);
+        document.addEventListener(evt, resetTimer, { passive: true });
+    });
+
+    idleCallback = onIdle;
+    resetTimer();
 }

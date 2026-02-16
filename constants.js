@@ -11,6 +11,7 @@ export const C = deepFreeze({
     DEVICE_ID_KEY: "access4.device.id",
     HEARTBEAT_INTERVAL: 10_000, // 10 seconds
     LOCK_TTL_MS: 30_000,        // must be > heartbeat
+    IDLE_TIMEOUT_MS: 300000,    // 5 mins
 
     UNLOCK_ERROR_DEFS: {
         WEAK_PASSWORD: {
