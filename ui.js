@@ -2,7 +2,7 @@
 
 import { C } from './constants.js';
 import { G } from './global.js';
-import { log, trace, debug, info, warn, error, setLogLevel, TRACE, DEBUG, INFO, WARN, ERROR } from './log.js';
+import { log, trace, debug, info, warn, error } from './log.js';
 
 export let signinBtn;
 export let passwordSection;
@@ -207,4 +207,34 @@ export function showVaultUI({ readOnly = false, onIdle = () => { warn('idle time
 
     idleCallback = onIdle;
     resetTimer();
+}
+
+export function promptRecoverySetupUI() {
+    log("[promptRecoverySetupUI] called");
+
+    return new Promise(resolve => {
+        // reuse existing inputs
+        resetUnlockUi();
+
+        passwordSection.style.display = "block";
+        confirmPasswordSection.style.display = "block";
+
+        unlockBtn.textContent = "Create Recovery Password";
+        unlockBtn.disabled = false;
+
+        showUnlockMessage(
+            "Create a recovery password. This allows account recovery if all devices are lost.",
+            "unlock-message"
+        );
+
+        unlockBtn.onclick = async () => {
+            try {
+                await handleCreateRecoveryClick();
+                resolve();
+            } catch (e) {
+                unlockBtn.disabled = false;
+                showUnlockMessage(e.message || "Recovery setup failed", "unlock-message error");
+            }
+        };
+    });
 }

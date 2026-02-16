@@ -8,7 +8,8 @@ export const INFO = 2;
 export const DEBUG = 3;
 export const TRACE = 4;
 
-let _level = DEBUG;
+let _level = TRACE;
+const _filter = [];
 
 // Mapping levels to colors and labels
 const LABELS = ['ERROR', 'WARN ', 'INFO ', 'DEBUG', 'TRACE'];
@@ -18,8 +19,15 @@ export function setLogLevel(level) {
         _level = level;
 }
 
+export function onlyLogLevels(...levels) {
+    if (levels) {
+        _filter.length = 0;
+        _filter.push(...levels);
+    }
+}
+
 function _log(level, msg, ...args) {
-    if (level > _level)
+    if (level > _level || (_filter.length && !_filter.includes(level)))
         return;
 
     const now = new Date();
@@ -38,15 +46,15 @@ function _log(level, msg, ...args) {
 }
 
 export function error(message, ...args) {
-    _log(ERROR, "❌ " + message, ...args);
+    _log(ERROR, "❌" + message, ...args);
 }
 
 export function warn(message, ...args) {
-    _log(WARN, "⚠️ " + message, ...args);
+    _log(WARN, "⚠️" + message, ...args);
 }
 
 export function info(message, ...args) {
-    _log(INFO, message, ...args);
+    _log(INFO, "✅" + message, ...args);
 }
 
 export function debug(message, ...args) {
@@ -54,7 +62,7 @@ export function debug(message, ...args) {
 }
 
 export function trace(message, ...args) {
-    _log(TRACE, "🔍 " + message, ...args);
+    _log(TRACE, "🔍" + message, ...args);
 }
 
 export function log(message, ...args) {

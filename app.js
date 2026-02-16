@@ -2,7 +2,7 @@
 
 import { C } from './constants.js';
 import { G, clearGlobals } from './global.js';
-import { log, trace, debug, info, warn, error, setLogLevel, TRACE, DEBUG, INFO, WARN, ERROR } from './log.js';
+import { log, trace, debug, info, warn, error, setLogLevel, onlyLogLevels, TRACE, DEBUG, INFO, WARN, ERROR } from './log.js';
 
 import * as UI from './ui.js';
 import * as GD from './gdrive.js';
@@ -10,7 +10,8 @@ import * as GD from './gdrive.js';
 function onLoad() {
 
     //setLogLevel(INFO);
-    log("[onLoad] entered");
+    //onlyLogLevels(INFO, TRACE);
+    log("[onLoad] called");
     UI.init();
 
     // Wire handlers
@@ -26,7 +27,7 @@ function onLoad() {
 
 function initGIS() {
 
-    log("[initGIS] entered");
+    log("[initGIS] called");
 
     G.tokenClient = google.accounts.oauth2.initTokenClient({
         client_id: C.CLIENT_ID,
@@ -44,8 +45,7 @@ function initGIS() {
 /* --------- GOOGLE SIGN-IN end --------- */
 
 async function handleAuth(resp) {
-
-    log("[handleAuth] entered");
+    log("[handleAuth] called");
 
     if (resp.error) return;
 
@@ -66,8 +66,7 @@ async function handleAuth(resp) {
 }
 
 async function onAuthReady(email) {
-
-    log("[onAuthReady] entered");
+    log("[onAuthReady] called");
     UI.showAuthorizedEmail(email);
 
     try {
@@ -109,8 +108,7 @@ async function onAuthReady(email) {
 
 /* ---------------------- Load identity ---------------------- */
 async function loadIdentity() {
-
-    log("[loadIdentity] entered");
+    log("[loadIdentity] called");
     log("[loadIdentity] G.sessionUnlocked:", !!G.sessionUnlocked);
     log("[loadIdentity] G.unlockedIdentity:", !!G.unlockedIdentity);
 
@@ -124,8 +122,7 @@ async function loadIdentity() {
 
 /* ---------------------- Load from localStorage only ---------------------- */
 function loadIdentityFromStorage() {
-
-    log("[loadIdentityFromStorage] entered");
+    log("[loadIdentityFromStorage] called");
 
     const raw = localStorage.getItem(identityKey());
     log("[loadIdentityFromStorage] Identity in localStorage exists:", !!raw);
@@ -134,7 +131,7 @@ function loadIdentityFromStorage() {
 
     try {
         const id = JSON.parse(raw);
-        log("[loadIdentityFromStorage] Identity loaded from localStorage:", JSON.stringify(id));
+        //trace("[loadIdentityFromStorage] Identity loaded from localStorage:", JSON.stringify(id));
         if (G.sessionUnlocked && G.currentPrivateKey) {
             id._sessionPrivateKey = G.currentPrivateKey;
         }
@@ -146,6 +143,7 @@ function loadIdentityFromStorage() {
 }
 
 function setAuthMode(mode, options = {}) {
+    log("[setAuthMode] called");
     G.authMode = mode;
 
     // reset fields
@@ -164,9 +162,7 @@ function setAuthMode(mode, options = {}) {
         UI.showUnlockMessage(options.migration
             ? "Identity missing password verifier — enter your password to upgrade."
             :"");
-    }
-
-    if (mode === "create") {
+    } else if (mode === "create") {
         confirmPasswordSection.style.display = "block";
         unlockBtn.textContent = "Create Password";
         unlockBtn.onclick = handleCreatePasswordClick;
@@ -178,7 +174,7 @@ function isSessionAuthenticated() {
 }
 
 async function attemptSessionRestore() {
-    log("[attemptSessionRestore] entered");
+    log("[attemptSessionRestore] called");
 
     try {
         const stored = sessionStorage.getItem("sv_session_private_key");
@@ -237,9 +233,9 @@ async function attemptSessionRestore() {
 }
 
 async function ensureDevicePublicKey() {
+    log("[ensureDevicePublicKey] called");
 
-    log("[ensureDevicePublicKey] entered");
-    const folder = await findOrCreateUserFolder();
+    const folder = await GD.findOrCreateUserFolder();
     const id = await loadIdentity();
     if (!id) throw new Error("Local identity missing");
 
@@ -309,47 +305,6 @@ async function ensureDevicePublicKey() {
     log("[ensureDevicePublicKey] Device public key UPLOADED");
 }
 
-async function findOrCreateUserFolder() {
-    const rootQ = `'${C.ACCESS4_ROOT_ID}' in parents and name='${C.PUBKEY_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder'`;
-    const rootRes = await GD.driveFetch(GD.buildDriveUrl("files", {
-        q: rootQ,
-        fields:"files(id)"
-    }));
-    const root = rootRes.files.length ? rootRes.files[0].id :
-    (await GD.driveFetch(GD.buildDriveUrl("files"), {
-        method:"POST",
-        headers: {
-            "Content-Type":"application/json"
-        },
-        body: JSON.stringify({
-            name: C.PUBKEY_FOLDER_NAME,
-            mimeType:"application/vnd.google-apps.folder",
-            parents: [C.ACCESS4_ROOT_ID]
-        })
-    })).id;
-
-    const userQ = `'${root}' in parents and name='${G.userEmail}' and mimeType='application/vnd.google-apps.folder'`;
-    const userRes = await GD.driveFetch(GD.buildDriveUrl("files", {
-        q: userQ,
-        fields:"files(id)"
-    }));
-    if (userRes.files.length) return userRes.files[0].id;
-
-    const folder = await GD.driveFetch(GD.buildDriveUrl("files"), {
-        method:"POST",
-        headers: {
-            "Content-Type":"application/json"
-        },
-        body: JSON.stringify({
-            name: G.userEmail,
-            mimeType:"application/vnd.google-apps.folder",
-            parents: [root]
-        })
-    });
-
-    return folder.id;
-}
-
 function getDeviceId() {
     let id = localStorage.getItem(C.DEVICE_ID_KEY);
     if (!id) {
@@ -361,7 +316,7 @@ function getDeviceId() {
 }
 
 async function proceedAfterPasswordSuccess() {
-    log("[proceedAfterPasswordSuccess] entered");
+    log("[proceedAfterPasswordSuccess] called");
     log("[proceedAfterPasswordSuccess] G.unlockedIdentity exists:", !!G.unlockedIdentity);
     log("[proceedAfterPasswordSuccess] G.currentPrivateKey exists:", !!G.currentPrivateKey);
     log("[proceedAfterPasswordSuccess] G.driveLockState:", G.driveLockState ? { mode: G.driveLockState.mode, self: G.driveLockState.self } : null);
@@ -390,16 +345,15 @@ async function proceedAfterPasswordSuccess() {
 }
 
 async function ensureEnvelope() {
-
-    log("[ensureEnvelope] entered");
+    log("[ensureEnvelope] called");
     const envelopeName = "envelope.json";
 
     // ─── Fast path: skip lock re-acquire if already initialized ───
     if (G.driveLockState && G.driveLockState.mode) {
         log("[ensureEnvelope] Drive lock already initialized — skipping lock acquisition");
-        trace("[ensureEnvelope] G.driveLockState:" + JSON.stringify(G.driveLockState));
+        log("[ensureEnvelope] G.driveLockState:", JSON.stringify(G.driveLockState));
     } else {
-        const lockFile = await readLockFromDrive(envelopeName);
+        const lockFile = await GD.readLockFromDrive(envelopeName);
         const { identity, self } = await getDriveLockSelf();
         const evalResult = evaluateEnvelopeLock(lockFile?.json, self);
 
@@ -417,14 +371,14 @@ async function ensureEnvelope() {
     log("[ensureEnvelope] Drive self deviceId:", G.driveLockState.self.deviceId);
 
     // ─── Load key registry from pub-keys on Drive ───
-    const rawPublicKeyJsons = await loadPublicKeyJsonsFromDrive();
+    const rawPublicKeyJsons = await GD.loadPublicKeyJsonsFromDrive();
     G.keyRegistry = await buildKeyRegistryFromDrive(rawPublicKeyJsons);
 
-    log("[ensureEnvelope] Active devices registry:" + G.keyRegistry.flat.activeDevices.length);
-    log("[ensureEnvelope] recoveryKeys registry:" + G.keyRegistry.flat.recoveryKeys.length);
+    log("[ensureEnvelope] Active devices registry:", G.keyRegistry.flat.activeDevices.length);
+    log("[ensureEnvelope] recoveryKeys registry:", G.keyRegistry.flat.recoveryKeys.length);
 
     // ─── Fast path: load existing envelope ───
-    const existing = await readEnvelopeFromDrive(envelopeName);
+    const existing = await GD.readEnvelopeFromDrive(envelopeName);
     if (existing?.json) {
         log("[ensureEnvelope] Envelope already exists");
         return existing.json;
@@ -441,6 +395,7 @@ async function ensureEnvelope() {
 }
 
 async function getDriveLockSelf() {
+    log("[getDriveLockSelf] called");
     const identity = await loadIdentity();
     if (!identity) throw new Error("Identity not unlocked — cannot ensure envelope");
     const self = { account: G.userEmail, deviceId: identity.deviceId };
@@ -448,6 +403,8 @@ async function getDriveLockSelf() {
 }
 
 function evaluateEnvelopeLock(lock, self) {
+    log("[evaluateEnvelopeLock] called");
+
     if (!lock) return { status:"free" };
 
     const now = Date.now();
@@ -463,25 +420,25 @@ function evaluateEnvelopeLock(lock, self) {
 }
 
 async function acquireDriveWriteLock(envelopeName) {
-    log("[acquireDriveWriteLock] entered");
+    log("[acquireDriveWriteLock] called");
 
     const identity = await loadIdentity();
     const self = { account: G.userEmail, deviceId: identity.deviceId };
 
-    const lockFile = await readLockFromDrive(envelopeName).catch(() => null);
+    const lockFile = await GD.readLockFromDrive(envelopeName).catch(() => null);
     const evalResult = evaluateEnvelopeLock(lockFile?.json, self);
 
     if (evalResult.status === "locked") {
         throw new Error("Failed to acquire lock: locked-by-other");
     }
 
-    const envelope = await readEnvelopeFromDrive(envelopeName).catch(() => null);
+    const envelope = await GD.readEnvelopeFromDrive(envelopeName).catch(() => null);
     const generation = envelope?.generation ?? 0;
 
     const lock = createLockPayload(self, envelopeName, generation);
 
     log("[acquireDriveWriteLock] writing lock to Drive...");
-    const fileId = await writeLockToDrive(envelopeName, lock, lockFile?.fileId);
+    const fileId = await GD.writeLockToDrive(envelopeName, lock, lockFile?.fileId);
 
     log("[acquireDriveWriteLock] lock written, fileId:", fileId);
 
@@ -495,8 +452,8 @@ async function acquireDriveWriteLock(envelopeName) {
         heartbeat: startLockHeartbeat({
             envelopeName,
             self,
-            readLockFromDrive,
-            writeLockToDrive,
+            readLockFromDrive: (name) => GD.readLockFromDrive(name),
+            writeLockToDrive: (name, lock, id) => GD.writeLockToDrive(name, lock, id),
             onLost: info => handleDriveLockLost(info)
         })
     };
@@ -508,7 +465,7 @@ async function acquireDriveWriteLock(envelopeName) {
 }
 
 async function releaseDriveLock() {
-    log("[releaseDriveLock] entered");
+    log("[releaseDriveLock] called");
 
     if (!G.driveLockState?.fileId) return;
 
@@ -519,7 +476,7 @@ async function releaseDriveLock() {
         expiresAt: new Date(0).toISOString()
     };
 
-    await writeLockToDrive(
+    await GD.writeLockToDrive(
         G.driveLockState.envelopeName,
         cleared,
         G.driveLockState.fileId
@@ -529,76 +486,9 @@ async function releaseDriveLock() {
     G.driveLockState = null;
 }
 
-async function loadPublicKeyJsonsFromDrive() {
-    const publicKeyJsons = [];
-
-    // 1️⃣ Locate pub-keys folder
-    const pubKeysFolders = await GD.driveList({
-        q: `'${C.ACCESS4_ROOT_ID}' in parents and name='pub-keys' and mimeType='application/vnd.google-apps.folder'`,
-        pageSize: 1
-    });
-
-    if (pubKeysFolders.length === 0) {
-        log("[loadPublicKeyJsonsFromDrive] pub-keys folder not found");
-        return publicKeyJsons;
-    }
-
-    const pubKeysRootId = pubKeysFolders[0].id;
-
-    // 2️⃣ Enumerate email subfolders
-    const accountFolders = await GD.driveList({
-        q: `'${pubKeysRootId}' in parents and mimeType='application/vnd.google-apps.folder'`,
-        pageSize: 100
-    });
-
-    for (const accountFolder of accountFolders) {
-        // 3️⃣ Enumerate device key files
-        const deviceKeyFiles = await GD.driveList({
-            q: `'${accountFolder.id}' in parents and mimeType='application/json'`,
-            pageSize: 100
-        });
-
-        for (const file of deviceKeyFiles) {
-            try {
-                const json = await GD.driveReadJsonFile(file.id);
-                publicKeyJsons.push(json);
-            } catch (err) {
-                log(`[loadPublicKeyJsonsFromDrive] Failed to read ${file.name}: ${err.message}`);
-            }
-        }
-    }
-
-    // 4️⃣ Load recovery public key (optional)
-    const recoveryFolders = await GD.driveList({
-        q: `'${C.ACCESS4_ROOT_ID}' in parents and name='recovery' and mimeType='application/vnd.google-apps.folder'`,
-        pageSize: 1
-    });
-
-    if (recoveryFolders.length > 0) {
-        const recoveryFolderId = recoveryFolders[0].id;
-
-        const recoveryPublicFiles = await GD.driveList({
-            q: `'${recoveryFolderId}' in parents and name='recovery.public.json'`,
-            pageSize: 1
-        });
-
-        if (recoveryPublicFiles.length > 0) {
-            try {
-                const recoveryJson = await GD.driveReadJsonFile(recoveryPublicFiles[0].id);
-                publicKeyJsons.push(recoveryJson);
-            } catch (err) {
-                log("[loadPublicKeyJsonsFromDrive] Failed to read recovery.public.json");
-            }
-        }
-    }
-
-    log(`[loadPublicKeyJsonsFromDrive] Loaded ${publicKeyJsons.length} public keys`);
-    return publicKeyJsons;
-}
-
 async function buildKeyRegistryFromDrive(rawPublicKeyJsons) {
+    log("[buildKeyRegistryFromDrive] called");
 
-    log("[buildKeyRegistryFromDrive] entered");
     resetKeyRegistry();
 
     for (const raw of rawPublicKeyJsons) {
@@ -638,7 +528,7 @@ async function buildKeyRegistryFromDrive(rawPublicKeyJsons) {
 }
 
 function resetKeyRegistry() {
-    log("[resetKeyRegistry] entered");
+    log("[resetKeyRegistry] called");
     G.keyRegistry.accounts = {};
     G.keyRegistry.flat.activeDevices = [];
     G.keyRegistry.flat.deprecatedDevices = [];
@@ -647,14 +537,15 @@ function resetKeyRegistry() {
 }
 
 function normalizePublicKey(raw) {
-    log("[normalizePublicKey] entered");
+
     if (!raw || typeof raw !== "object") {
         throw new Error("Invalid public key JSON");
     }
 
     if (!raw.keyId || !raw.fingerprint || !raw.publicKey) {
-        throw new Error("Missing required public key fields");
+        throw new Error("Missing required public key fields (keyId, fingerprint, publicKey)");
     }
+    trace("[normalizePublicKey] fingerprint:", raw.fingerprint);
 
     return {
         version: Number(raw.version) || 1,
@@ -692,11 +583,12 @@ function normalizePublicKey(raw) {
 }
 
 function registerPublicKey(key) {
-    log("[registerPublicKey] entered");
+    
     if (!key || !key.fingerprint) {
         throw new Error("Cannot register invalid key");
     }
-
+    trace("[registerPublicKey] for fingerprint:", key.fingerprint);
+    
     // --- account bucket ---
     if (!G.keyRegistry.accounts[key.account]) {
         G.keyRegistry.accounts[key.account] = {
@@ -725,7 +617,8 @@ function registerPublicKey(key) {
 }
 
 function validateKeyRegistry(registry) {
-    log("[validateKeyRegistry] entered");
+    log("[validateKeyRegistry] called");
+
     if (!registry.loadedAt) {
         throw new Error("Registry missing loadedAt timestamp");
     }
@@ -750,6 +643,8 @@ function validateKeyRegistry(registry) {
 }
 
 function resolveEffectiveActiveDevices(flat) {
+    log("[resolveEffectiveActiveDevices] called");
+
     const superseded = buildSupersedenceIndex([
         ...flat.activeDevices,
         ...flat.deprecatedDevices
@@ -766,19 +661,11 @@ function resolveEffectiveActiveDevices(flat) {
     });
 }
 
-async function readEnvelopeFromDrive(envelopeName) {
-    const file = await GD.findDriveFileByName(envelopeName);
-    if (!file) return null;
 
-    const json = await GD.driveReadJsonFile(file.id);
-
-    return {
-        fileId: file.id,
-        json
-    };
-}
 
 function createLockPayload(self, envelopeName, generation) {
+    log("[createLockPayload] called");
+
     const now = Date.now();
     return {
         version: 1,
@@ -794,26 +681,10 @@ function createLockPayload(self, envelopeName, generation) {
     };
 }
 
-async function writeLockToDrive(envelopeName, lockJson, existingFileId = null) {
 
-    trace("[writeLockToDrive] entered");
-    const lockName = `${envelopeName}.lock`;
-
-    if (existingFileId) {
-        // ✅ Content-only update
-        await GD.drivePatchJsonFile(existingFileId, lockJson);
-        return existingFileId;
-    }
-
-    // ✅ New file creation
-    return await GD.driveCreateJsonFile({
-        name: lockName,
-        parents: [C.ACCESS4_ROOT_ID],
-        json: lockJson
-    });
-}
 
 async function createEnvelope(plainText, devicePublicKeyRecord) {
+    log("[createEnvelope] called");
 
     if (!isKeyUsableForEncryption(devicePublicKeyRecord)) {
         throw new Error("Cannot encrypt for non-active key");
@@ -844,6 +715,8 @@ async function createEnvelope(plainText, devicePublicKeyRecord) {
 }
 
 async function generateContentKey() {
+    log("[generateContentKey] called");
+
     return crypto.subtle.generateKey({
         name:"AES-GCM",
         length: 256
@@ -855,16 +728,12 @@ async function generateContentKey() {
 
 /* --- Encrypt Payload with CEK --- */
 async function encryptPayload(plainText, cek) {
+    log("[encryptPayload] called");
+
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const encoded = new TextEncoder().encode(plainText);
 
-    const ciphertext = await crypto.subtle.encrypt({
-        name:"AES-GCM",
-        iv
-    },
-        cek,
-        encoded
-    );
+    const ciphertext = await crypto.subtle.encrypt({name:"AES-GCM", iv}, cek, encoded);
 
     return {
         iv: btoa(String.fromCharCode(...iv)),
@@ -873,8 +742,7 @@ async function encryptPayload(plainText, cek) {
 }
 
 async function writeEnvelopeWithLock(envelopeName, envelopeData) {
-
-    log("[writeEnvelopeWithLock] entered");
+    log("[writeEnvelopeWithLock] called");
 
     await assertEnvelopeWrite(envelopeName);
 
@@ -918,7 +786,7 @@ async function writeEnvelopeWithLock(envelopeName, envelopeData) {
         // 5️⃣ IMPORTANT: update lock generation to match
         G.driveLockState.lock.generation = newGeneration;
 
-        await writeLockToDrive(
+        await GD.writeLockToDrive(
             envelopeName,
             G.driveLockState.lock,
             G.driveLockState.fileId
@@ -927,7 +795,7 @@ async function writeEnvelopeWithLock(envelopeName, envelopeData) {
         // Update UI to reflect new lock generation
         updateLockStatusUI();
 
-        log(`✅ Envelope "${envelopeName}" written, generation=${newGeneration}`);
+        log(`[writeEnvelopeWithLock] Envelope "${envelopeName}" written, generation=${newGeneration}`);
         return newEnvelopeContent;
 
     } catch (err) {
@@ -937,10 +805,10 @@ async function writeEnvelopeWithLock(envelopeName, envelopeData) {
 }
 
 async function ensureRecoveryKey() {
+    log("[ensureRecoveryKey] called");
 
-    log("[ensureRecoveryKey] entered");
-    if (await hasRecoveryKeyOnDrive()) {
-        log("[ensureRecoveryKey] Recovery key already present");
+    if (await GD.hasRecoveryKeyOnDrive()) {
+        info("[ensureRecoveryKey] Recovery key already present");
         return;
     }
 
@@ -948,71 +816,15 @@ async function ensureRecoveryKey() {
     await promptRecoverySetupUI();   // ← UI + user input
 }
 
-async function hasRecoveryKeyOnDrive() {
-
-    log("[hasRecoveryKeyOnDrive] entered");
-    try {
-        const folders = await GD.driveList({
-            q: `'${C.ACCESS4_ROOT_ID}' in parents and name='recovery' and mimeType='application/vnd.google-apps.folder'`,
-            pageSize: 1
-        });
-
-        log("[hasRecoveryKeyOnDrive] recovery folders found:" + folders.length);
-
-        if (!folders.length) return false;
-
-        const recoveryFolderId = folders[0].id;
-
-        const files = await GD.driveList({
-            q: `'${recoveryFolderId}' in parents and name='recovery.public.json'`,
-            pageSize: 1
-        });
-
-        return files.length === 1;
-
-    } catch (e) {
-        error("[hasRecoveryKeyOnDrive] Recovery key check failed:", e.message);
-        throw e; // mandatory block
-    }
-}
-
-function promptRecoverySetupUI() {
-    return new Promise(resolve => {
-        // reuse existing inputs
-        resetUnlockUi();
-
-        passwordSection.style.display = "block";
-        confirmPasswordSection.style.display = "block";
-
-        unlockBtn.textContent = "Create Recovery Password";
-        unlockBtn.disabled = false;
-
-        UI.showUnlockMessage(
-            "Create a recovery password. This allows account recovery if all devices are lost.",
-            "unlock-message"
-        );
-
-        unlockBtn.onclick = async () => {
-            try {
-                await handleCreateRecoveryClick();
-                resolve();
-            } catch (e) {
-                unlockBtn.disabled = false;
-                UI.showUnlockMessage(e.message || "Recovery setup failed", "unlock-message error");
-            }
-        };
-    });
-}
-
 async function wrapCEKForRegistryKeys(forceWrite = false) {
 
-    log("[wrapCEKForRegistryKeys] entered");
+    log("[wrapCEKForRegistryKeys] called");
     log("[wrapCEKForRegistryKeys] G.unlockedIdentity:", !!G.unlockedIdentity);
     log("[wrapCEKForRegistryKeys] G.currentPrivateKey:", !!G.currentPrivateKey);
 
     const envelopeName = "envelope.json";
 
-    const envelopeFile = await readEnvelopeFromDrive(envelopeName);
+    const envelopeFile = await GD.readEnvelopeFromDrive(envelopeName);
     if (!envelopeFile || !envelopeFile.json) {
         throw new Error("Envelope missing — cannot wrap CEK for registry");
     }
@@ -1107,7 +919,7 @@ async function wrapCEKForRegistryKeys(forceWrite = false) {
 /* ---Unwrap CEK Using Local Private Key (rotation-safe) --- */
 async function unwrapContentKey(wrappedKeyBase64, keyId) {
 
-    log("[unwrapContentKey] entered");
+    log("[unwrapContentKey] called");
     const id = await loadIdentity();
     if (!id) throw new Error("Local identity missing");
 
@@ -1257,7 +1069,7 @@ async function loadEnvelopePayloadToUI(envelopeName = "envelope.json") {
     log(`[loadEnvelopePayloadToUI] Loading envelope payload from Drive: ${envelopeName}`);
 
     // 1️⃣ Read envelope file
-    const envelopeFile = await readEnvelopeFromDrive(envelopeName);
+    const envelopeFile = await GD.readEnvelopeFromDrive(envelopeName);
     if (!envelopeFile) {
         warn("️[loadEnvelopePayloadToUI] Envelope file not found");
         return;
@@ -1287,7 +1099,7 @@ async function loadEnvelopePayloadToUI(envelopeName = "envelope.json") {
 
 async function openEnvelope(envelope) {
 
-    log("[openEnvelope] entered");
+    log("[openEnvelope] called");
 
     validateEnvelope(envelope);
 
@@ -1429,7 +1241,7 @@ async function handleUnlockClick() {
 
 async function unlockIdentityFlow(pwd) {
 
-    log("[unlockIdentityFlow] entered");
+    log("[unlockIdentityFlow] called");
 
     if (!pwd || pwd.length < 7) {
         const e = new Error(C.UNLOCK_ERROR_DEFS.WEAK_PASSWORD.message);
@@ -1581,7 +1393,7 @@ async function unlockIdentityFlow(pwd) {
 
 async function cacheDecryptedPrivateKey(decryptedPrivateKeyBytes) {
 
-    log("[cacheDecryptedPrivateKey] entered");
+    log("[cacheDecryptedPrivateKey] called");
     try {
         if (!decryptedPrivateKeyBytes) throw new Error("No decrypted key available");
 
@@ -1668,7 +1480,7 @@ async function createIdentity(pwd) {
 }
 
 async function rotateDeviceIdentity(pwd) {
-    log("🔁 Rotating device identity key");
+    log("[rotateDeviceIdentity] called - Rotating device identity key");
 
     const oldIdentity = await loadIdentity();
     if (!oldIdentity) {
@@ -1677,9 +1489,7 @@ async function rotateDeviceIdentity(pwd) {
 
     const keypair = await generateDeviceKeypair();
 
-    const newIdentity = await buildIdentityFromKeypair(
-        keypair,
-        pwd, {
+    const newIdentity = await buildIdentityFromKeypair(keypair, pwd, {
             supersedes: oldIdentity.fingerprint,
             previousKeys: [
                 ...(oldIdentity.previousKeys || []),
@@ -1695,46 +1505,20 @@ async function rotateDeviceIdentity(pwd) {
 
     saveIdentity(newIdentity);
 
-    log("✅ Device identity rotated");
-    log("↪ Supersedes keyId:" + oldIdentity.fingerprint);
+    log("[rotateDeviceIdentity] Device identity rotated");
+    log(`[rotateDeviceIdentity] New KeyId: ${newIdentity.fingerprint} supersedes Old keyId: ${oldIdentity.fingerprint}`);
 
     // --- Drive updates (best effort) ---
     try {
-        await markPreviousDriveKeyDeprecated(oldIdentity.fingerprint); // updates old key JSON
+        await GD.markPreviousDriveKeyDeprecated(oldIdentity.fingerprint, newIdentity.fingerprint); // updates old key JSON
         await ensureDevicePublicKey();        // uploads NEW active key
-        log("☁️ Drive key lifecycle updated");
+        log("[rotateDeviceIdentity] Drive key lifecycle updated");
     } catch (e) {
-        log("⚠️ Drive update failed (local rotation preserved):" + e.message);
+        warn("[rotateDeviceIdentity] Drive update failed (local rotation preserved):", e.message);
     }
 }
 
-async function markPreviousDriveKeyDeprecated(oldFingerprint) {
-    const folder = await findOrCreateUserFolder();
-    const filenamePattern = `${G.userEmail}__`; // all device keys for this user
-    const q = `'${folder}' in parents and name contains '${filenamePattern}'`;
-    const res = await GD.driveFetch(GD.buildDriveUrl("files", { q, fields:"files(id,name)" }));
 
-    if (!res.files.length) return; // nothing to patch
-
-    for (const file of res.files) {
-        const fileData = await GD.driveFetch(GD.buildDriveUrl(`files/${file.id}`, { alt:"media" }));
-        if (fileData.keyId !== oldFingerprint) continue; // not the old key
-
-        // --- PATCH only mutable fields ---
-        const patchData = {
-            state:"deprecated",
-            supersededBy: (await loadIdentity()).fingerprint
-        };
-
-        await GD.driveFetch(GD.buildDriveUrl(`files/${file.id}`, { uploadType:"media" }), {
-            method:"PATCH",
-            headers: { "Content-Type":"application/json" },
-            body: JSON.stringify(patchData)
-        });
-
-        log(`☑️ Previous device key (${oldFingerprint}) marked deprecated on Drive`);
-    }
-}
 
 async function computeFingerprintFromPublicKey(base64Spki) {
     const pubBytes = Uint8Array.from(atob(base64Spki), c => c.charCodeAt(0));
@@ -2007,31 +1791,7 @@ async function hasRecoveryKey() {
     return !!marker;
 }
 
-/* ================= RECOVERY KEY ================= */
 
-async function ensureRecoveryFolder() {
-    const q = `'${C.ACCESS4_ROOT_ID}' in parents and name='recovery' and mimeType='application/vnd.google-apps.folder'`;
-    const res = await GD.driveFetch(GD.buildDriveUrl("files", {
-        q,
-        fields:"files(id)"
-    }));
-
-    if (res.files.length) {
-        return res.files[0].id;
-    }
-
-    const folder = await GD.driveFetch(GD.buildDriveUrl("files"), {
-        method:"POST",
-        headers: { "Content-Type":"application/json" },
-        body: JSON.stringify({
-            name:"recovery",
-            mimeType:"application/vnd.google-apps.folder",
-            parents: [C.ACCESS4_ROOT_ID]
-        })
-    });
-
-    return folder.id;
-}
 
 /* ================= ENVELOPE WRITE ASSERTION + HOUSEKEEPING HELPER ================= */
 async function assertEnvelopeWrite(envelopeName) {
@@ -2096,12 +1856,16 @@ function extendLock(lock, ttlMs) {
 }
 
 function startLockHeartbeat({envelopeName, self, readLockFromDrive, writeLockToDrive, onLost}) {
+
+    log("[startLockHeartbeat] args:", { readLockFromDrive, writeLockToDrive, onLost });
+
     let stopped = false;
 
     const tick = async () => {
         if (stopped) return;
 
         try {
+
             const lockFile = await readLockFromDrive(envelopeName);
             const diskLock = lockFile?.json;
 
@@ -2134,9 +1898,10 @@ function startLockHeartbeat({envelopeName, self, readLockFromDrive, writeLockToD
             );
 
             G.driveLockState.lock = extended;   // keep local state authoritative
-            trace(`[startLockHeartbeat.tick] Heartbeat OK (gen=${extended.generation}, expires ${extended.expiresAt})`);
+            //debug(`[startLockHeartbeat.tick] Heartbeat OK (gen=${extended.generation}, expires ${extended.expiresAt})`);
             updateLockStatusUI();
         } catch (err) {
+            error("[startLockHeartbeat.tick] err:", err);
             stopped = true;
             onLost?.({ reason:"heartbeat-failed", error: err });
         }
@@ -2164,14 +1929,13 @@ function handleDriveLockLost(info) {
     updateLockStatusUI();
 }
 
-
 async function addRecoveryKeyToEnvelope({ publicKey, keyId }) {
+    log("[addRecoveryKeyToEnvelope] called - Adding recovery key to envelope...");
+
     const envelopeName = "envelope.json";
 
-    log("🛟 Adding recovery key to envelope...");
-
     // 1️⃣ Load existing envelope from Drive
-    const envelopeFile = await readEnvelopeFromDrive(envelopeName);
+    const envelopeFile = await GD.readEnvelopeFromDrive(envelopeName);
     if (!envelopeFile) {
         throw new Error("Envelope missing — cannot add recovery key");
     }
@@ -2182,24 +1946,24 @@ async function addRecoveryKeyToEnvelope({ publicKey, keyId }) {
 
     // 2️⃣ Check if recovery key already exists
     if (envelope.keys?.some(k => k.role === "recovery" && k.keyId === keyId)) {
-        log("🛟 Recovery key already present in envelope");
+        warn("[addRecoveryKeyToEnvelope] Recovery key already present in envelope, skipping add");
     } else {
         // 3️⃣ Unwrap CEK using the first active device key
-        log("🔑 Unwrapping CEK with active device key...");
+        log("[addRecoveryKeyToEnvelope] Unwrapping CEK with active device key...");
         const cek = await unwrapContentKey(
             envelope.keys[0].wrappedKey,
             envelope.keys[0].keyId
         );
-        log("✅ CEK unwrapped");
+        log("[addRecoveryKeyToEnvelope] CEK unwrapped");
 
         // 4️⃣ Wrap CEK for the new recovery key
-        log("🔒 Wrapping CEK for recovery key...");
+        log("[addRecoveryKeyToEnvelope] Wrapping CEK for recovery key...");
         let wrappedKey;
         try {
             wrappedKey = await wrapContentKeyForDevice(cek, publicKey);
-            log("✅ CEK wrapped for recovery key");
+            log("[addRecoveryKeyToEnvelope] CEK wrapped for recovery key");
         } catch (err) {
-            console.error("❌ Error wrapping CEK:", err);
+            error("[addRecoveryKeyToEnvelope] Error wrapping CEK:", err);
             throw err;
         }
 
@@ -2210,7 +1974,7 @@ async function addRecoveryKeyToEnvelope({ publicKey, keyId }) {
             wrappedKey
         });
 
-        log("[DEBUG] Added recovery key to envelope.keys:" + envelope.keys.map(k => ({
+        log("[addRecoveryKeyToEnvelope] Added recovery key to envelope.keys:" + envelope.keys.map(k => ({
             role: k.role,
             keyId: k.keyId,
             hasWrappedKey: !!k.wrappedKey
@@ -2219,10 +1983,10 @@ async function addRecoveryKeyToEnvelope({ publicKey, keyId }) {
 
     // ---- Housekeeping CEK wrap for all devices & recovery keys (force write) ----
     if (G.driveLockState?.self && G.driveLockState.envelopeName === envelopeName) {
-        log("🧹 Performing CEK housekeeping with force write");
+        log("[addRecoveryKeyToEnvelope] Performing CEK housekeeping with force write");
         const updatedEnvelope = await wrapCEKForRegistryKeys(true); // <- forceWrite = true
 
-        log("[DEBUG] Updated envelope after wrapCEKForRegistryKeys:" + updatedEnvelope.keys.map(k => ({
+        log("[addRecoveryKeyToEnvelope] Updated envelope after wrapCEKForRegistryKeys:" + updatedEnvelope.keys.map(k => ({
             role: k.role,
             keyId: k.keyId,
             hasWrappedKey: !!k.wrappedKey
@@ -2232,23 +1996,11 @@ async function addRecoveryKeyToEnvelope({ publicKey, keyId }) {
         await writeEnvelopeSafely(envelopeName, updatedEnvelope);
     }
 
-    log("✅ Recovery key added to envelope and saved");
+    log("[addRecoveryKeyToEnvelope] Recovery key added to envelope and saved");
 }
 
 /*-------------- Drive lock file io helpers recently added after baseline  ------------------------*/
-async function readLockFromDrive(envelopeName) {
-    const lockName = `${envelopeName}.lock`;
 
-    const file = await GD.findDriveFileByName(lockName);
-    if (!file) return null;
-
-    const json = await GD.driveReadJsonFile(file.id);
-
-    return {
-        fileId: file.id,
-        json
-    };
-}
 
 /* ================= LOGOUT ================= */
 function logout() {
@@ -2278,7 +2030,7 @@ function logout() {
 /* ----------------- UI action handlers -------------------*/
 
 async function handleCreateRecoveryClick() {
-    log("🛟 Starting recovery key creation");
+    log("[handleCreateRecoveryClick] called - Starting recovery key creation");
 
     const pwd = passwordInput.value;
     const confirm = confirmPasswordInput.value;
@@ -2304,12 +2056,12 @@ async function handleCreateRecoveryClick() {
         true,
         ["encrypt", "decrypt"]
     );
-    log("✅ Recovery keypair generated");
+    log("[handleCreateRecoveryClick] Recovery keypair generated");
 
     // 2️⃣ Export keys
     const privateKeyPkcs8 = await crypto.subtle.exportKey("pkcs8", keypair.privateKey);
     const publicKeySpki = await crypto.subtle.exportKey("spki", keypair.publicKey);
-    log("✅ Recovery keys exported");
+    log("[handleCreateRecoveryClick] Recovery keys exported");
 
     // 3️⃣ Build recovery identity
     const recoveryIdentity = await buildIdentityFromKeypair(
@@ -2317,18 +2069,14 @@ async function handleCreateRecoveryClick() {
         pwd,
         { type:"recovery", createdBy: getDeviceId() }
     );
-    log("✅ Private key encrypted with recovery password");
+    log("[handleCreateRecoveryClick] Private key encrypted with recovery password");
 
     // 4️⃣ Ensure recovery folder
-    const recoveryFolderId = await ensureRecoveryFolder();
+    const recoveryFolderId = await GD.ensureRecoveryFolder();
 
     // 5️⃣ Write private recovery file
-    await GD.driveCreateJsonFile({
-        name:"recovery.private.json",
-        parents: [recoveryFolderId],
-        json: recoveryIdentity
-    });
-    log("✅ recovery.private.json written");
+    await GD.driveCreateJsonFile({ name:"recovery.private.json", parents: [recoveryFolderId], json: recoveryIdentity });
+    log("[handleCreateRecoveryClick] recovery.private.json written");
 
     // 6️⃣ Write public recovery file (matching device key structure)
     const recoveryPublicJson = {
@@ -2355,7 +2103,7 @@ async function handleCreateRecoveryClick() {
         parents: [recoveryFolderId],
         json: recoveryPublicJson
     });
-    log("✅ recovery.public.json written");
+    log("[handleCreateRecoveryClick] recovery.public.json written");
 
     // 7️⃣ Add to envelope for CEK housekeeping
     await addRecoveryKeyToEnvelope({
@@ -2363,7 +2111,7 @@ async function handleCreateRecoveryClick() {
         keyId: recoveryIdentity.fingerprint
     });
 
-    log("🛟 Recovery key successfully established");
+    log("[handleCreateRecoveryClick] Recovery key successfully established");
     UI.showUnlockMessage("Recovery key created!", "unlock-message success");
     unlockBtn.disabled = false;
 }
@@ -2394,7 +2142,7 @@ async function encryptAndPersistPlaintext(plainText) {
     await assertEnvelopeWrite(envelopeName);
 
     // Load envelope
-    const envelopeFile = await readEnvelopeFromDrive(envelopeName);
+    const envelopeFile = await GD.readEnvelopeFromDrive(envelopeName);
     if (!envelopeFile?.json) {
         throw new Error("Envelope missing");
     }
@@ -2447,7 +2195,7 @@ function updateLockStatusUI() {
     if (!G.driveLockState) return;
 
     const { expiresAt } = G.driveLockState.lock;
-    //log(`🔐 You hold the envelope lock (expires ${expiresAt})`);
+    //trace(`[updateLockStatusUI] You hold the envelope lock (expires ${expiresAt})`);
 }
 
 
