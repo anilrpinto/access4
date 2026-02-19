@@ -7,6 +7,7 @@ export const C = deepFreeze({
     SCOPES: "https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/userinfo.email",
     ACCESS4_ROOT_ID: "1zQPiXTCDlPjzgD1YZiVKsRB2s4INUS_g",
     AUTH_FILE_NAME: "authorized.json",
+    ENVELOPE_NAME: "envelope.json",
     PUBKEY_FOLDER_NAME: "pub-keys",
     DEVICE_ID_KEY: "access4.device.id",
     HEARTBEAT_INTERVAL: 10_000, // 10 seconds

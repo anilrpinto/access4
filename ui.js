@@ -238,3 +238,10 @@ export function promptRecoverySetupUI() {
         };
     });
 }
+
+export function updateLockStatusUI() {
+    if (!G.driveLockState) return;
+
+    const { expiresAt } = G.driveLockState.lock;
+    trace(`[updateLockStatusUI] You hold the envelope lock (expires ${expiresAt})`);
+}
