@@ -20,8 +20,8 @@ function onLoad() {
     // Wire handlers
     UI.bindClick(UI.signinBtn, () => initGIS());
     UI.bindClick(UI.logoutBtn, () => logout());
-    UI.bindClick(UI.unlockBtn, handleUnlockClick);
-    UI.bindClick(UI.saveBtn, handleSaveClick);
+    //UI.bindClick(UI.unlockBtn, handleUnlockClick);
+    UI.bindClick(UI.saveBtn, handleSaveClick());
 
     log("[onLoad] sessionStorage sv_session_private_key exists:", !!sessionStorage.getItem("sv_session_private_key"));
     log("[onLoad] G.unlockedIdentity:", !!G.unlockedIdentity);
@@ -116,24 +116,7 @@ function setAuthMode(mode, options = {}) {
     // reset fields
     UI.resetUnlockUi();
 
-    // ✅ Always enable unlockBtn when switching mode
-    unlockBtn.disabled = false;
-
-    passwordSection.style.display = "block";
-
-    if (mode === "unlock") {
-        confirmPasswordSection.style.display = "none";
-        unlockBtn.textContent = "Unlock";
-        unlockBtn.onclick = handleUnlockClick;
-
-        UI.showUnlockMessage(options.migration
-            ? "Identity missing password verifier — enter your password to upgrade."
-            :"");
-    } else if (mode === "create") {
-        confirmPasswordSection.style.display = "block";
-        unlockBtn.textContent = "Create Password";
-        unlockBtn.onclick = handleCreatePasswordClick;
-    }
+    UI.setupPasswordPrompt(mode, options, async () => await proceedAfterPasswordSuccess());
 }
 
 function isSessionAuthenticated() {
@@ -250,36 +233,7 @@ async function releaseDriveLock() {
     G.driveLockState = null;
 }
 
-async function createEnvelope(plainText, devicePublicKeyRecord) {
-    log("[createEnvelope] called");
 
-    if (!isKeyUsableForEncryption(devicePublicKeyRecord)) {
-        throw new Error("Cannot encrypt for non-active key");
-    }
-
-    const cek = await generateContentKey();
-    const payload = await encryptPayload(plainText, cek);
-
-    const wrappedKey = await wrapContentKeyForDevice(cek, devicePublicKeyRecord.publicKey.data);
-
-    return {
-        version:"1.0",
-        cipher: {
-            payload:"AES-256-GCM",
-            keyWrap:"RSA-OAEP-SHA256"
-        },
-        payload,
-        keys: [{
-            role:"device",
-            account: devicePublicKeyRecord.account,
-            deviceId: devicePublicKeyRecord.deviceId,
-            keyId: devicePublicKeyRecord.fingerprint,
-            keyVersion: devicePublicKeyRecord.version,
-            wrappedKey
-        }],
-        created: new Date().toISOString()
-    };
-}
 
 async function generateContentKey() {
     log("[generateContentKey] called");
@@ -308,68 +262,7 @@ async function encryptPayload(plainText, cek) {
     };
 }
 
-async function writeEnvelopeWithLock(envelopeName, envelopeData) {
-    log("[writeEnvelopeWithLock] called");
 
-    await assertEnvelopeWrite(envelopeName);
-
-    try {
-        // 1️⃣ Find envelope file (metadata only)
-        const envelopeFile = await GD.findDriveFileByName(envelopeName);
-
-        let currentEnvelope = null;
-
-        if (envelopeFile) {
-            try {
-                currentEnvelope = await GD.driveReadJsonFile(envelopeFile.id);
-            } catch {
-                warn("[writeEnvelopeWithLock] Failed to parse existing envelope — will overwrite");
-            }
-        }
-
-        // 2️⃣ Increment generation
-        const currentGen = currentEnvelope?.generation ?? 0;
-        const newGeneration = currentGen + 1;
-
-        // 3️⃣ Build new envelope
-        const newEnvelopeContent = {
-            ...envelopeData,
-            generation: newGeneration,
-            lastModifiedBy: G.driveLockState.self.deviceId,
-            lastModifiedAt: new Date().toISOString()
-        };
-
-        // 4️⃣ Write envelope (content-only)
-        if (envelopeFile?.id) {
-            await GD.drivePatchJsonFile(envelopeFile.id, newEnvelopeContent);
-        } else {
-            await GD.driveCreateJsonFile({
-                name: envelopeName,
-                parents: [C.ACCESS4_ROOT_ID],
-                json: newEnvelopeContent
-            });
-        }
-
-        // 5️⃣ IMPORTANT: update lock generation to match
-        G.driveLockState.lock.generation = newGeneration;
-
-        await GD.writeLockToDrive(
-            envelopeName,
-            G.driveLockState.lock,
-            G.driveLockState.fileId
-        );
-
-        // Update UI to reflect new lock generation
-        UI.updateLockStatusUI();
-
-        log(`[writeEnvelopeWithLock] Envelope "${envelopeName}" written, generation=${newGeneration}`);
-        return newEnvelopeContent;
-
-    } catch (err) {
-        error(`[writeEnvelopeWithLock] Failed to write envelope "${envelopeName}": ${err.message}`);
-        throw err;
-    }
-}
 
 async function ensureRecoveryKey() {
     log("[ensureRecoveryKey] called");
@@ -541,38 +434,7 @@ async function unwrapContentKey(wrappedKeyBase64, keyId) {
     throw new Error("No private key available for keyId:" + keyId);
 }
 
-async function deriveKey(pwd, kdf) {
-    const mat = await crypto.subtle.importKey(
-        "raw",
-        new TextEncoder().encode(pwd),
-        "PBKDF2",
-        false,
-        ["deriveKey"]
-    );
-    return crypto.subtle.deriveKey({
-        name:"PBKDF2",
-        salt: Uint8Array.from(atob(kdf.salt), c => c.charCodeAt(0)),
-        iterations: kdf.iterations,
-        hash:"SHA-256"
-    },
-        mat, {
-            name:"AES-GCM",
-            length: 256
-        },
-        false,
-        ["encrypt", "decrypt"]
-    );
-}
 
-async function decrypt(enc, key) {
-    return crypto.subtle.decrypt({
-        name:"AES-GCM",
-        iv: Uint8Array.from(atob(enc.iv), c => c.charCodeAt(0))
-    },
-        key,
-        Uint8Array.from(atob(enc.data), c => c.charCodeAt(0))
-    );
-}
 
 /* --- Wrap CEK for a Device Public Key --- */
 async function wrapContentKeyForDevice(cek, devicePublicKeyBase64) {
@@ -779,325 +641,14 @@ function keyMatchesOrIsSuperseded(entryKeyId, localIdentity) {
     return false;
 }
 
-/* --------- Unlock flow --------- */
-async function handleUnlockClick() {
-
-    if (G.unlockInProgress) return;
-
-    G.unlockInProgress  = true;
-    const pwd = passwordInput.value;
-
-    UI.showUnlockMessage(""); // clear previous
-
-    if (!pwd) {
-        UI.showUnlockMessage("Password cannot be empty");
-        return;
-    }
-
-    try {
-        await unlockIdentityFlow(pwd);
-        await proceedAfterPasswordSuccess();
-    } catch (e) {
-        const def = Object.values(C.UNLOCK_ERROR_DEFS)
-            .find(d => d.code === e.code);
-
-        UI.showUnlockMessage(def?.message || e.message || "Unlock failed");
-        error("[handleUnlockClick] Unlock failed:", (def?.message || e.message));
-    }
-}
-
-async function unlockIdentityFlow(pwd) {
-
-    log("[unlockIdentityFlow] called");
-
-    if (!pwd || pwd.length < 7) {
-        const e = new Error(C.UNLOCK_ERROR_DEFS.WEAK_PASSWORD.message);
-        e.code = C.UNLOCK_ERROR_DEFS.WEAK_PASSWORD.code;
-        throw e;
-    }
-
-    log("🔓 [unlockIdentityFlow] Unlock attempt started for password:", (pwd ? "***" : "(empty)"));
-
-    if (!G.accessToken) {
-        const e = new Error(C.UNLOCK_ERROR_DEFS.NO_ACCESS_TOKEN.message);
-        e.code = C.UNLOCK_ERROR_DEFS.NO_ACCESS_TOKEN.code;
-        throw e;
-    }
-
-    let id = await ID.loadIdentity();
-    log("[unlockIdentityFlow] Identity loaded:", !!id);
-
-    if (id && identityNeedsPasswordSetup(id)) {
-        log("[unlockIdentityFlow] Identity missing password verifier — attempting auto-migration");
-
-        try {
-            await migrateIdentityWithVerifier(id, pwd);
-            id = await ID.loadIdentity();
-        } catch {
-            const e = new Error(C.UNLOCK_ERROR_DEFS.INCORRECT_PASSWORD.message);
-            e.code = C.UNLOCK_ERROR_DEFS.INCORRECT_PASSWORD.code;
-            throw e;
-        }
-    }
-
-    if (!id) {
-        error("[unlockIdentityFlow] No local identity found — cannot unlock");
-        const e = new Error(C.UNLOCK_ERROR_DEFS.NO_IDENTITY.message);
-        e.code = C.UNLOCK_ERROR_DEFS.NO_IDENTITY.code;
-        throw e;
-    }
-
-    log("[unlockIdentityFlow] Local identity found");
-
-    // ─────────────────────────────
-    // 🔐 AUTHORITATIVE PASSWORD CHECK
-    // ─────────────────────────────
-    let key;
-    try {
-        key = await deriveKey(pwd, id.kdf);
-        await verifyPasswordVerifier(id.passwordVerifier, key);
-        log("[unlockIdentityFlow] Password verified");
-    } catch {
-        const e = new Error(C.UNLOCK_ERROR_DEFS.INCORRECT_PASSWORD.message);
-        e.code = C.UNLOCK_ERROR_DEFS.INCORRECT_PASSWORD.code;
-        throw e;
-    }
-
-    log("[unlockIdentityFlow] Password verified:", (key ? "***" : "(failed)"));
-
-    // ─────────────────────────────
-    // 🔓 Attempt private key decrypt
-    // ─────────────────────────────
-    let decrypted = false;
-    let decryptedPrivateKeyBytes = null;
-
-    try {
-        decryptedPrivateKeyBytes = await decrypt(id.encryptedPrivateKey, key);
-        decrypted = true;
-        log("[unlockIdentityFlow] Identity successfully decrypted");
-    } catch {
-        error("[unlockIdentityFlow] Private key decryption failed");
-    }
-
-    log("[unlockIdentityFlow] Identity decrypted:", decrypted);
-
-    // ─────────────────────────────
-    // 🔁 Single rotation retry
-    // ─────────────────────────────
-    if (!decrypted) {
-        log("[unlockIdentityFlow] Attempting device key rotation");
-
-        await rotateDeviceIdentity(pwd);
-        id = await ID.loadIdentity();
-
-        try {
-            await decrypt(id.encryptedPrivateKey, key);
-            decrypted = true;
-            log("[unlockIdentityFlow] Decryption succeeded after rotation");
-        } catch {
-            warn("[unlockIdentityFlow] Decryption still failing after rotation");
-        }
-    }
-
-    // ─────────────────────────────
-    // 🧨 Absolute Safari recovery
-    // ─────────────────────────────
-    if (!decrypted) {
-        log("[unlockIdentityFlow] Rotation failed (safari behavior?) — recreating identity");
-
-        await createIdentity(pwd);
-        id = await ID.loadIdentity();
-
-        if (!id) {
-            error("[unlockIdentityFlow] Faied to load existing identity - ", C.UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.message);
-            const e = new Error(C.UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.message);
-            e.code = C.UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.code;
-            throw e;
-        }
-
-        try {
-            key = await deriveKey(pwd, id.kdf);
-            await decrypt(id.encryptedPrivateKey, key);
-            decrypted = true;
-            log("[unlockIdentityFlow] Decryption succeeded after recreation");
-        } catch {
-            error("[unlockIdentityFlow] post rotation decryption attempt failed - ", C.UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.message);
-            const e = new Error(C.UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.message);
-            e.code = C.UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.code;
-            throw e;
-        }
-    }
-
-    if (id.supersedes) {
-        log("[unlockIdentityFlow] Identity supersedes previous keyId:" + id.supersedes);
-    }
-
-    // ─────────────────────────────
-    // Session unlocked
-    // ─────────────────────────────
-    G.unlockedPassword = pwd;
-
-    await cacheDecryptedPrivateKey(decryptedPrivateKeyBytes);
-
-    // ✅ Attach decrypted key to identity and set global G.unlockedIdentity
-    id._sessionPrivateKey = G.currentPrivateKey;
-    G.unlockedIdentity = id;
-    G.sessionUnlocked = true;
-
-
-    log("[unlockIdentityFlow] G.unlockedIdentity set in memory for session");
-
-    if (G.biometricIntent && !G.biometricRegistered) {
-        await enrollBiometric(pwd);
-        G.biometricRegistered = true;
-    }
-
-    log("[unlockIdentityFlow] Proceeding to device public key exchange");
-    await ID.ensureDevicePublicKey();
-
-    return id;
-}
-
-async function cacheDecryptedPrivateKey(decryptedPrivateKeyBytes) {
-
-    log("[cacheDecryptedPrivateKey] called");
-    try {
-        if (!decryptedPrivateKeyBytes) throw new Error("No decrypted key available");
-
-        const base64 = arrayBufferToBase64(decryptedPrivateKeyBytes);
-        sessionStorage.setItem("sv_session_private_key", base64);
-
-        // Keep in-memory reference for session restore
-        G.currentPrivateKey = await crypto.subtle.importKey(
-            "pkcs8",
-            decryptedPrivateKeyBytes,
-            { name:"RSA-OAEP", hash:"SHA-256" },
-            false,
-            ["decrypt", "unwrapKey"]
-        );
-
-        G.sessionUnlocked = true;
-        log("[cacheDecryptedPrivateKey] Session private key cached");
-
-    } catch (e) {
-        warn("[cacheDecryptedPrivateKey] Session caching failed (non-fatal):" + e.message);
-    }
-}
-
-/* ---------------------- Session storage helpers ---------------------- */
-function arrayBufferToBase64(buffer) {
-    let binary = '';
-    const bytes = new Uint8Array(buffer);
-    const chunkSize = 0x8000; // 32k chunks
-    for (let i = 0; i < bytes.length; i += chunkSize) {
-        const chunk = bytes.subarray(i, i + chunkSize);
-        binary += String.fromCharCode(...chunk);
-    }
-    return btoa(binary);
-}
-
-function base64ToArrayBuffer(base64) {
+/*function base64ToArrayBuffer(base64) {
     const binary = atob(base64);
     const bytes = new Uint8Array(binary.length);
     for (let i = 0; i < binary.length; i++) {
         bytes[i] = binary.charCodeAt(i);
     }
     return bytes.buffer;
-}
-
-async function handleCreatePasswordClick()  {
-    const pwd = passwordInput.value;
-    const confirm = confirmPasswordInput.value;
-
-    if (!pwd || pwd.length < 7) {
-        UI.showUnlockMessage("Password too weak");
-        return;
-    }
-
-    if (pwd !== confirm) {
-        UI.showUnlockMessage("Passwords do not match");
-        return;
-    }
-
-    try {
-        await createIdentity(pwd);
-        await proceedAfterPasswordSuccess();
-        log("✅ New identity created and unlocked");
-    } catch (e) {
-        UI.showUnlockMessage(e.message);
-    }
-}
-
-/* --------------- CREATE IDENTITY start ----------------- */
-async function createIdentity(pwd) {
-    log("🔐 Generating new device identity key pair");
-
-    const keypair = await generateDeviceKeypair();
-    const identity = await buildIdentityFromKeypair(keypair, pwd);
-
-    ID.saveIdentity(identity);
-
-    log("✅ New identity created and stored locally");
-
-    if (G.biometricIntent && !G.biometricRegistered) {
-        log("👆 Biometric enrollment intent detected, enrolling now...");
-        await enrollBiometric(pwd);
-        G.biometricRegistered = true;
-    }
-}
-
-async function rotateDeviceIdentity(pwd) {
-    log("[rotateDeviceIdentity] called - Rotating device identity key");
-
-    const oldIdentity = await ID.loadIdentity();
-    if (!oldIdentity) {
-        throw new Error("Cannot rotate — no existing identity");
-    }
-
-    const keypair = await generateDeviceKeypair();
-
-    const newIdentity = await buildIdentityFromKeypair(keypair, pwd, {
-            supersedes: oldIdentity.fingerprint,
-            previousKeys: [
-                ...(oldIdentity.previousKeys || []),
-                {
-                    fingerprint: oldIdentity.fingerprint,
-                    created: oldIdentity.created,
-                    encryptedPrivateKey: oldIdentity.encryptedPrivateKey, // <-- Store encrypted private key
-                    kdf: oldIdentity.kdf // <-- Include kdf so unwrapContentKey can derive correctly
-                }
-            ]
-        }
-    );
-
-    ID.saveIdentity(newIdentity);
-
-    log("[rotateDeviceIdentity] Device identity rotated");
-    log(`[rotateDeviceIdentity] New KeyId: ${newIdentity.fingerprint} supersedes Old keyId: ${oldIdentity.fingerprint}`);
-
-    // --- Drive updates (best effort) ---
-    try {
-        await GD.markPreviousDriveKeyDeprecated(oldIdentity.fingerprint, newIdentity.fingerprint); // updates old key JSON
-        await ID.ensureDevicePublicKey();        // uploads NEW active key
-        log("[rotateDeviceIdentity] Drive key lifecycle updated");
-    } catch (e) {
-        warn("[rotateDeviceIdentity] Drive update failed (local rotation preserved):", e.message);
-    }
-}
-
-
-
-async function computeFingerprintFromPublicKey(base64Spki) {
-    const pubBytes = Uint8Array.from(atob(base64Spki), c => c.charCodeAt(0));
-    const hash = await crypto.subtle.digest("SHA-256", pubBytes);
-    return btoa(String.fromCharCode(...new Uint8Array(hash)));
-}
-
-function identityNeedsPasswordSetup(id) {
-    return id && !id.passwordVerifier;
-}
-
-/* --------------- CREATE IDENTITY end ----------------- */
+}*/
 
 /* ================= AUTH ================= */
 async function ensureAuthorization() {
@@ -1145,79 +696,6 @@ async function createGenesisAuthorization() {
     log(`? Genesis authorization created for ${G.userEmail}`);
 }
 
-/* ================= CRYPTO ================= */
-async function createPasswordVerifier(key) {
-    const data = new TextEncoder().encode("identity-ok");
-    return encrypt(data, key);
-}
-
-async function verifyPasswordVerifier(verifier, key) {
-    const buf = await decrypt(verifier, key);
-    const text = new TextDecoder().decode(buf);
-    if (text !== "identity-ok") {
-        throw new Error("INVALID_PASSWORD");
-    }
-}
-
-async function encrypt(data, key) {
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    const enc = await crypto.subtle.encrypt({
-        name:"AES-GCM",
-        iv
-    }, key, data);
-    return {
-        iv: btoa(String.fromCharCode(...iv)),
-        data: btoa(String.fromCharCode(...new Uint8Array(enc)))
-    };
-}
-
-async function generateDeviceKeypair() {
-    const pair = await crypto.subtle.generateKey({
-        name:"RSA-OAEP",
-        modulusLength: 2048,
-        publicExponent: new Uint8Array([1, 0, 1]),
-        hash:"SHA-256"
-    },
-        true,
-        ["encrypt", "decrypt"]
-    );
-
-    const privateKeyPkcs8 = await crypto.subtle.exportKey("pkcs8", pair.privateKey);
-    const publicKeySpki = await crypto.subtle.exportKey("spki", pair.publicKey);
-
-    return {
-        privateKeyPkcs8,
-        publicKeySpki
-    };
-}
-
-async function buildIdentityFromKeypair({privateKeyPkcs8, publicKeySpki}, pwd, opts = {}) {
-    const pubB64 = btoa(String.fromCharCode(...new Uint8Array(publicKeySpki)));
-    const fingerprint = await computeFingerprintFromPublicKey(pubB64);
-
-    const saltBytes = crypto.getRandomValues(new Uint8Array(16));
-    const kdf = {
-        salt: btoa(String.fromCharCode(...saltBytes)),
-        iterations: 100000
-    };
-
-    const key = await deriveKey(pwd, kdf);
-    const passwordVerifier = await createPasswordVerifier(key);
-    const encryptedPrivateKey = await encrypt(privateKeyPkcs8, key);
-
-    return {
-        passwordVerifier,
-        encryptedPrivateKey,
-        publicKey: pubB64,
-        fingerprint,
-        kdf,
-        deviceId: ID.getDeviceId(),
-        email: G.userEmail,
-        created: new Date().toISOString(),
-        ...opts
-    };
-}
-
 async function encryptPrivateKeyWithPassword(privateKey, password) {
     // 1️⃣ Export private key (raw)
     const rawPrivate = await crypto.subtle.exportKey("raw", privateKey);
@@ -1243,23 +721,6 @@ async function encryptPrivateKeyWithPassword(privateKey, password) {
     };
 }
 
-async function migrateIdentityWithVerifier(id, pwd) {
-    log("🛠️ Migrating identity to add password verifier");
-
-    const key = await deriveKey(pwd, id.kdf);
-
-    // Prove password correctness by decrypting private key
-    await decrypt(id.encryptedPrivateKey, key);
-
-    // Create and attach verifier
-    id.passwordVerifier = await createPasswordVerifier(key);
-
-    ID.saveIdentity(id);
-
-    log("✅ Identity auto-migrated with password verifier");
-}
-
-
 /* ================= BIOMETRIC ================= */
 function bioCredKey() {
     return `access4.bio.cred::${G.userEmail}::${ID.getDeviceId()}`;
@@ -1267,34 +728,6 @@ function bioCredKey() {
 
 function bioPwdKey() {
     return `access4.bio.pwd::${G.userEmail}::${ID.getDeviceId()}`;
-}
-
-async function enrollBiometric(pwd) {
-    if (!window.PublicKeyCredential) return;
-    const cred = await navigator.credentials.create({
-        publicKey: {
-            challenge: crypto.getRandomValues(new Uint8Array(32)),
-            rp: {
-                name:"Access4"
-            },
-            user: {
-                id: crypto.getRandomValues(new Uint8Array(16)),
-                name: G.userEmail,
-                displayName: G.userEmail
-            },
-            pubKeyCredParams: [{
-                type:"public-key",
-                alg: -7
-            }],
-            authenticatorSelection: {
-                userVerification:"required"
-            },
-            timeout: 60000
-        }
-    });
-    localStorage.setItem(bioCredKey(), btoa(String.fromCharCode(...new Uint8Array(cred.rawId))));
-    localStorage.setItem(bioPwdKey(), btoa(pwd));
-    log("🧬 Hidden biometric shortcut enrolled");
 }
 
 async function biometricAuthenticateFromGesture() {
@@ -1331,15 +764,6 @@ async function biometricAuthenticateFromGesture() {
 }
 
 /* ================= HIDDEN GESTURE ================= */
-function armBiometric() {
-    G.biometricIntent = true;
-    log("👆 Hidden biometric intent armed");
-
-    if (G.unlockedPassword && !G.biometricRegistered) {
-        log("🔐 Password already unlocked, enrolling biometric immediately...");
-        enrollBiometric(G.unlockedPassword).then(() => G.biometricRegistered = true);
-    }
-}
 
 
 /* ================= STEP 4.1: DEVICE PUBLIC KEY ================= */
@@ -1348,8 +772,6 @@ async function hasRecoveryKey() {
     const marker = localStorage.getItem("recoveryKeyPresent");
     return !!marker;
 }
-
-
 
 /* ================= ENVELOPE WRITE ASSERTION + HOUSEKEEPING HELPER ================= */
 async function assertEnvelopeWrite(envelopeName) {
@@ -1370,15 +792,6 @@ async function assertEnvelopeWrite(envelopeName) {
 
     // Future housekeeping hook: missing device/recovery keys
     // log(`[housekeeping] Envelope ownership confirmed for "${envelopeName}"`);
-}
-
-function isKeyUsableForEncryption(pubKeyRecord) {
-    return pubKeyRecord.state === "active";
-}
-
-function isKeyUsableForDecryption(pubKeyRecord) {
-    return pubKeyRecord.state === "active" ||
-    pubKeyRecord.state === "deprecated";
 }
 
 /*function finalizeKeyRegistry(registry) {

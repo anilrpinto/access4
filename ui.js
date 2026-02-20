@@ -2,6 +2,9 @@
 
 import { C } from './constants.js';
 import { G } from './global.js';
+
+import * as ID from './identity.js';
+
 import { log, trace, debug, info, warn, error } from './log.js';
 
 export let signinBtn;
@@ -123,6 +126,16 @@ function setupTitleGesture() {
     });
 }
 
+function armBiometric() {
+    G.biometricIntent = true;
+    log("👆 Hidden biometric intent armed");
+
+    if (G.unlockedPassword && !G.biometricRegistered) {
+        log("🔐 Password already unlocked, enrolling biometric immediately...");
+        ID.enrollBiometric(G.unlockedPassword).then(() => G.biometricRegistered = true);
+    }
+}
+
 function initLoginUI() {
     // Always show login view
     loginView.style.display = "block";
@@ -170,6 +183,31 @@ export function resetUnlockUi() {
 
     showAuthorizedEmail(null);
     signinBtn.disabled = false;
+}
+
+export function setupPasswordPrompt(mode, options = {}, onPwdSuccess) {
+
+    // ✅ Always enable unlockBtn when switching mode
+    unlockBtn.disabled = false;
+
+    passwordSection.style.display = "block";
+
+    if (mode === "unlock") {
+        confirmPasswordSection.style.display = "none";
+        unlockBtn.textContent = "Unlock";
+        //unlockBtn.onclick = handleUnlockClick(async () => await proceedAfterPasswordSuccess());
+        bindClick(unlockBtn, async () => await handleUnlockClick(onPwdSuccess));
+
+        showUnlockMessage(options.migration
+            ? "Identity missing password verifier — enter your password to upgrade."
+            :"");
+    } else if (mode === "create") {
+        confirmPasswordSection.style.display = "block";
+        unlockBtn.textContent = "Create Password";
+        //unlockBtn.onclick = handleCreatePasswordClick(async () => await proceedAfterPasswordSuccess());
+        bindClick(unlockBtn, async () => await handleCreatePasswordClick(onPwdSuccess));
+    }
+
 }
 
 export function showVaultUI({ readOnly = false, onIdle = () => { warn('idle timeout fired') } } = {}) {
@@ -244,4 +282,216 @@ export function updateLockStatusUI() {
 
     const { expiresAt } = G.driveLockState.lock;
     trace(`[updateLockStatusUI] You hold the envelope lock (expires ${expiresAt})`);
+}
+
+/* --------- Unlock flow --------- */
+
+async function handleCreatePasswordClick(onPwdSuccess)  {
+    const pwd = passwordInput.value;
+    const confirm = confirmPasswordInput.value;
+
+    if (!pwd || pwd.length < 7) {
+        showUnlockMessage("Password too weak");
+        return;
+    }
+
+    if (pwd !== confirm) {
+        showUnlockMessage("Passwords do not match");
+        return;
+    }
+
+    try {
+        await ID.createIdentity(pwd);
+        onPwdSuccess();
+        //await proceedAfterPasswordSuccess();
+        log("✅ New identity created and unlocked");
+    } catch (e) {
+        UI.showUnlockMessage(e.message);
+    }
+}
+
+async function handleUnlockClick(onPwdSuccess) {
+
+    log("[handleUnlockClick] called");
+
+    if (G.unlockInProgress) return;
+
+    G.unlockInProgress  = true;
+    const pwd = passwordInput.value;
+
+    showUnlockMessage(""); // clear previous
+
+    if (!pwd) {
+        showUnlockMessage("Password cannot be empty");
+        return;
+    }
+
+    try {
+        log("[handleUnlockClick] onPwdSuccess: " + JSON.stringify({onPwdSuccess}))
+        await unlockIdentityFlow(pwd);
+        onPwdSuccess();
+        //await proceedAfterPasswordSuccess();
+    } catch (e) {
+        const def = Object.values(C.UNLOCK_ERROR_DEFS)
+            .find(d => d.code === e.code);
+
+        showUnlockMessage(def?.message || e.message || "Unlock failed");
+        error("[handleUnlockClick] Unlock failed:", (def?.message || e.message));
+    }
+}
+
+async function unlockIdentityFlow(pwd) {
+
+    log("[unlockIdentityFlow] called");
+
+    if (!pwd || pwd.length < 7) {
+        const e = new Error(C.UNLOCK_ERROR_DEFS.WEAK_PASSWORD.message);
+        e.code = C.UNLOCK_ERROR_DEFS.WEAK_PASSWORD.code;
+        throw e;
+    }
+
+    log("🔓 [unlockIdentityFlow] Unlock attempt started for password:", (pwd ? "***" : "(empty)"));
+
+    if (!G.accessToken) {
+        const e = new Error(C.UNLOCK_ERROR_DEFS.NO_ACCESS_TOKEN.message);
+        e.code = C.UNLOCK_ERROR_DEFS.NO_ACCESS_TOKEN.code;
+        throw e;
+    }
+
+    let id = await ID.loadIdentity();
+    log("[unlockIdentityFlow] Identity loaded:", !!id);
+
+    if (id && identityNeedsPasswordSetup(id)) {
+        log("[unlockIdentityFlow] Identity missing password verifier — attempting auto-migration");
+
+        try {
+            await ID.migrateIdentityWithVerifier(id, pwd);
+            id = await ID.loadIdentity();
+        } catch {
+            const e = new Error(C.UNLOCK_ERROR_DEFS.INCORRECT_PASSWORD.message);
+            e.code = C.UNLOCK_ERROR_DEFS.INCORRECT_PASSWORD.code;
+            throw e;
+        }
+    }
+
+    if (!id) {
+        error("[unlockIdentityFlow] No local identity found — cannot unlock");
+        const e = new Error(C.UNLOCK_ERROR_DEFS.NO_IDENTITY.message);
+        e.code = C.UNLOCK_ERROR_DEFS.NO_IDENTITY.code;
+        throw e;
+    }
+
+    log("[unlockIdentityFlow] Local identity found");
+
+    // ─────────────────────────────
+    // 🔐 AUTHORITATIVE PASSWORD CHECK
+    // ─────────────────────────────
+    let key;
+    try {
+        key = await ID.deriveKey(pwd, id.kdf);
+        await ID.verifyPasswordVerifier(id.passwordVerifier, key);
+        log("[unlockIdentityFlow] Password verified");
+    } catch {
+        const e = new Error(C.UNLOCK_ERROR_DEFS.INCORRECT_PASSWORD.message);
+        e.code = C.UNLOCK_ERROR_DEFS.INCORRECT_PASSWORD.code;
+        throw e;
+    }
+
+    log("[unlockIdentityFlow] Password verified:", (key ? "***" : "(failed)"));
+
+    // ─────────────────────────────
+    // 🔓 Attempt private key decrypt
+    // ─────────────────────────────
+    let decrypted = false;
+    let decryptedPrivateKeyBytes = null;
+
+    try {
+        decryptedPrivateKeyBytes = await ID.decrypt(id.encryptedPrivateKey, key);
+        decrypted = true;
+        log("[unlockIdentityFlow] Identity successfully decrypted");
+    } catch {
+        error("[unlockIdentityFlow] Private key decryption failed");
+    }
+
+    log("[unlockIdentityFlow] Identity decrypted:", decrypted);
+
+    // ─────────────────────────────
+    // 🔁 Single rotation retry
+    // ─────────────────────────────
+    if (!decrypted) {
+        log("[unlockIdentityFlow] Attempting device key rotation");
+
+        await rotateDeviceIdentity(pwd);
+        id = await ID.loadIdentity();
+
+        try {
+            await decrypt(id.encryptedPrivateKey, key);
+            decrypted = true;
+            log("[unlockIdentityFlow] Decryption succeeded after rotation");
+        } catch {
+            warn("[unlockIdentityFlow] Decryption still failing after rotation");
+        }
+    }
+
+    // ─────────────────────────────
+    // 🧨 Absolute Safari recovery
+    // ─────────────────────────────
+    if (!decrypted) {
+        log("[unlockIdentityFlow] Rotation failed (safari behavior?) — recreating identity");
+
+        await createIdentity(pwd);
+        id = await ID.loadIdentity();
+
+        if (!id) {
+            error("[unlockIdentityFlow] Faied to load existing identity - ", C.UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.message);
+            const e = new Error(C.UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.message);
+            e.code = C.UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.code;
+            throw e;
+        }
+
+        try {
+            key = await deriveKey(pwd, id.kdf);
+            await decrypt(id.encryptedPrivateKey, key);
+            decrypted = true;
+            log("[unlockIdentityFlow] Decryption succeeded after recreation");
+        } catch {
+            error("[unlockIdentityFlow] post rotation decryption attempt failed - ", C.UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.message);
+            const e = new Error(C.UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.message);
+            e.code = C.UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.code;
+            throw e;
+        }
+    }
+
+    if (id.supersedes) {
+        log("[unlockIdentityFlow] Identity supersedes previous keyId:" + id.supersedes);
+    }
+
+    // ─────────────────────────────
+    // Session unlocked
+    // ─────────────────────────────
+    G.unlockedPassword = pwd;
+
+    await ID.cacheDecryptedPrivateKey(decryptedPrivateKeyBytes);
+
+    // ✅ Attach decrypted key to identity and set global G.unlockedIdentity
+    id._sessionPrivateKey = G.currentPrivateKey;
+    G.unlockedIdentity = id;
+    G.sessionUnlocked = true;
+
+
+    log("[unlockIdentityFlow] G.unlockedIdentity set in memory for session");
+
+    if (G.biometricIntent && !G.biometricRegistered) {
+        await enrollBiometric(pwd);
+        G.biometricRegistered = true;
+    }
+
+    log("[unlockIdentityFlow] Proceeding to device public key exchange");
+    await ID.ensureDevicePublicKey();
+
+    return id;
+}
+
+function identityNeedsPasswordSetup(id) {
+    return id && !id.passwordVerifier;
 }

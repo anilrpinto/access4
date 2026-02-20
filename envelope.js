@@ -254,6 +254,109 @@ async function getDriveLockSelf() {
     return { identity, self };
 }
 
+async function createEnvelope(plainText, devicePublicKeyRecord) {
+    log("[createEnvelope] called");
+
+    if (!isKeyUsableForEncryption(devicePublicKeyRecord)) {
+        throw new Error("Cannot encrypt for non-active key");
+    }
+
+    const cek = await generateContentKey();
+    const payload = await encryptPayload(plainText, cek);
+
+    const wrappedKey = await wrapContentKeyForDevice(cek, devicePublicKeyRecord.publicKey.data);
+
+    return {
+        version:"1.0",
+        cipher: {
+            payload:"AES-256-GCM",
+            keyWrap:"RSA-OAEP-SHA256"
+        },
+        payload,
+        keys: [{
+            role:"device",
+            account: devicePublicKeyRecord.account,
+            deviceId: devicePublicKeyRecord.deviceId,
+            keyId: devicePublicKeyRecord.fingerprint,
+            keyVersion: devicePublicKeyRecord.version,
+            wrappedKey
+        }],
+        created: new Date().toISOString()
+    };
+}
+
+function isKeyUsableForEncryption(pubKeyRecord) {
+    return pubKeyRecord.state === "active";
+}
+
+function isKeyUsableForDecryption(pubKeyRecord) {
+    return pubKeyRecord.state === "active" ||
+    pubKeyRecord.state === "deprecated";
+}
+
+async function writeEnvelopeWithLock(envelopeName, envelopeData) {
+    log("[writeEnvelopeWithLock] called");
+
+    await assertEnvelopeWrite(envelopeName);
+
+    try {
+        // 1️⃣ Find envelope file (metadata only)
+        const envelopeFile = await GD.findDriveFileByName(envelopeName);
+
+        let currentEnvelope = null;
+
+        if (envelopeFile) {
+            try {
+                currentEnvelope = await GD.driveReadJsonFile(envelopeFile.id);
+            } catch {
+                warn("[writeEnvelopeWithLock] Failed to parse existing envelope — will overwrite");
+            }
+        }
+
+        // 2️⃣ Increment generation
+        const currentGen = currentEnvelope?.generation ?? 0;
+        const newGeneration = currentGen + 1;
+
+        // 3️⃣ Build new envelope
+        const newEnvelopeContent = {
+            ...envelopeData,
+            generation: newGeneration,
+            lastModifiedBy: G.driveLockState.self.deviceId,
+            lastModifiedAt: new Date().toISOString()
+        };
+
+        // 4️⃣ Write envelope (content-only)
+        if (envelopeFile?.id) {
+            await GD.drivePatchJsonFile(envelopeFile.id, newEnvelopeContent);
+        } else {
+            await GD.driveCreateJsonFile({
+                name: envelopeName,
+                parents: [C.ACCESS4_ROOT_ID],
+                json: newEnvelopeContent
+            });
+        }
+
+        // 5️⃣ IMPORTANT: update lock generation to match
+        G.driveLockState.lock.generation = newGeneration;
+
+        await GD.writeLockToDrive(
+            envelopeName,
+            G.driveLockState.lock,
+            G.driveLockState.fileId
+        );
+
+        // Update UI to reflect new lock generation
+        UI.updateLockStatusUI();
+
+        log(`[writeEnvelopeWithLock] Envelope "${envelopeName}" written, generation=${newGeneration}`);
+        return newEnvelopeContent;
+
+    } catch (err) {
+        error(`[writeEnvelopeWithLock] Failed to write envelope "${envelopeName}": ${err.message}`);
+        throw err;
+    }
+}
+
 function evaluateEnvelopeLock(lock, self) {
     //trace("[evaluateEnvelopeLock] called");
 

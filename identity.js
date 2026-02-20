@@ -136,3 +136,256 @@ export async function ensureDevicePublicKey() {
 
     log("[ensureDevicePublicKey] Device public key UPLOADED");
 }
+
+export async function migrateIdentityWithVerifier(id, pwd) {
+    log("[migrateIdentityWithVerifier] called - Migrating identity to add password verifier");
+
+    const key = await deriveKey(pwd, id.kdf);
+
+    // Prove password correctness by decrypting private key
+    await decrypt(id.encryptedPrivateKey, key);
+
+    // Create and attach verifier
+    id.passwordVerifier = await createPasswordVerifier(key);
+
+    ID.saveIdentity(id);
+
+    log("[migrateIdentityWithVerifier] Identity auto-migrated with password verifier");
+}
+
+export async function deriveKey(pwd, kdf) {
+
+    log("[deriveKey] called");
+
+    const mat = await crypto.subtle.importKey(
+        "raw",
+        new TextEncoder().encode(pwd),
+        "PBKDF2",
+        false,
+        ["deriveKey"]
+    );
+    return crypto.subtle.deriveKey({
+        name:"PBKDF2",
+        salt: Uint8Array.from(atob(kdf.salt), c => c.charCodeAt(0)),
+        iterations: kdf.iterations,
+        hash:"SHA-256"
+    },
+        mat, {
+            name:"AES-GCM",
+            length: 256
+        },
+        false,
+        ["encrypt", "decrypt"]
+    );
+}
+
+export async function decrypt(enc, key) {
+    return crypto.subtle.decrypt({
+        name:"AES-GCM",
+        iv: Uint8Array.from(atob(enc.iv), c => c.charCodeAt(0))
+    },
+        key,
+        Uint8Array.from(atob(enc.data), c => c.charCodeAt(0))
+    );
+}
+
+async function createPasswordVerifier(key) {
+    const data = new TextEncoder().encode("identity-ok");
+    return encrypt(data, key);
+}
+
+async function encrypt(data, key) {
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const enc = await crypto.subtle.encrypt({
+        name:"AES-GCM",
+        iv
+    }, key, data);
+    return {
+        iv: btoa(String.fromCharCode(...iv)),
+        data: btoa(String.fromCharCode(...new Uint8Array(enc)))
+    };
+}
+
+export async function verifyPasswordVerifier(verifier, key) {
+    const buf = await decrypt(verifier, key);
+    const text = new TextDecoder().decode(buf);
+    if (text !== "identity-ok") {
+        throw new Error("INVALID_PASSWORD");
+    }
+}
+
+export async function rotateDeviceIdentity(pwd) {
+    log("[rotateDeviceIdentity] called - Rotating device identity key");
+
+    const oldIdentity = await ID.loadIdentity();
+    if (!oldIdentity) {
+        throw new Error("Cannot rotate — no existing identity");
+    }
+
+    const keypair = await generateDeviceKeypair();
+
+    const newIdentity = await buildIdentityFromKeypair(keypair, pwd, {
+        supersedes: oldIdentity.fingerprint,
+        previousKeys: [
+            ...(oldIdentity.previousKeys || []),
+            {
+                fingerprint: oldIdentity.fingerprint,
+                created: oldIdentity.created,
+                encryptedPrivateKey: oldIdentity.encryptedPrivateKey, // <-- Store encrypted private key
+                kdf: oldIdentity.kdf // <-- Include kdf so unwrapContentKey can derive correctly
+            }
+        ]
+    }
+    );
+
+    saveIdentity(newIdentity);
+
+    log("[rotateDeviceIdentity] Device identity rotated");
+    log(`[rotateDeviceIdentity] New KeyId: ${newIdentity.fingerprint} supersedes Old keyId: ${oldIdentity.fingerprint}`);
+
+    // --- Drive updates (best effort) ---
+    try {
+        await GD.markPreviousDriveKeyDeprecated(oldIdentity.fingerprint, newIdentity.fingerprint); // updates old key JSON
+        await ensureDevicePublicKey();        // uploads NEW active key
+        log("[rotateDeviceIdentity] Drive key lifecycle updated");
+    } catch (e) {
+        warn("[rotateDeviceIdentity] Drive update failed (local rotation preserved):", e.message);
+    }
+}
+
+async function generateDeviceKeypair() {
+    const pair = await crypto.subtle.generateKey({
+        name:"RSA-OAEP",
+        modulusLength: 2048,
+        publicExponent: new Uint8Array([1, 0, 1]),
+        hash:"SHA-256"
+    },
+        true,
+        ["encrypt", "decrypt"]
+    );
+
+    const privateKeyPkcs8 = await crypto.subtle.exportKey("pkcs8", pair.privateKey);
+    const publicKeySpki = await crypto.subtle.exportKey("spki", pair.publicKey);
+
+    return {
+        privateKeyPkcs8,
+        publicKeySpki
+    };
+}
+
+/* --------------- CREATE IDENTITY start ----------------- */
+async function createIdentity(pwd) {
+    log("🔐 Generating new device identity key pair");
+
+    const keypair = await generateDeviceKeypair();
+    const identity = await buildIdentityFromKeypair(keypair, pwd);
+
+    saveIdentity(identity);
+
+    log("✅ New identity created and stored locally");
+
+    if (G.biometricIntent && !G.biometricRegistered) {
+        log("👆 Biometric enrollment intent detected, enrolling now...");
+        await enrollBiometric(pwd);
+        G.biometricRegistered = true;
+    }
+}
+
+async function buildIdentityFromKeypair({privateKeyPkcs8, publicKeySpki}, pwd, opts = {}) {
+    const pubB64 = btoa(String.fromCharCode(...new Uint8Array(publicKeySpki)));
+    const fingerprint = await computeFingerprintFromPublicKey(pubB64);
+
+    const saltBytes = crypto.getRandomValues(new Uint8Array(16));
+    const kdf = {
+        salt: btoa(String.fromCharCode(...saltBytes)),
+        iterations: 100000
+    };
+
+    const key = await deriveKey(pwd, kdf);
+    const passwordVerifier = await createPasswordVerifier(key);
+    const encryptedPrivateKey = await encrypt(privateKeyPkcs8, key);
+
+    return {
+        passwordVerifier,
+        encryptedPrivateKey,
+        publicKey: pubB64,
+        fingerprint,
+        kdf,
+        deviceId: ID.getDeviceId(),
+        email: G.userEmail,
+        created: new Date().toISOString(),
+        ...opts
+    };
+}
+
+
+async function computeFingerprintFromPublicKey(base64Spki) {
+    const pubBytes = Uint8Array.from(atob(base64Spki), c => c.charCodeAt(0));
+    const hash = await crypto.subtle.digest("SHA-256", pubBytes);
+    return btoa(String.fromCharCode(...new Uint8Array(hash)));
+}
+
+export async function enrollBiometric(pwd) {
+    if (!window.PublicKeyCredential) return;
+    const cred = await navigator.credentials.create({
+        publicKey: {
+            challenge: crypto.getRandomValues(new Uint8Array(32)),
+            rp: {
+                name:"Access4"
+            },
+            user: {
+                id: crypto.getRandomValues(new Uint8Array(16)),
+                name: G.userEmail,
+                displayName: G.userEmail
+            },
+            pubKeyCredParams: [{
+                type:"public-key",
+                alg: -7
+            }],
+            authenticatorSelection: {
+                userVerification:"required"
+            },
+            timeout: 60000
+        }
+    });
+    localStorage.setItem(bioCredKey(), btoa(String.fromCharCode(...new Uint8Array(cred.rawId))));
+    localStorage.setItem(bioPwdKey(), btoa(pwd));
+    log("🧬 Hidden biometric shortcut enrolled");
+}
+
+export async function cacheDecryptedPrivateKey(decryptedPrivateKeyBytes) {
+
+    log("[cacheDecryptedPrivateKey] called");
+    try {
+        if (!decryptedPrivateKeyBytes) throw new Error("No decrypted key available");
+
+        const base64 = arrayBufferToBase64(decryptedPrivateKeyBytes);
+        sessionStorage.setItem("sv_session_private_key", base64);
+
+        // Keep in-memory reference for session restore
+        G.currentPrivateKey = await crypto.subtle.importKey(
+            "pkcs8",
+            decryptedPrivateKeyBytes,
+            { name:"RSA-OAEP", hash:"SHA-256" },
+            false,
+            ["decrypt", "unwrapKey"]
+        );
+
+        G.sessionUnlocked = true;
+        log("[cacheDecryptedPrivateKey] Session private key cached");
+
+    } catch (e) {
+        warn("[cacheDecryptedPrivateKey] Session caching failed (non-fatal):" + e.message);
+    }
+
+    function arrayBufferToBase64(buffer) {
+        let binary = '';
+        const bytes = new Uint8Array(buffer);
+        const chunkSize = 0x8000; // 32k chunks
+        for (let i = 0; i < bytes.length; i += chunkSize) {
+            const chunk = bytes.subarray(i, i + chunkSize);
+            binary += String.fromCharCode(...chunk);
+        }
+        return btoa(binary);
+    }
+}
