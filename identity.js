@@ -2,8 +2,9 @@
 
 import { C } from './constants.js';
 import { G } from './global.js';
-import * as ID from './identity.js';
 
+import * as ID from './identity.js';
+import * as CR from './crypto.js';
 import * as GD from './gdrive.js';
 
 import { log, trace, debug, info, warn, error } from './log.js';
@@ -16,7 +17,7 @@ export function getDeviceId() {
     if (!id) {
         id = crypto.randomUUID();
         localStorage.setItem(C.DEVICE_ID_KEY, id);
-        log("[getDeviceId] New device ID generated");
+        log("[ID.getDeviceId] New device ID generated");
     }
     return id;
 }
@@ -30,12 +31,12 @@ export function saveIdentity(id) {
 }
 
 export async function loadIdentity() {
-    log("[loadIdentity] called");
-    log("[loadIdentity] G.sessionUnlocked:", !!G.sessionUnlocked);
-    log("[loadIdentity] G.unlockedIdentity:", !!G.unlockedIdentity);
+    log("[ID.loadIdentity] called");
+    log("[ID.loadIdentity] G.sessionUnlocked:", !!G.sessionUnlocked);
+    log("[ID.loadIdentity] G.unlockedIdentity:", !!G.unlockedIdentity);
 
     if (G.sessionUnlocked && G.unlockedIdentity) {
-        log("[loadIdentity] Returning G.unlockedIdentity from memory");
+        log("[ID.loadIdentity] Returning G.unlockedIdentity from memory");
         return G.unlockedIdentity;
     }
 
@@ -43,16 +44,16 @@ export async function loadIdentity() {
 }
 
 function loadIdentityFromStorage() {
-    log("[loadIdentityFromStorage] called");
+    log("[ID.loadIdentityFromStorage] called");
 
     const raw = localStorage.getItem(identityKey());
-    log("[loadIdentityFromStorage] Identity in localStorage exists:", !!raw);
+    log("[ID.loadIdentityFromStorage] Identity in localStorage exists:", !!raw);
 
     if (!raw) return null;
 
     try {
         const id = JSON.parse(raw);
-        //trace("[loadIdentityFromStorage] Identity loaded from localStorage:", JSON.stringify(id));
+        //trace("[ID.loadIdentityFromStorage] Identity loaded from localStorage:", JSON.stringify(id));
         if (G.sessionUnlocked && G.currentPrivateKey) {
             id._sessionPrivateKey = G.currentPrivateKey;
         }
@@ -65,7 +66,7 @@ function loadIdentityFromStorage() {
 
 /* ---------------------- PUBLIC KEY ---------------------- */
 export async function ensureDevicePublicKey() {
-    log("[ensureDevicePublicKey] called");
+    log("[ID.ensureDevicePublicKey] called");
 
     const folder = await GD.findOrCreateUserFolder();
     const id = await ID.loadIdentity();
@@ -124,7 +125,7 @@ export async function ensureDevicePublicKey() {
             body: JSON.stringify(contentOnly)
         });
 
-        log("[ensureDevicePublicKey] Device public key UPDATED");
+        log("[ID.ensureDevicePublicKey] Device public key UPDATED");
         return;
     }
 
@@ -134,80 +135,27 @@ export async function ensureDevicePublicKey() {
         content: JSON.stringify(pubData)
     });
 
-    log("[ensureDevicePublicKey] Device public key UPLOADED");
+    log("[ID.ensureDevicePublicKey] Device public key UPLOADED");
 }
 
 export async function migrateIdentityWithVerifier(id, pwd) {
-    log("[migrateIdentityWithVerifier] called - Migrating identity to add password verifier");
+    log("[ID.migrateIdentityWithVerifier] called - Migrating identity to add password verifier");
 
-    const key = await deriveKey(pwd, id.kdf);
+    const key = await CR.deriveKey(pwd, id.kdf);
 
     // Prove password correctness by decrypting private key
-    await decrypt(id.encryptedPrivateKey, key);
+    await CR.decrypt(id.encryptedPrivateKey, key);
 
     // Create and attach verifier
     id.passwordVerifier = await createPasswordVerifier(key);
 
     ID.saveIdentity(id);
 
-    log("[migrateIdentityWithVerifier] Identity auto-migrated with password verifier");
-}
-
-export async function deriveKey(pwd, kdf) {
-
-    log("[deriveKey] called");
-
-    const mat = await crypto.subtle.importKey(
-        "raw",
-        new TextEncoder().encode(pwd),
-        "PBKDF2",
-        false,
-        ["deriveKey"]
-    );
-    return crypto.subtle.deriveKey({
-        name:"PBKDF2",
-        salt: Uint8Array.from(atob(kdf.salt), c => c.charCodeAt(0)),
-        iterations: kdf.iterations,
-        hash:"SHA-256"
-    },
-        mat, {
-            name:"AES-GCM",
-            length: 256
-        },
-        false,
-        ["encrypt", "decrypt"]
-    );
-}
-
-export async function decrypt(enc, key) {
-    return crypto.subtle.decrypt({
-        name:"AES-GCM",
-        iv: Uint8Array.from(atob(enc.iv), c => c.charCodeAt(0))
-    },
-        key,
-        Uint8Array.from(atob(enc.data), c => c.charCodeAt(0))
-    );
-}
-
-async function createPasswordVerifier(key) {
-    const data = new TextEncoder().encode("identity-ok");
-    return encrypt(data, key);
-}
-
-async function encrypt(data, key) {
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    const enc = await crypto.subtle.encrypt({
-        name:"AES-GCM",
-        iv
-    }, key, data);
-    return {
-        iv: btoa(String.fromCharCode(...iv)),
-        data: btoa(String.fromCharCode(...new Uint8Array(enc)))
-    };
+    log("[ID.migrateIdentityWithVerifier] Identity auto-migrated with password verifier");
 }
 
 export async function verifyPasswordVerifier(verifier, key) {
-    const buf = await decrypt(verifier, key);
+    const buf = await CR.decrypt(verifier, key);
     const text = new TextDecoder().decode(buf);
     if (text !== "identity-ok") {
         throw new Error("INVALID_PASSWORD");
@@ -215,7 +163,7 @@ export async function verifyPasswordVerifier(verifier, key) {
 }
 
 export async function rotateDeviceIdentity(pwd) {
-    log("[rotateDeviceIdentity] called - Rotating device identity key");
+    log("[ID.rotateDeviceIdentity] called - Rotating device identity key");
 
     const oldIdentity = await ID.loadIdentity();
     if (!oldIdentity) {
@@ -240,20 +188,22 @@ export async function rotateDeviceIdentity(pwd) {
 
     saveIdentity(newIdentity);
 
-    log("[rotateDeviceIdentity] Device identity rotated");
+    log("[ID.rotateDeviceIdentity] Device identity rotated");
     log(`[rotateDeviceIdentity] New KeyId: ${newIdentity.fingerprint} supersedes Old keyId: ${oldIdentity.fingerprint}`);
 
     // --- Drive updates (best effort) ---
     try {
         await GD.markPreviousDriveKeyDeprecated(oldIdentity.fingerprint, newIdentity.fingerprint); // updates old key JSON
         await ensureDevicePublicKey();        // uploads NEW active key
-        log("[rotateDeviceIdentity] Drive key lifecycle updated");
+        log("[ID.rotateDeviceIdentity] Drive key lifecycle updated");
     } catch (e) {
-        warn("[rotateDeviceIdentity] Drive update failed (local rotation preserved):", e.message);
+        warn("[ID.rotateDeviceIdentity] Drive update failed (local rotation preserved):", e.message);
     }
 }
 
 async function generateDeviceKeypair() {
+    log("[ID.generateDeviceKeypair] called");
+
     const pair = await crypto.subtle.generateKey({
         name:"RSA-OAEP",
         modulusLength: 2048,
@@ -274,26 +224,29 @@ async function generateDeviceKeypair() {
 }
 
 /* --------------- CREATE IDENTITY start ----------------- */
-async function createIdentity(pwd) {
-    log("🔐 Generating new device identity key pair");
+export async function createIdentity(pwd) {
+    log("[ID.createIdentity] called - Generating new device identity key pair");
 
     const keypair = await generateDeviceKeypair();
     const identity = await buildIdentityFromKeypair(keypair, pwd);
 
     saveIdentity(identity);
 
-    log("✅ New identity created and stored locally");
+    log("[ID.createIdentity] New identity created and stored locally");
 
     if (G.biometricIntent && !G.biometricRegistered) {
-        log("👆 Biometric enrollment intent detected, enrolling now...");
+        log("[ID.createIdentity] Biometric enrollment intent detected, enrolling now...");
         await enrollBiometric(pwd);
         G.biometricRegistered = true;
     }
 }
 
 async function buildIdentityFromKeypair({privateKeyPkcs8, publicKeySpki}, pwd, opts = {}) {
+    log("[ID.buildIdentityFromKeypair] called");
+
+    // Note: Consider utils.bufferToBase64(publicKeySpki) in case of overflow error because of String.fromCharCode
     const pubB64 = btoa(String.fromCharCode(...new Uint8Array(publicKeySpki)));
-    const fingerprint = await computeFingerprintFromPublicKey(pubB64);
+    const fingerprint = await CR.computeFingerprintFromPublicKey(pubB64);
 
     const saltBytes = crypto.getRandomValues(new Uint8Array(16));
     const kdf = {
@@ -301,9 +254,9 @@ async function buildIdentityFromKeypair({privateKeyPkcs8, publicKeySpki}, pwd, o
         iterations: 100000
     };
 
-    const key = await deriveKey(pwd, kdf);
+    const key = await CR.deriveKey(pwd, kdf);
     const passwordVerifier = await createPasswordVerifier(key);
-    const encryptedPrivateKey = await encrypt(privateKeyPkcs8, key);
+    const encryptedPrivateKey = await CR.encrypt(privateKeyPkcs8, key);
 
     return {
         passwordVerifier,
@@ -311,18 +264,17 @@ async function buildIdentityFromKeypair({privateKeyPkcs8, publicKeySpki}, pwd, o
         publicKey: pubB64,
         fingerprint,
         kdf,
-        deviceId: ID.getDeviceId(),
+        deviceId: getDeviceId(),
         email: G.userEmail,
         created: new Date().toISOString(),
         ...opts
     };
 }
 
-
-async function computeFingerprintFromPublicKey(base64Spki) {
-    const pubBytes = Uint8Array.from(atob(base64Spki), c => c.charCodeAt(0));
-    const hash = await crypto.subtle.digest("SHA-256", pubBytes);
-    return btoa(String.fromCharCode(...new Uint8Array(hash)));
+async function createPasswordVerifier(key) {
+    log("[ID.createPasswordVerifier] called");
+    const data = new TextEncoder().encode("identity-ok");
+    return CR.encrypt(data, key);
 }
 
 export async function enrollBiometric(pwd) {
@@ -355,7 +307,7 @@ export async function enrollBiometric(pwd) {
 
 export async function cacheDecryptedPrivateKey(decryptedPrivateKeyBytes) {
 
-    log("[cacheDecryptedPrivateKey] called");
+    log("[ID.cacheDecryptedPrivateKey] called");
     try {
         if (!decryptedPrivateKeyBytes) throw new Error("No decrypted key available");
 
@@ -372,10 +324,10 @@ export async function cacheDecryptedPrivateKey(decryptedPrivateKeyBytes) {
         );
 
         G.sessionUnlocked = true;
-        log("[cacheDecryptedPrivateKey] Session private key cached");
+        log("[ID.cacheDecryptedPrivateKey] Session private key cached");
 
     } catch (e) {
-        warn("[cacheDecryptedPrivateKey] Session caching failed (non-fatal):" + e.message);
+        warn("[ID.cacheDecryptedPrivateKey] Session caching failed (non-fatal):" + e.message);
     }
 
     function arrayBufferToBase64(buffer) {

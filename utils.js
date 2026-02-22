@@ -16,3 +16,14 @@ export function deepFreeze(obj) {
 
     return Object.freeze(obj);
 }
+
+// A safer version for buffers of any size instead of a straight
+// btoa(String.fromCharCode(...new Uint8Array(buffer)))
+function bufferToBase64(buffer) {
+    let binary = '';
+    const bytes = new Uint8Array(buffer);
+    for (let i = 0; i < bytes.byteLength; i++) {
+        binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+}

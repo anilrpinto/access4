@@ -1,6 +1,7 @@
 "use strict";
 
 const _G = {
+    gisPrompt: false,
     tokenClient: null,
     accessToken: null,
     userEmail: null,
@@ -28,7 +29,10 @@ const _G = {
 
     unlockedIdentity: null,   // Holds decrypted identity for current session
     currentPrivateKey: null,
-    sessionUnlocked: false
+    sessionUnlocked: false,
+    settings: {
+        minifyJson: false
+    }
 };
 
 export let G = structuredClone(_G);
