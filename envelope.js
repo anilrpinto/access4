@@ -556,7 +556,7 @@ export async function wrapCEKForRegistryKeys(forceWrite = false) {
 
     if (!currentDeviceKeyEntry) {
         error("[E.wrapCEKForRegistryKeys] No device key available to unwrap CEK");
-        throw new Error("New user isn't authorized to access vault data yet. talk to admin");
+        throw new Error("[Missing envelope CEK error] This user+device isn't authorized to access vault data yet");
     }
 
     log("[E.wrapCEKForRegistryKeys] Selected keyId for unwrap:", currentDeviceKeyEntry.keyId);
@@ -683,15 +683,13 @@ async function unwrapContentKey(wrappedKeyBase64, keyId) {
 async function addRecoveryKeyToEnvelope({ publicKey, keyId }) {
     log("[E.addRecoveryKeyToEnvelope] called - Adding recovery key to envelope...");
 
-    const envelopeName = "envelope.json";
-
     // 1️⃣ Load existing envelope from Drive
-    const envelopeFile = await GD.readEnvelopeFromDrive(envelopeName);
+    const envelopeFile = await GD.readEnvelopeFromDrive(C.ENVELOPE_NAME);
     if (!envelopeFile) {
         throw new Error("Envelope missing — cannot add recovery key");
     }
 
-    await assertEnvelopeWrite(envelopeName);
+    await assertEnvelopeWrite(C.ENVELOPE_NAME);
 
     const envelope = envelopeFile.json;
 
@@ -733,7 +731,7 @@ async function addRecoveryKeyToEnvelope({ publicKey, keyId }) {
     }
 
     // ---- Housekeeping CEK wrap for all devices & recovery keys (force write) ----
-    if (G.driveLockState?.self && G.driveLockState.envelopeName === envelopeName) {
+    if (G.driveLockState?.self && G.driveLockState.envelopeName === C.ENVELOPE_NAME) {
         log("[E.addRecoveryKeyToEnvelope] Performing CEK housekeeping with force write");
         const updatedEnvelope = await wrapCEKForRegistryKeys(true); // <- forceWrite = true
 
@@ -744,7 +742,7 @@ async function addRecoveryKeyToEnvelope({ publicKey, keyId }) {
         })));
 
         // 6️⃣ Write updated envelope safely
-        await writeEnvelopeSafely(envelopeName, updatedEnvelope);
+        await writeEnvelopeSafely(C.ENVELOPE_NAME, updatedEnvelope);
     }
 
     log("[E.addRecoveryKeyToEnvelope] Recovery key added to envelope and saved");

@@ -2,6 +2,8 @@
 
 import { C } from './constants.js';
 import { G } from './global.js';
+import * as U from './utils.js';
+
 import { log, trace, debug, info, warn, error } from './log.js';
 
 export async function fetchUserEmail() {
@@ -13,7 +15,7 @@ export async function fetchUserEmail() {
     const data = await res.json();
     G.userEmail = data.email;
 
-    log("Signed in as xxx@gmail.com"); //+ G.userEmail);
+    log("[GD.fetchUserEmail] Signed in as xxx@gmail.com"); //+ G.userEmail);
 }
 
 export async function verifyWritable(folderId) {
@@ -64,15 +66,12 @@ export async function driveReadJsonFile(fileId) {
 }
 
 export async function drivePatchJsonFile(fileId, json) {
-    // Determine indentation: undefined (minified), other wise indent by 2 spaces
-    const minify = G.settings?.minifyJson ? undefined : 2;
-
     await _driveFetchRaw(
         _buildDriveUploadUrl(`files/${fileId}`, { uploadType: "media" }),
         {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(json, null, minify)
+            body: U.format(json)
         }
     );
 }
@@ -183,7 +182,7 @@ async function _driveFetchRaw(url, options = {}) {
 
 export async function findOrCreateUserFolder() {
 
-    log("[GD.findOrCreateUserFolder] entered");
+    log("[GD.findOrCreateUserFolder] called");
     const rootQ = `'${C.ACCESS4_ROOT_ID}' in parents and name='${C.PUBKEY_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder'`;
     const rootRes = await driveFetch(buildDriveUrl("files", {
         q: rootQ,
@@ -225,14 +224,17 @@ export async function findOrCreateUserFolder() {
 }
 
 async function markPreviousDriveKeyDeprecated(oldFingerprint, newFingerprint) {
-    log("[GD.markPreviousDriveKeyDeprecated] entered");
+    log("[GD.markPreviousDriveKeyDeprecated] called");
 
     const folder = await findOrCreateUserFolder();
     const filenamePattern = `${G.userEmail}__`; // all device keys for this user
     const q = `'${folder}' in parents and name contains '${filenamePattern}'`;
     const res = await driveFetch(buildDriveUrl("files", { q, fields:"files(id,name)" }));
 
-    if (!res.files.length) return; // nothing to patch
+    if (!res.files.length) {
+        log("[GD.markPreviousDriveKeyDeprecated] no drive files found to mark keys as deprecated");
+        return; // nothing to patch
+    }
 
     for (const file of res.files) {
         const fileData = await driveFetch(buildDriveUrl(`files/${file.id}`, { alt:"media" }));
@@ -250,7 +252,7 @@ async function markPreviousDriveKeyDeprecated(oldFingerprint, newFingerprint) {
             body: JSON.stringify(patchData)
         });
 
-        log(`[markPreviousDriveKeyDeprecated] Previous device key (${oldFingerprint}) marked deprecated on Drive`);
+        log(`[markPreviousDriveKeyDeprecated] Marked keyId (${oldFingerprint}) as deprecated in file:${file.id}`);
     }
 }
 

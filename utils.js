@@ -1,5 +1,7 @@
 "use strict";
 
+import { G } from './global.js';
+
 export function deepFreeze(obj) {
     // 1. Retrieve the property names defined on obj
     const propNames = Object.getOwnPropertyNames(obj);
@@ -26,4 +28,9 @@ function bufferToBase64(buffer) {
         binary += String.fromCharCode(bytes[i]);
     }
     return btoa(binary);
+}
+
+export function format(json) {
+    // Determine indentation: undefined (minified), other wise indent by 2 spaces
+    return JSON.stringify(json, null, (G.settings?.minifyJson ? undefined : 2));
 }

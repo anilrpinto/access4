@@ -60,7 +60,7 @@ async function releaseDriveLock() {
     return bytes.buffer;
 }*/
 
-async function encryptPrivateKeyWithPassword(privateKey, password) {
+/*async function encryptPrivateKeyWithPassword(privateKey, password) {
     // 1️⃣ Export private key (raw)
     const rawPrivate = await crypto.subtle.exportKey("raw", privateKey);
 
@@ -83,7 +83,7 @@ async function encryptPrivateKeyWithPassword(privateKey, password) {
         cipher:"AES-256-GCM",
         encrypted
     };
-}
+}*/
 
 /* ================= BIOMETRIC ================= */
 async function biometricAuthenticateFromGesture() {

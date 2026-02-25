@@ -135,10 +135,10 @@ function setupTitleGesture() {
 
 function armBiometric() {
     G.biometricIntent = true;
-    log("👆 Hidden biometric intent armed");
+    log("[armBiometric] Hidden biometric intent armed");
 
     if (G.unlockedPassword && !G.biometricRegistered) {
-        log("🔐 Password already unlocked, enrolling biometric immediately...");
+        log("[armBiometric] Password already unlocked, enrolling biometric immediately...");
         ID.enrollBiometric(G.unlockedPassword).then(() => G.biometricRegistered = true);
     }
 }
@@ -358,7 +358,7 @@ async function unlockIdentityFlow(pwd) {
         throw e;
     }
 
-    log("🔓 [unlockIdentityFlow] Unlock attempt started for password:", (pwd ? "***" : "(empty)"));
+    log("[UI.unlockIdentityFlow] Unlock attempt started for password:", (pwd ? "***" : "(empty)"));
 
     if (!G.accessToken) {
         const e = new Error(C.UNLOCK_ERROR_DEFS.NO_ACCESS_TOKEN.message);
@@ -367,7 +367,15 @@ async function unlockIdentityFlow(pwd) {
     }
 
     let id = await ID.loadIdentity();
-    log("[UI.unlockIdentityFlow] Identity loaded:", !!id);
+
+    if (!id) {
+        error("[UI.unlockIdentityFlow] No local identity found — cannot unlock");
+        const e = new Error(C.UNLOCK_ERROR_DEFS.NO_IDENTITY.message);
+        e.code = C.UNLOCK_ERROR_DEFS.NO_IDENTITY.code;
+        throw e;
+    }
+    //log("[UI.unlockIdentityFlow] Identity loaded:", !!id);
+    log("[UI.unlockIdentityFlow] Local identity found");
 
     if (id && identityNeedsPasswordSetup(id)) {
         log("[UI.unlockIdentityFlow] Identity missing password verifier — attempting auto-migration");
@@ -381,15 +389,7 @@ async function unlockIdentityFlow(pwd) {
             throw e;
         }
     }
-
-    if (!id) {
-        error("[UI.unlockIdentityFlow] No local identity found — cannot unlock");
-        const e = new Error(C.UNLOCK_ERROR_DEFS.NO_IDENTITY.message);
-        e.code = C.UNLOCK_ERROR_DEFS.NO_IDENTITY.code;
-        throw e;
-    }
-
-    log("[UI.unlockIdentityFlow] Local identity found");
+    log("[UI.unlockIdentityFlow] password verifier found, skipped identity migration");
 
     // ─────────────────────────────
     // 🔐 AUTHORITATIVE PASSWORD CHECK
@@ -398,14 +398,14 @@ async function unlockIdentityFlow(pwd) {
     try {
         key = await CR.deriveKey(pwd, id.kdf);
         await ID.verifyPasswordVerifier(id.passwordVerifier, key);
-        log("[UI.unlockIdentityFlow] Password verified");
     } catch {
+        error("[UI.unlockIdentityFlow] passwordVerifier check failed for provided password");
         const e = new Error(C.UNLOCK_ERROR_DEFS.INCORRECT_PASSWORD.message);
         e.code = C.UNLOCK_ERROR_DEFS.INCORRECT_PASSWORD.code;
         throw e;
     }
 
-    log("[UI.unlockIdentityFlow] Password verified:", (key ? "***" : "(failed)"));
+    log("[UI.unlockIdentityFlow] Password verifier check succeeded");
 
     // ─────────────────────────────
     // 🔓 Attempt private key decrypt
@@ -416,12 +416,10 @@ async function unlockIdentityFlow(pwd) {
     try {
         decryptedPrivateKeyBytes = await CR.decrypt(id.encryptedPrivateKey, key);
         decrypted = true;
-        log("[UI.unlockIdentityFlow] Identity successfully decrypted");
+        log("[UI.unlockIdentityFlow] Identity private key successfully decrypted");
     } catch {
-        error("[UI.unlockIdentityFlow] Private key decryption failed");
+        warn("[UI.unlockIdentityFlow] Private key decryption failed, will attempt one time key rotation");
     }
-
-    log("[UI.unlockIdentityFlow] Identity decrypted:", decrypted);
 
     // ─────────────────────────────
     // 🔁 Single rotation retry
@@ -429,7 +427,7 @@ async function unlockIdentityFlow(pwd) {
     if (!decrypted) {
         log("[UI.unlockIdentityFlow] Attempting device key rotation");
 
-        await rotateDeviceIdentity(pwd);
+        await ID.rotateDeviceIdentity(pwd);
         id = await ID.loadIdentity();
 
         try {
@@ -471,7 +469,7 @@ async function unlockIdentityFlow(pwd) {
     }
 
     if (id.supersedes) {
-        log("[UI.unlockIdentityFlow] Identity supersedes previous keyId:" + id.supersedes);
+        log("[UI.unlockIdentityFlow] Identity supersedes previous keyId:", id.supersedes);
     }
 
     // ─────────────────────────────
@@ -485,7 +483,6 @@ async function unlockIdentityFlow(pwd) {
     id._sessionPrivateKey = G.currentPrivateKey;
     G.unlockedIdentity = id;
     G.sessionUnlocked = true;
-
 
     log("[UI.unlockIdentityFlow] G.unlockedIdentity set in memory for session");
 
