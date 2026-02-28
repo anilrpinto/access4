@@ -16,7 +16,7 @@ function onLoad() {
 
     //setLogLevel(INFO);
     //onlyLogLevels(INFO, TRACE);
-    log("[AP.onLoad] called");
+    log("AP.onLoad", "called");
     UI.init();
 
     // Wire handlers
@@ -24,13 +24,13 @@ function onLoad() {
     UI.bindClick(UI.logoutBtn, () => logout());
     //UI.bindClick(UI.unlockBtn, handleUnlockClick);
 
-    log("[AP.onLoad] sessionStorage sv_session_private_key exists:", !!sessionStorage.getItem("sv_session_private_key"));
-    log("[AP.onLoad] G.unlockedIdentity:", !!G.unlockedIdentity);
-    log("[AP.onLoad] G.currentPrivateKey:", !!G.currentPrivateKey);
+    log("AP.onLoad", "sessionStorage sv_session_private_key exists:", !!sessionStorage.getItem("sv_session_private_key"));
+    log("AP.onLoad", "G.unlockedIdentity:", !!G.unlockedIdentity);
+    log("AP.onLoad", "G.currentPrivateKey:", !!G.currentPrivateKey);
 }
 
 async function releaseDriveLock() {
-    log("[AP.releaseDriveLock] called");
+    log("AP.releaseDriveLock", "called");
 
     if (!G.driveLockState?.fileId) return;
 
@@ -47,66 +47,18 @@ async function releaseDriveLock() {
         G.driveLockState.fileId
     );
 
-    log("[AP.releaseDriveLock] Drive lock released");
+    log("AP.releaseDriveLock", "Drive lock released");
     G.driveLockState = null;
 }
 
-/*function base64ToArrayBuffer(base64) {
-    const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) {
-        bytes[i] = binary.charCodeAt(i);
-    }
-    return bytes.buffer;
-}*/
-
-/*async function encryptPrivateKeyWithPassword(privateKey, password) {
-    // 1️⃣ Export private key (raw)
-    const rawPrivate = await crypto.subtle.exportKey("raw", privateKey);
-
-    // 2️⃣ Derive AES key from password
-    const kdf = {
-        salt: crypto.getRandomValues(new Uint8Array(16)),
-        iterations: 200_000,
-        hash:"SHA-256"
-    };
-
-    const aesKey = await CR.deriveKey(password, kdf);
-
-    // 3️⃣ Encrypt
-    const encrypted = await encrypt(rawPrivate, aesKey);
-
-    // 4️⃣ Package
-    return {
-        version: 1,
-        kdf,
-        cipher:"AES-256-GCM",
-        encrypted
-    };
-}*/
-
-/* ================= STEP 4.1: DEVICE PUBLIC KEY ================= */
 async function hasRecoveryKey() {
     // TEMP: replace with Drive check later
     const marker = localStorage.getItem("recoveryKeyPresent");
     return !!marker;
 }
 
-
-/*function finalizeKeyRegistry(registry) {
-    Object.freeze(registry.flat.activeDevices);
-    Object.freeze(registry.flat.deprecatedDevices);
-    Object.freeze(registry.flat.recoveryKeys);
-    Object.freeze(registry.flat);
-    Object.freeze(registry.accounts);
-    Object.freeze(registry);
-}*/
-
-
-
-/* ================= LOGOUT ================= */
 export function logout() {
-    log("[AP.logout] Logging out...");
+    log("AP.logout", "Logging out...");
 
     releaseDriveLock();
 
@@ -122,13 +74,13 @@ export function logout() {
 
     G.biometricIntent = false;
 
-    log("[AP.logout] completed");
+    log("AP.logout", "completed");
 }
 
 /* ----------------- UI action handlers -------------------*/
 
 async function handleCreateRecoveryClick() {
-    log("[AP.handleCreateRecoveryClick] called - Starting recovery key creation");
+    log("AP.handleCreateRecoveryClick", "called - Starting recovery key creation");
 
     const pwd = passwordInput.value;
     const confirm = confirmPasswordInput.value;
@@ -154,12 +106,12 @@ async function handleCreateRecoveryClick() {
         true,
         ["encrypt", "decrypt"]
     );
-    log("[AP.handleCreateRecoveryClick] Recovery keypair generated");
+    log("AP.handleCreateRecoveryClick", "Recovery keypair generated");
 
     // 2️⃣ Export keys
     const privateKeyPkcs8 = await crypto.subtle.exportKey("pkcs8", keypair.privateKey);
     const publicKeySpki = await crypto.subtle.exportKey("spki", keypair.publicKey);
-    log("[AP.handleCreateRecoveryClick] Recovery keys exported");
+    log("AP.handleCreateRecoveryClick", "Recovery keys exported");
 
     // 3️⃣ Build recovery identity
     const recoveryIdentity = await buildIdentityFromKeypair(
@@ -167,14 +119,14 @@ async function handleCreateRecoveryClick() {
         pwd,
         { type:"recovery", createdBy: ID.getDeviceId() }
     );
-    log("[AP.handleCreateRecoveryClick] Private key encrypted with recovery password");
+    log("AP.handleCreateRecoveryClick", "Private key encrypted with recovery password");
 
     // 4️⃣ Ensure recovery folder
     const recoveryFolderId = await GD.ensureRecoveryFolder();
 
     // 5️⃣ Write private recovery file
     await GD.driveCreateJsonFile({ name:"recovery.private.json", parents: [recoveryFolderId], json: recoveryIdentity });
-    log("[AP.handleCreateRecoveryClick] recovery.private.json written");
+    log("AP.handleCreateRecoveryClick", "recovery.private.json written");
 
     // 6️⃣ Write public recovery file (matching device key structure)
     const recoveryPublicJson = {
@@ -201,7 +153,7 @@ async function handleCreateRecoveryClick() {
         parents: [recoveryFolderId],
         json: recoveryPublicJson
     });
-    log("[AP.handleCreateRecoveryClick] recovery.public.json written");
+    log("AP.handleCreateRecoveryClick", "recovery.public.json written");
 
     // 7️⃣ Add to envelope for CEK housekeeping
     await addRecoveryKeyToEnvelope({
@@ -209,17 +161,11 @@ async function handleCreateRecoveryClick() {
         keyId: recoveryIdentity.fingerprint
     });
 
-    log("[AP.handleCreateRecoveryClick] Recovery key successfully established");
+    log("AP.handleCreateRecoveryClick", "Recovery key successfully established");
     UI.showUnlockMessage("Recovery key created!", "unlock-message success");
     unlockBtn.disabled = false;
 }
 
-/*function isEnvelopeReadOnly() {
-    return !G.driveLockState || G.driveLockState.mode !== "write";
-}*/
-
-
-// IMPORTANT - DO NOT DELETE
 window.onload = async () => {
     await onLoad();
     //await initGIS();

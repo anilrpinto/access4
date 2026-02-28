@@ -22,11 +22,13 @@ export function deepFreeze(obj) {
 
 // A safer version for buffers of any size instead of a straight
 // btoa(String.fromCharCode(...new Uint8Array(buffer)))
-function bufferToBase64(buffer) {
+export function bufferToBase64(buffer) {
     let binary = '';
     const bytes = new Uint8Array(buffer);
-    for (let i = 0; i < bytes.byteLength; i++) {
-        binary += String.fromCharCode(bytes[i]);
+    const chunkSize = 0x8000; // 32k chunks
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+        const chunk = bytes.subarray(i, i + chunkSize);
+        binary += String.fromCharCode(...chunk);
     }
     return btoa(binary);
 }
@@ -37,10 +39,10 @@ export function format(json) {
 }
 
 export function dumpLocalStorageForDebug() {
-    log("[U.dumpLocalStorageForDebug] LocalStorage Dump");
+    trace("U.dumpLocalStorageForDebug", "LocalStorage Dump");
 
     if (!localStorage.length) {
-        log("[U.dumpLocalStorageForDebug] localStorage is empty");
+        trace("U.dumpLocalStorageForDebug", "localStorage is empty");
         return;
     }
 
@@ -48,12 +50,12 @@ export function dumpLocalStorageForDebug() {
         const key = localStorage.key(i);
         const value = localStorage.getItem(key);
 
-        log(`Key: ${key}`);
+        trace("U.dumpLocalStorageForDebug", `------ Key: ${key}`);
         try {
-            log("Parsed:", JSON.parse(value));
+            trace("U.dumpLocalStorageForDebug", "Parsed:", JSON.parse(value));
         } catch {
-            log("Raw:", value);
+            trace("U.dumpLocalStorageForDebug", "Raw:", value);
         }
-        log("-------------");
+        trace("U.dumpLocalStorageForDebug", "-------------");
     }
 }

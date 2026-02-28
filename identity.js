@@ -20,7 +20,7 @@ export function getDeviceId() {
     if (!id) {
         id = crypto.randomUUID();
         localStorage.setItem(C.DEVICE_ID_KEY, id);
-        log("[ID.getDeviceId] New device ID generated");
+        log("ID.getDeviceId] New device ID generated");
     }
     return id;
 }
@@ -34,12 +34,12 @@ export function saveIdentity(id) {
 }
 
 export async function loadIdentity() {
-    log("[ID.loadIdentity] called");
-    trace("[ID.loadIdentity] G.sessionUnlocked:", !!G.sessionUnlocked);
-    trace("[ID.loadIdentity] G.unlockedIdentity:", !!G.unlockedIdentity);
+    log("ID.loadIdentity", "called");
+    trace("ID.loadIdentity", "G.sessionUnlocked:", !!G.sessionUnlocked);
+    trace("ID.loadIdentity", "G.unlockedIdentity:", !!G.unlockedIdentity);
 
     if (G.sessionUnlocked && G.unlockedIdentity) {
-        log("[ID.loadIdentity] Returning G.unlockedIdentity from memory");
+        log("ID.loadIdentity", "Returning G.unlockedIdentity from memory");
         return G.unlockedIdentity;
     }
 
@@ -47,29 +47,29 @@ export async function loadIdentity() {
 }
 
 function loadIdentityFromStorage() {
-    log("[ID.loadIdentityFromStorage] called");
+    log("ID.loadIdentityFromStorage", "called");
 
     const raw = localStorage.getItem(identityKey());
-    log("[ID.loadIdentityFromStorage] Identity in localStorage exists:", !!raw);
+    log("ID.loadIdentityFromStorage", "Identity in localStorage exists:", !!raw);
 
     if (!raw) return null;
 
     try {
         const id = JSON.parse(raw);
-        //trace("[ID.loadIdentityFromStorage] Identity loaded from localStorage:", JSON.stringify(id));
+        //trace("ID.loadIdentityFromStorage", "Identity loaded from localStorage:", JSON.stringify(id));
         if (G.sessionUnlocked && G.currentPrivateKey) {
             id._sessionPrivateKey = G.currentPrivateKey;
         }
         return id;
     } catch (e) {
-        error("[ID.loadIdentityFromStorage] Failed to parse identity:", e);
+        error("ID.loadIdentityFromStorage", "Failed to parse identity:", e);
         return null;
     }
 }
 
 /* ---------------------- PUBLIC KEY ---------------------- */
 export async function ensureDevicePublicKey() {
-    log("[ID.ensureDevicePublicKey] called");
+    log("ID.ensureDevicePublicKey", "called");
 
     const folder = await GD.findOrCreateUserFolder();
     const id = await ID.loadIdentity();
@@ -86,7 +86,7 @@ export async function ensureDevicePublicKey() {
     //const hashBuffer = await crypto.subtle.digest("SHA-256", pubBytes);
     //const fingerprint = btoa(String.fromCharCode(...new Uint8Array(hashBuffer)));
 
-    const fingerprint = await CR.computeFingerprintFromPublicKey(pubBytes);
+    const fingerprint = await CR.computePublicKeyFingerprint(pubBytes);
 
     const pubData = {
         version:"1",
@@ -130,7 +130,7 @@ export async function ensureDevicePublicKey() {
             body: U.format(contentOnly)
         });
 
-        log(`[ID.ensureDevicePublicKey] Device public key UPDATED in ${filename}`);
+        log("ID.ensureDevicePublicKey", `Device public key UPDATED in ${filename}`);
         return;
     }
 
@@ -140,11 +140,11 @@ export async function ensureDevicePublicKey() {
         content: U.format(pubData)
     });
 
-    log(`[ID.ensureDevicePublicKey] Device public key UPLOADED to ${filename}`);
+    log("ID.ensureDevicePublicKey", `Device public key UPLOADED to ${filename}`);
 }
 
 export async function migrateIdentityWithVerifier(id, pwd) {
-    log("[ID.migrateIdentityWithVerifier] called - Migrating identity to add password verifier");
+    log("ID.migrateIdentityWithVerifier", "called - Migrating identity to add password verifier");
 
     const key = await CR.deriveKey(pwd, id.kdf);
 
@@ -156,11 +156,11 @@ export async function migrateIdentityWithVerifier(id, pwd) {
 
     ID.saveIdentity(id);
 
-    log("[ID.migrateIdentityWithVerifier] Identity auto-migrated with password verifier");
+    log("ID.migrateIdentityWithVerifier", "Identity auto-migrated with password verifier");
 }
 
 export async function verifyPasswordVerifier(verifier, key) {
-    log("[ID.verifyPasswordVerifier] called");
+    log("ID.verifyPasswordVerifier", "called");
     const buf = await CR.decrypt(verifier, key);
     const text = new TextDecoder().decode(buf);
     if (text !== VERIFIER_TEXT) {
@@ -169,7 +169,7 @@ export async function verifyPasswordVerifier(verifier, key) {
 }
 
 export async function rotateDeviceIdentity(pwd) {
-    log("[ID.rotateDeviceIdentity] called - Rotating device identity key");
+    log("ID.rotateDeviceIdentity", "called - Rotating device identity key");
 
     const oldIdentity = await ID.loadIdentity();
     if (!oldIdentity) {
@@ -194,21 +194,21 @@ export async function rotateDeviceIdentity(pwd) {
 
     saveIdentity(newIdentity);
 
-    log("[ID.rotateDeviceIdentity] Device identity rotated");
-    log(`[ID.rotateDeviceIdentity] New KeyId: ${newIdentity.fingerprint} supersedes Old keyId: ${oldIdentity.fingerprint}`);
+    log("ID.rotateDeviceIdentity", "Device identity rotated");
+    log("ID.rotateDeviceIdentity", `New KeyId: ${newIdentity.fingerprint} supersedes Old keyId: ${oldIdentity.fingerprint}`);
 
     // --- Drive updates (best effort) ---
     try {
         await GD.markPreviousDriveKeyDeprecated(oldIdentity.fingerprint, newIdentity.fingerprint); // updates old key JSON
         await ensureDevicePublicKey();        // uploads NEW active key
-        log("[ID.rotateDeviceIdentity] Drive key lifecycle updated");
+        log("ID.rotateDeviceIdentity", "Drive key lifecycle updated");
     } catch (e) {
-        warn("[ID.rotateDeviceIdentity] Drive update failed (local rotation preserved):", e.message);
+        warn("ID.rotateDeviceIdentity", "Drive update failed (local rotation preserved):", e.message);
     }
 }
 
 async function generateDeviceKeypair() {
-    log("[ID.generateDeviceKeypair] called");
+    log("ID.generateDeviceKeypair", "called");
 
     const pair = await crypto.subtle.generateKey({
         name:"RSA-OAEP",
@@ -231,22 +231,22 @@ async function generateDeviceKeypair() {
 
 /* --------------- CREATE IDENTITY start ----------------- */
 export async function createIdentity(pwd) {
-    log("[ID.createIdentity] called - Generating new device identity key pair");
+    log("ID.createIdentity", "called - Generating new device identity key pair");
 
     const keypair = await generateDeviceKeypair();
     const identity = await buildIdentityFromKeypair(keypair, pwd);
 
     saveIdentity(identity);
 
-    log("[ID.createIdentity] New identity created and stored locally");
+    log("ID.createIdentity", "New identity created and stored locally");
 }
 
 async function buildIdentityFromKeypair({privateKeyPkcs8, publicKeySpki}, pwd, opts = {}) {
-    log("[ID.buildIdentityFromKeypair] called");
+    log("ID.buildIdentityFromKeypair", "called");
 
     // Note: Consider utils.bufferToBase64(publicKeySpki) in case of overflow error because of String.fromCharCode
     const pubB64 = btoa(String.fromCharCode(...new Uint8Array(publicKeySpki)));
-    const fingerprint = await CR.computeFingerprintFromPublicKey(publicKeySpki);
+    const fingerprint = await CR.computePublicKeyFingerprint(publicKeySpki);
 
     const saltBytes = crypto.getRandomValues(new Uint8Array(16));
     const kdf = {
@@ -272,20 +272,18 @@ async function buildIdentityFromKeypair({privateKeyPkcs8, publicKeySpki}, pwd, o
 }
 
 async function createPasswordVerifier(key) {
-    log("[ID.createPasswordVerifier] called");
+    log("ID.createPasswordVerifier", "called");
     const data = new TextEncoder().encode(VERIFIER_TEXT);
     return CR.encrypt(data, key);
 }
 
-
-
 export async function cacheDecryptedPrivateKey(decryptedPrivateKeyBytes) {
 
-    log("[ID.cacheDecryptedPrivateKey] called");
+    log("ID.cacheDecryptedPrivateKey", "called");
     try {
         if (!decryptedPrivateKeyBytes) throw new Error("No decrypted key available");
 
-        const base64 = arrayBufferToBase64(decryptedPrivateKeyBytes);
+        const base64 = U.bufferToBase64(decryptedPrivateKeyBytes);
         sessionStorage.setItem("sv_session_private_key", base64);
 
         // Keep in-memory reference for session restore
@@ -298,20 +296,10 @@ export async function cacheDecryptedPrivateKey(decryptedPrivateKeyBytes) {
         );
 
         G.sessionUnlocked = true;
-        log("[ID.cacheDecryptedPrivateKey] Session private key cached");
+        log("ID.cacheDecryptedPrivateKey", "Session private key cached");
 
     } catch (e) {
-        warn("[ID.cacheDecryptedPrivateKey] Session caching failed (non-fatal):", e.message);
+        warn("ID.cacheDecryptedPrivateKey", "Session caching failed (non-fatal):", e.message);
     }
 
-    function arrayBufferToBase64(buffer) {
-        let binary = '';
-        const bytes = new Uint8Array(buffer);
-        const chunkSize = 0x8000; // 32k chunks
-        for (let i = 0; i < bytes.length; i += chunkSize) {
-            const chunk = bytes.subarray(i, i + chunkSize);
-            binary += String.fromCharCode(...chunk);
-        }
-        return btoa(binary);
-    }
 }

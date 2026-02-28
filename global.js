@@ -30,7 +30,7 @@ const _G = {
     sessionUnlocked: false,
     settings: {
         minifyJson: false,
-        clearBioDbOnLoad: true,
+        clearBioDbOnLoad: false,
         clearLocalStorageOnLoad: false
     }
 };

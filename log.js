@@ -26,7 +26,8 @@ export function onlyLogLevels(...levels) {
     }
 }
 
-function _log(level, msg, ...args) {
+function _log(level, icon, TAG, msg, ...args) {
+    //TODO: Add filter on TAG
     if (level > _level || (_filter.length && !_filter.includes(level)))
         return;
 
@@ -35,7 +36,7 @@ function _log(level, msg, ...args) {
 
     const data = args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : arg).join(' ');
 
-    const message = `${ts} |${LABELS[level]}| ${msg} ${data}`;
+    const message = `${ts} ${icon}[${(TAG??"").padStart(30)}] ${msg} ${data}`;
     console.log(message);
 
     try {
@@ -45,26 +46,26 @@ function _log(level, msg, ...args) {
     }
 }
 
-export function error(message, ...args) {
-    _log(ERROR, "❌" + message, ...args);
+export function log(TAG, message, ...args) {
+    debug(TAG, message, ...args);
 }
 
-export function warn(message, ...args) {
-    _log(WARN, "⚠️" + message, ...args);
+export function debug(TAG, message, ...args) {
+    _log(DEBUG, "💡", TAG, message, ...args);
 }
 
-export function info(message, ...args) {
-    _log(INFO, "✅" + message, ...args);
+export function info(TAG, message, ...args) {
+    _log(INFO, "✅", TAG, message, ...args);
 }
 
-export function debug(message, ...args) {
-    _log(DEBUG, message, ...args);
+export function warn(TAG, message, ...args) {
+    _log(WARN, "⚠️", TAG, message, ...args);
 }
 
-export function trace(message, ...args) {
-    _log(TRACE, "🔍" + message, ...args);
+export function error(TAG, message, ...args) {
+    _log(ERROR, "❌", TAG, message, ...args);
 }
 
-export function log(message, ...args) {
-    debug(message, ...args);
+export function trace(TAG, message, ...args) {
+    _log(TRACE, "🔍", TAG, message, ...args);
 }

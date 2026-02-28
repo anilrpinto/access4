@@ -15,11 +15,11 @@ export async function fetchUserEmail() {
     const data = await res.json();
     G.userEmail = data.email;
 
-    log("[GD.fetchUserEmail] Signed in as xxx@gmail.com"); //+ G.userEmail);
+    log("GD.fetchUserEmail", "Signed in as xxx@gmail.com"); //+ G.userEmail);
 }
 
 export async function verifyWritable(folderId) {
-    log("[GD.verifyWritable] called - Verifying Drive write access (probe)");
+    log("GD.verifyWritable", "called - Verifying Drive write access (probe)");
     await fetch(buildDriveUrl("files", {
         q: `'${folderId}' in parents`,
         pageSize: 1
@@ -28,11 +28,11 @@ export async function verifyWritable(folderId) {
             Authorization: `Bearer ${G.accessToken}`
         }
     });
-    log("[GD.verifyWritable] Drive access verified (read scope OK)");
+    log("GD.verifyWritable", "Drive access verified (read scope OK)");
 }
 
 export async function verifySharedRoot(root) {
-    log("[GD.verifySharedRoot] called");
+    log("GD.verifySharedRoot", "called");
     await driveFetch(buildDriveUrl(`files/${root}`, {
         fields: "id"
     }));
@@ -182,7 +182,7 @@ async function _driveFetchRaw(url, options = {}) {
 
 export async function findOrCreateUserFolder() {
 
-    log("[GD.findOrCreateUserFolder] called");
+    log("GD.findOrCreateUserFolder", "called");
     const rootQ = `'${C.ACCESS4_ROOT_ID}' in parents and name='${C.PUBKEY_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder'`;
     const rootRes = await driveFetch(buildDriveUrl("files", {
         q: rootQ,
@@ -224,7 +224,7 @@ export async function findOrCreateUserFolder() {
 }
 
 async function markPreviousDriveKeyDeprecated(oldFingerprint, newFingerprint) {
-    log("[GD.markPreviousDriveKeyDeprecated] called");
+    log("GD.markPreviousDriveKeyDeprecated", "called");
 
     const folder = await findOrCreateUserFolder();
     const filenamePattern = `${G.userEmail}__`; // all device keys for this user
@@ -232,7 +232,7 @@ async function markPreviousDriveKeyDeprecated(oldFingerprint, newFingerprint) {
     const res = await driveFetch(buildDriveUrl("files", { q, fields:"files(id,name)" }));
 
     if (!res.files.length) {
-        log("[GD.markPreviousDriveKeyDeprecated] no drive files found to mark keys as deprecated");
+        log("GD.markPreviousDriveKeyDeprecated", "no drive files found to mark keys as deprecated");
         return; // nothing to patch
     }
 
@@ -252,12 +252,12 @@ async function markPreviousDriveKeyDeprecated(oldFingerprint, newFingerprint) {
             body: JSON.stringify(patchData)
         });
 
-        log(`[markPreviousDriveKeyDeprecated] Marked keyId (${oldFingerprint}) as deprecated in file:${file.id}`);
+        log("GD.markPreviousDriveKeyDeprecated", `Marked keyId (${oldFingerprint}) as deprecated in file:${file.id}`);
     }
 }
 
 export async function loadPublicKeyJsonsFromDrive() {
-    log("[GD.loadPublicKeyJsonsFromDrive] called");
+    log("GD.loadPublicKeyJsonsFromDrive", "called");
     const publicKeyJsons = [];
 
     // 1️⃣ Locate pub-keys folder
@@ -267,7 +267,7 @@ export async function loadPublicKeyJsonsFromDrive() {
     });
 
     if (pubKeysFolders.length === 0) {
-        warn("[GD.loadPublicKeyJsonsFromDrive] pub-keys folder not found");
+        warn("GD.loadPublicKeyJsonsFromDrive", "pub-keys folder not found");
         return publicKeyJsons;
     }
 
@@ -291,7 +291,7 @@ export async function loadPublicKeyJsonsFromDrive() {
                 const json = await driveReadJsonFile(file.id);
                 publicKeyJsons.push(json);
             } catch (err) {
-                log(`[loadPublicKeyJsonsFromDrive] Failed to read ${file.name}: ${err.message}`);
+                error("GD.loadPublicKeyJsonsFromDrive", `Failed to read ${file.name}: ${err.message}`);
             }
         }
     }
@@ -315,18 +315,17 @@ export async function loadPublicKeyJsonsFromDrive() {
                 const recoveryJson = await driveReadJsonFile(recoveryPublicFiles[0].id);
                 publicKeyJsons.push(recoveryJson);
             } catch (err) {
-                log("[GD.loadPublicKeyJsonsFromDrive] Failed to read recovery.public.json");
+                error("GD.loadPublicKeyJsonsFromDrive", "Failed to read recovery.public.json");
             }
         }
     }
 
-    log(`[loadPublicKeyJsonsFromDrive] Loaded ${publicKeyJsons.length} public keys`);
+    log("GD.loadPublicKeyJsonsFromDrive", `Loaded ${publicKeyJsons.length} public keys`);
     return publicKeyJsons;
 }
 
-/* ================= RECOVERY KEY ================= */
 export async function hasRecoveryKeyOnDrive() {
-    log("[GD.hasRecoveryKeyOnDrive] called");
+    log("GD.hasRecoveryKeyOnDrive", "called");
 
     try {
         const folders = await driveList({
@@ -334,7 +333,7 @@ export async function hasRecoveryKeyOnDrive() {
             pageSize: 1
         });
 
-        log("[GD.hasRecoveryKeyOnDrive] recovery folders found:", folders.length);
+        log("GD.hasRecoveryKeyOnDrive", "recovery folders found:", folders.length);
 
         if (!folders.length) return false;
 
@@ -348,7 +347,7 @@ export async function hasRecoveryKeyOnDrive() {
         return files.length === 1;
 
     } catch (e) {
-        error("[GD.hasRecoveryKeyOnDrive] Recovery key check failed:", e.message);
+        error("GD.hasRecoveryKeyOnDrive", "Recovery key check failed:", e.message);
         throw e; // mandatory block
     }
 }
@@ -378,7 +377,7 @@ export async function ensureRecoveryFolder() {
 }
 
 export async function readEnvelopeFromDrive(envelopeName) {
-    log("[GD.readEnvelopeFromDrive] called");
+    log("GD.readEnvelopeFromDrive", "called");
 
     const file = await findDriveFileByName(envelopeName);
     if (!file) return null;
@@ -392,7 +391,7 @@ export async function readEnvelopeFromDrive(envelopeName) {
 }
 
 export async function readLockFromDrive(envelopeName) {
-    //trace("[GD.readLockFromDrive] called");
+    //trace("GD.readLockFromDrive", "called");
     const lockName = `${envelopeName}.lock`;
 
     const file = await findDriveFileByName(lockName);
@@ -407,7 +406,7 @@ export async function readLockFromDrive(envelopeName) {
 }
 
 export async function writeLockToDrive(envelopeName, lockJson, existingFileId = null) {
-    //trace("[GD.writeLockToDrive] called lockJson:", JSON.stringify(lockJson));
+    //trace("GD.writeLockToDrive", "called lockJson:", JSON.stringify(lockJson));
 
     const lockName = `${envelopeName}.lock`;
 

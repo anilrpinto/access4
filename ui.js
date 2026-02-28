@@ -91,7 +91,6 @@ export async function init() {
         promptClearLocalStorage();
 
     await BM.debugBiometricDB();
-
     await updateBiometricIndicator();
 }
 
@@ -105,7 +104,7 @@ export function showUnlockMessage(msg, type = "error") {
 export function bindClick(el, callback, options = {}) {
     if (!el) {
         // Use your new logger!
-        warn("[UI.bindClick] Attempted to bind click to a null element.");
+        warn("UI.bindClick", "Attempted to bind click to a null element.");
         return;
     }
 
@@ -122,13 +121,13 @@ export function promptUnlockPasword() {
 }
 
 export function showAuthorizedEmail(email) {
-    log("[UI.showAuthorizedEmail] called - email:", email);
+    log("UI.showAuthorizedEmail", "called - email:", email);
     userEmailSpan.textContent = email;
 }
 
 // attach gesture logic
 function setupTitleGesture() {
-    log("[UI.setupTitleGesture] called");
+    log("UI.setupTitleGesture", "called");
 
     const el = document.getElementById("titleGesture");
     if (!el) return;
@@ -159,7 +158,7 @@ function setupTitleGesture() {
 }
 
 async function handleHiddenGesture() {
-    log("[UI.handleHiddenGesture] called");
+    log("UI.handleHiddenGesture", "called");
 
     if (!G.userEmail || G.sessionUnlocked) return;
 
@@ -182,7 +181,7 @@ async function handleHiddenGesture() {
 }
 
 function initLoginUI() {
-    log("[UI.initLoginUI] called");
+    log("UI.initLoginUI", "called");
 
     // Always show login view
     loginView.style.display = "block";
@@ -202,7 +201,7 @@ function initLoginUI() {
 }
 
 export function resetUnlockUi() {
-    log("[UI.resetUnlockUi] called");
+    log("UI.resetUnlockUi", "called");
 
     // 3️⃣ Clear UI state
     unlockedView.style.display = "none";
@@ -231,7 +230,7 @@ export function resetUnlockUi() {
     clearTimeout(idleTimer);
     idleCallback = null;
 
-    log("[UI.resetUnlockUi] G.authMode:", G.authMode)
+    log("UI.resetUnlockUi", "G.authMode:", G.authMode)
 
     if (G.authMode !== "create" && G.authMode !== "unlock") {
         showAuthorizedEmail(null);
@@ -240,7 +239,7 @@ export function resetUnlockUi() {
 }
 
 export function setupPasswordPrompt(mode, options = {}) {
-    log("[UI.setupPasswordPrompt] called");
+    log("UI.setupPasswordPrompt", "called");
 
     // ✅ Always enable unlockBtn when switching mode
     unlockBtn.disabled = false;
@@ -265,7 +264,7 @@ export function setupPasswordPrompt(mode, options = {}) {
 
 export function showVaultUI({ readOnly = false, onIdle = () => { warn('idle timeout fired') } } = {}) {
 
-    log("[UI.showVaultUI] called");
+    log("UI.showVaultUI", "called");
 
     // Hide login / password sections
     loginView.style.display = "none";
@@ -277,7 +276,7 @@ export function showVaultUI({ readOnly = false, onIdle = () => { warn('idle time
 
     // Update UI for read-only mode
     if (readOnly) {
-        warn("[UI.showVaultUI] Unlocked UI in read-only mode: disabling save button");
+        warn("UI.showVaultUI", "Unlocked UI in read-only mode: disabling save button");
         saveBtn.disabled = true;
         saveBtn.title = "Read-only mode: cannot save";
         plaintextInput.readOnly = true;
@@ -301,7 +300,7 @@ export function showVaultUI({ readOnly = false, onIdle = () => { warn('idle time
 }
 
 export function promptRecoverySetupUI() {
-    log("[UI.promptRecoverySetupUI] called");
+    log("UI.promptRecoverySetupUI", "called");
 
     return new Promise(resolve => {
         // reuse existing inputs
@@ -334,13 +333,13 @@ export function updateLockStatusUI() {
     if (!G.driveLockState) return;
 
     const { expiresAt } = G.driveLockState.lock;
-    trace(`[updateLockStatusUI] You hold the envelope lock (expires ${expiresAt})`);
+    trace("updateLockStatusUI", `You hold the envelope lock (expires ${expiresAt})`);
 }
 
 /* --------- Unlock flow --------- */
 
 async function handleCreatePasswordClick()  {
-    log("[UI.handleCreatePasswordClick] called");
+    log("UI.handleCreatePasswordClick", "called");
 
     const pwd = passwordInput.value;
     const confirm = confirmPasswordInput.value;
@@ -358,7 +357,7 @@ async function handleCreatePasswordClick()  {
     try {
         await ID.createIdentity(pwd);
         await proceedAfterPasswordSuccess();
-        log("[UI.handleCreatePasswordClick] New identity created and unlocked");
+        log("UI.handleCreatePasswordClick", "New identity created and unlocked");
     } catch (e) {
         showUnlockMessage(e.message);
     }
@@ -366,7 +365,7 @@ async function handleCreatePasswordClick()  {
 
 async function handleUnlockClick() {
 
-    log("[UI.handleUnlockClick] called");
+    log("UI.handleUnlockClick", "called");
 
     if (G.unlockInProgress) return;
 
@@ -383,18 +382,20 @@ async function handleUnlockClick() {
     try {
         await unlockIdentityFlow(pwd);
         await proceedAfterPasswordSuccess();
+        G.unlockInProgress = false;
     } catch (e) {
+        G.unlockInProgress = false;
         const def = Object.values(C.UNLOCK_ERROR_DEFS)
             .find(d => d.code === e.code);
 
         showUnlockMessage(def?.message || e.message || "Unlock failed");
-        error("[UI.handleUnlockClick] Unlock failed:", (def?.message || e.message));
+        error("UI.handleUnlockClick", "Unlock failed:", (def?.message || e.message));
     }
 }
 
 async function unlockIdentityFlow(pwd) {
 
-    log("[UI.unlockIdentityFlow] called");
+    log("UI.unlockIdentityFlow", "called");
 
     if (!pwd || pwd.length < 7) {
         const e = new Error(C.UNLOCK_ERROR_DEFS.WEAK_PASSWORD.message);
@@ -402,7 +403,7 @@ async function unlockIdentityFlow(pwd) {
         throw e;
     }
 
-    log("[UI.unlockIdentityFlow] Unlock attempt started for password:", (pwd ? "***" : "(empty)"));
+    log("UI.unlockIdentityFlow", "Unlock attempt started for password:", (pwd ? "***" : "(empty)"));
 
     if (!G.accessToken) {
         const e = new Error(C.UNLOCK_ERROR_DEFS.NO_ACCESS_TOKEN.message);
@@ -413,16 +414,16 @@ async function unlockIdentityFlow(pwd) {
     let id = await ID.loadIdentity();
 
     if (!id) {
-        error("[UI.unlockIdentityFlow] No local identity found — cannot unlock");
+        error("UI.unlockIdentityFlow", "No local identity found — cannot unlock");
         const e = new Error(C.UNLOCK_ERROR_DEFS.NO_IDENTITY.message);
         e.code = C.UNLOCK_ERROR_DEFS.NO_IDENTITY.code;
         throw e;
     }
-    //log("[UI.unlockIdentityFlow] Identity loaded:", !!id);
-    log("[UI.unlockIdentityFlow] Local identity found");
+    //log("UI.unlockIdentityFlow", "Identity loaded:", !!id);
+    log("UI.unlockIdentityFlow", "Local identity found");
 
     if (id && !id.passwordVerifier) {
-        log("[UI.unlockIdentityFlow] Identity missing password verifier — attempting auto-migration");
+        log("UI.unlockIdentityFlow", "Identity missing password verifier — attempting auto-migration");
 
         try {
             await ID.migrateIdentityWithVerifier(id, pwd);
@@ -433,7 +434,7 @@ async function unlockIdentityFlow(pwd) {
             throw e;
         }
     }
-    log("[UI.unlockIdentityFlow] password verifier found, skipped identity migration");
+    log("UI.unlockIdentityFlow", "password verifier found, skipped identity migration");
 
     // ─────────────────────────────
     // 🔐 AUTHORITATIVE PASSWORD CHECK
@@ -443,13 +444,13 @@ async function unlockIdentityFlow(pwd) {
         key = await CR.deriveKey(pwd, id.kdf);
         await ID.verifyPasswordVerifier(id.passwordVerifier, key);
     } catch {
-        error("[UI.unlockIdentityFlow] passwordVerifier check failed for provided password");
+        error("UI.unlockIdentityFlow", "passwordVerifier check failed for provided password");
         const e = new Error(C.UNLOCK_ERROR_DEFS.INCORRECT_PASSWORD.message);
         e.code = C.UNLOCK_ERROR_DEFS.INCORRECT_PASSWORD.code;
         throw e;
     }
 
-    log("[UI.unlockIdentityFlow] Password verifier check succeeded");
+    log("UI.unlockIdentityFlow", "Password verifier check succeeded");
 
     // ─────────────────────────────
     // 🔓 Attempt private key decrypt
@@ -460,16 +461,16 @@ async function unlockIdentityFlow(pwd) {
     try {
         decryptedPrivateKeyBytes = await CR.decrypt(id.encryptedPrivateKey, key);
         decrypted = true;
-        log("[UI.unlockIdentityFlow] Identity private key successfully decrypted");
+        log("UI.unlockIdentityFlow", "Identity private key successfully decrypted");
     } catch {
-        warn("[UI.unlockIdentityFlow] Private key decryption failed, will attempt one time key rotation");
+        warn("UI.unlockIdentityFlow", "Private key decryption failed, will attempt one time key rotation");
     }
 
     // ─────────────────────────────
     // 🔁 Single rotation retry
     // ─────────────────────────────
     if (!decrypted) {
-        log("[UI.unlockIdentityFlow] Attempting device key rotation");
+        log("UI.unlockIdentityFlow", "Attempting device key rotation");
 
         await ID.rotateDeviceIdentity(pwd);
         id = await ID.loadIdentity();
@@ -477,9 +478,9 @@ async function unlockIdentityFlow(pwd) {
         try {
             await CR.decrypt(id.encryptedPrivateKey, key);
             decrypted = true;
-            log("[UI.unlockIdentityFlow] Decryption succeeded after rotation");
+            log("UI.unlockIdentityFlow", "Decryption succeeded after rotation");
         } catch {
-            warn("[UI.unlockIdentityFlow] Decryption still failing after rotation");
+            warn("UI.unlockIdentityFlow", "Decryption still failing after rotation");
         }
     }
 
@@ -487,13 +488,13 @@ async function unlockIdentityFlow(pwd) {
     // 🧨 Absolute Safari recovery
     // ─────────────────────────────
     if (!decrypted) {
-        log("[UI.unlockIdentityFlow] Rotation failed (safari behavior?) — recreating identity");
+        log("UI.unlockIdentityFlow", "Rotation failed (safari behavior?) — recreating identity");
 
         await createIdentity(pwd);
         id = await ID.loadIdentity();
 
         if (!id) {
-            error("[UI.unlockIdentityFlow] Faied to load existing identity - ", C.UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.message);
+            error("UI.unlockIdentityFlow", "Faied to load existing identity - ", C.UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.message);
             const e = new Error(C.UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.message);
             e.code = C.UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.code;
             throw e;
@@ -503,9 +504,9 @@ async function unlockIdentityFlow(pwd) {
             key = await CR.deriveKey(pwd, id.kdf);
             await decrypt(id.encryptedPrivateKey, key);
             decrypted = true;
-            log("[UI.unlockIdentityFlow] Decryption succeeded after recreation");
+            log("UI.unlockIdentityFlow", "Decryption succeeded after recreation");
         } catch {
-            error("[UI.unlockIdentityFlow] post rotation decryption attempt failed - ", C.UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.message);
+            error("UI.unlockIdentityFlow", "post rotation decryption attempt failed - ", C.UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.message);
             const e = new Error(C.UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.message);
             e.code = C.UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.code;
             throw e;
@@ -513,7 +514,7 @@ async function unlockIdentityFlow(pwd) {
     }
 
     if (id.supersedes) {
-        log("[UI.unlockIdentityFlow] Identity supersedes previous keyId:", id.supersedes);
+        log("UI.unlockIdentityFlow", "Identity supersedes previous keyId:", id.supersedes);
     }
 
     // ─────────────────────────────
@@ -545,9 +546,9 @@ async function unlockIdentityFlow(pwd) {
                     privateKey
                 });
 
-                log(`[UI.unlockIdentityFlow] Previous key ${prev.fingerprint} decrypted for session`);
+                log("UI.unlockIdentityFlow", `Previous key ${prev.fingerprint} decrypted for session`);
             } catch {
-                warn(`[UI.unlockIdentityFlow] Failed to decrypt previous key ${prev.fingerprint}`);
+                warn("UI.unlockIdentityFlow", `Failed to decrypt previous key ${prev.fingerprint}`);
             }
         }
     }
@@ -557,21 +558,21 @@ async function unlockIdentityFlow(pwd) {
     G.unlockedIdentity = id;
     G.sessionUnlocked = true;
 
-    log("[UI.unlockIdentityFlow] G.unlockedIdentity set in memory for session");
+    log("UI.unlockIdentityFlow", "G.unlockedIdentity set in memory for session");
 
     if (G.biometricIntent) {
         const registered = await BM.isBiometricRegistered();
 
         if (!registered) {
             try {
-                log("[UI.unlockIdentityFlow] First-time biometric enrollment");
+                log("UI.unlockIdentityFlow", "First-time biometric enrollment");
                 await BM.enrollBiometric(pwd);
-                log("[UI.unlockIdentityFlow] Biometric enrollment successful");
+                log("UI.unlockIdentityFlow", "Biometric enrollment successful");
             } catch (err) {
-                warn("[UI.unlockIdentityFlow] Biometric enrollment skipped or failed:", err);
+                warn("UI.unlockIdentityFlow", "Biometric enrollment skipped or failed:", err);
             }
         } else {
-            log("[UI.unlockIdentityFlow] Biometric already registered");
+            log("UI.unlockIdentityFlow", "Biometric already registered");
         }
 
         G.biometricIntent = false;
@@ -580,28 +581,27 @@ async function unlockIdentityFlow(pwd) {
     // 3️⃣ Immediately destroy password reference
     pwd = null;
 
-    log("[UI.unlockIdentityFlow] Proceeding to device public key exchange");
+    log("UI.unlockIdentityFlow", "Proceeding to device public key exchange");
     await ID.ensureDevicePublicKey();
-
     await updateBiometricIndicator();
     return id;
 }
 
 export async function proceedAfterPasswordSuccess() {
-    log("[UI.proceedAfterPasswordSuccess] called");
-    log("[UI.proceedAfterPasswordSuccess] G.unlockedIdentity exists:", !!G.unlockedIdentity);
-    log("[UI.proceedAfterPasswordSuccess] G.currentPrivateKey exists:", !!G.currentPrivateKey);
-    log("[UI.proceedAfterPasswordSuccess] G.driveLockState:", G.driveLockState ? { mode: G.driveLockState.mode, self: G.driveLockState.self } : null);
+    log("UI.proceedAfterPasswordSuccess", "called");
+    log("UI.proceedAfterPasswordSuccess", "G.unlockedIdentity exists:", !!G.unlockedIdentity);
+    log("UI.proceedAfterPasswordSuccess", "G.currentPrivateKey exists:", !!G.currentPrivateKey);
+    log("UI.proceedAfterPasswordSuccess", "G.driveLockState:", G.driveLockState ? { mode: G.driveLockState.mode, self: G.driveLockState.self } : null);
 
     await E.ensureEnvelope();      // 🔐 guarantees CEK + envelope
     await ensureRecoveryKey();   // 🔑 may block UI
 
     // ---- New housekeeping: wrap CEK for registry ----
     if (G.driveLockState?.self && G.driveLockState.envelopeName === C.ENVELOPE_NAME) {
-        log("[UI.proceedAfterPasswordSuccess] Performing CEK housekeeping for all valid devices + recovery keys");
+        log("UI.proceedAfterPasswordSuccess", "Performing CEK housekeeping for all valid devices + recovery keys");
         await E.wrapCEKForRegistryKeys();  // helper handles load & write
     } else {
-        warn("[UI.proceedAfterPasswordSuccess] Skipping CEK housekeeping — G.driveLockState not ready or not writable");
+        warn("UI.proceedAfterPasswordSuccess", "Skipping CEK housekeeping — G.driveLockState not ready or not writable");
     }
 
     await E.loadEnvelopePayloadToUI(text => plaintextInput.value = text);
@@ -609,34 +609,34 @@ export async function proceedAfterPasswordSuccess() {
     // Show unlocked UI in read-only mode if no write lock
     const readOnly = !G.driveLockState?.self || G.driveLockState.mode !== "write";
     if (readOnly) {
-        warn("[UI.proceedAfterPasswordSuccess] Showing unlocked UI in read-only mode");
+        warn("UI.proceedAfterPasswordSuccess", "Showing unlocked UI in read-only mode");
     }
     showVaultUI({ readOnly, onIdle: (type) => logout() });
 
-    log("IndexedDB dbs: ", JSON.stringify(await indexedDB.databases()));
+    log("UI.proceedAfterPasswordSuccess", "IndexedDB dbs:", JSON.stringify(await indexedDB.databases()));
 
     U.dumpLocalStorageForDebug();
-    log("[UI.proceedAfterPasswordSuccess] Unlock successful!@");
+    log("UI.proceedAfterPasswordSuccess", "Unlock successful!@");
 }
 
 async function ensureRecoveryKey() {
-    log("[UI.ensureRecoveryKey] called");
+    log("UI.ensureRecoveryKey", "called");
 
     if (await GD.hasRecoveryKeyOnDrive()) {
-        info("[UI.ensureRecoveryKey] Recovery key already present");
+        info("UI.ensureRecoveryKey", "Recovery key already present");
         return;
     }
 
-    log("[UI.ensureRecoveryKey] No recovery key found — blocking for recovery setup");
+    log("UI.ensureRecoveryKey", "No recovery key found — blocking for recovery setup");
     await promptRecoverySetupUI();   // ← UI + user input
 }
 
 async function handleSaveClick() {
-    log("[UI.handleSaveClick] called");
+    log("UI.handleSaveClick", "called");
 
     const text = plaintextInput.value;
     if (!text) {
-        warn("[handleSaveClick] Nothing to encrypt");
+        warn("UI.handleSaveClick] Nothing to encrypt");
         return;
     }
 
@@ -644,13 +644,13 @@ async function handleSaveClick() {
         await E.encryptAndPersistPlaintext(text);
         //plaintextInput.value = "";
     } catch (e) {
-        error("[handleSaveClick] Encryption failed:", e.message);
+        error("UI.handleSaveClick] Encryption failed:", e.message);
     }
     alert("Saved!");
 }
 
 export async function updateBiometricIndicator() {
-    log("[UI.updateBiometricIndicator] called");
+    log("UI.updateBiometricIndicator", "called");
 
     const el = document.getElementById("titleGesture");
     if (!el) return;
@@ -681,7 +681,7 @@ async function copyLogsToClipboard() {
         await navigator.clipboard.writeText(logEl.innerText);
         alert("Logs copied to clipboard");
     } catch (err) {
-        error("Failed to copy logs:", err);
+        error("UI.copyLogsToClipboard", "Failed to copy logs:", err);
     }
 }
 
@@ -689,12 +689,12 @@ async function promptClearBiometricIndexedDB() {
     const confirmed = window.confirm("Are you sure you want to clear the biometric db? This cannot be undone.");
 
     if (!confirmed) {
-        log("[promptClearBiometricIndexedDB] Deleting bio metric db canceled");
+        log("UI.promptClearBiometricIndexedDB] Deleting bio metric db canceled");
         return false;
     }
 
     await BM.clearBiometricIndexedDB();
-    log("[promptClearBiometricIndexedDB] db deleted successfully.");
+    log("UI.promptClearBiometricIndexedDB", "db deleted successfully.");
     return true;
 }
 
@@ -702,12 +702,12 @@ function promptClearLocalStorage() {
     const confirmed = window.confirm("Are you sure you want to clear all localStorage data for this app? This cannot be undone.");
 
     if (!confirmed) {
-        log("[promptClearLocalStorage] localStorage clear canceled");
+        log("UI.promptClearLocalStorage", "localStorage clear canceled");
         return false;
     }
 
     localStorage.clear();
-    log("[promptClearLocalStorage] localStorage cleared successfully.");
+    log("UI.promptClearLocalStorage", "localStorage cleared successfully.");
     return true;
 }
 

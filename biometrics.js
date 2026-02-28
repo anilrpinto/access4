@@ -10,13 +10,13 @@ import { log, trace, debug, info, warn, error } from './log.js';
 const DB_VERSION = 1;
 
 export async function isBiometricRegistered() {
-    log("[BM.isBiometricRegistered] called");
+    log("BM.isBiometricRegistered", "called");
     const record = await loadBiometricRecordFromIndexedDB();
     return !!record;
 }
 
 export async function enrollBiometric(password) {
-    log("[BM.enrollBiometric] called");
+    log("BM.enrollBiometric", "called");
 
     if (!window.PublicKeyCredential) return;
 
@@ -65,7 +65,7 @@ export async function enrollBiometric(password) {
 
     // 5️⃣ Store PWK in IndexedDB
     await storePWK(bioScopeKey("pwk"), pwk);
-    log("[BM.enrollBiometric] Biometric shortcut securely enrolled");
+    log("BM.enrollBiometric", "Biometric shortcut securely enrolled");
 }
 
 function bioScopeKey(type) {
@@ -73,23 +73,23 @@ function bioScopeKey(type) {
 }
 
 export async function attemptBiometricUnlock(callback) {
-    log("[BM.attemptBiometricUnlock] called");
+    log("BM.attemptBiometricUnlock] called");
 
     if (!window.PublicKeyCredential) {
-        warn("[BM.attemptBiometricUnlock] Biometric not supported");
+        warn("BM.attemptBiometricUnlock] Biometric not supported");
         return;
     }
 
     const record = await loadBiometricRecordFromIndexedDB();
     if (!record) {
-        warn("[BM.attemptBiometricUnlock] No biometric record found");
+        warn("BM.attemptBiometricUnlock] No biometric record found");
         return;
     }
 
     const { credentialId, wrappedPassword, iv } = record;
 
     try {
-        log("[BM.attemptBiometricUnlock] Triggering biometric prompt...");
+        log("BM.attemptBiometricUnlock] Triggering biometric prompt...");
         // 1️⃣ Trigger biometric assertion
         await navigator.credentials.get({
             publicKey: {
@@ -115,13 +115,13 @@ export async function attemptBiometricUnlock(callback) {
 
         const password = new TextDecoder().decode(decrypted);
 
-        log("[BM.attemptBiometricUnlock] Password decrypted via biometric, proceeding with implicit unlock");
+        log("BM.attemptBiometricUnlock] Password decrypted via biometric, proceeding with implicit unlock");
 
         if (callback)
             await callback(password);
 
     } catch (err) {
-        warn("[BM.attemptBiometricUnlock] Biometric unlock failed:", err.message);
+        warn("BM.attemptBiometricUnlock] Biometric unlock failed:", err.message);
     }
 }
 
@@ -169,7 +169,7 @@ async function openDB({ write = false } = {}) {
 }
 
 export async function saveBiometricRecord(record) {
-    log("[BM.saveBiometricRecord] called");
+    log("BM.saveBiometricRecord] called");
 
     const db = await openDB({ write: true });
 
@@ -183,7 +183,7 @@ export async function saveBiometricRecord(record) {
 }
 
 export async function loadBiometricRecordFromIndexedDB() {
-    log("[BM.loadBiometricRecordFromIndexedDB] called");
+    log("BM.loadBiometricRecordFromIndexedDB] called");
 
     const db = await openDB({ write: false });
     if (!db) return null;
@@ -198,7 +198,7 @@ export async function loadBiometricRecordFromIndexedDB() {
 }
 
 export async function loadPWK(keyId) {
-    log("[BM.loadPWK] called");
+    log("BM.loadPWK] called");
     const db = await openDB({ write: false });
     if (!db) return null;
 
@@ -211,7 +211,7 @@ export async function loadPWK(keyId) {
 }
 
 async function storePWK(keyId, cryptoKey) {
-    log("[BM.storePWK] called");
+    log("BM.storePWK] called");
 
     const db = await openDB({ write: true });
 
@@ -225,35 +225,35 @@ async function storePWK(keyId, cryptoKey) {
 }
 
 export async function debugBiometricDB() {
-    log("----- BIOMETRIC DB DEBUG -----");
+    trace("BM.debugBiometricDB", "----- BIOMETRIC DB DEBUG -----");
 
     // 1️⃣ Check if database exists
     const dbList = await indexedDB.databases?.();
     const dbMeta = dbList?.find(db => db.name === C.BIO_DB_NAME);
 
     if (!dbMeta) {
-        log("DB does not exist.");
-        log("------------------------------");
+        log("BM.debugBiometricDB", "DB does not exist.");
+        log("BM.debugBiometricDB", "------------------------------");
         return;
     }
 
-    log("DB exists.");
-    log("Version:", dbMeta.version);
+    log("BM.debugBiometricDB", "DB exists.");
+    log("BM.debugBiometricDB", "Version:", dbMeta.version);
 
     // 2️⃣ Open DB safely (read-only mode, no creation)
     const db = await openDB({ write: false });
 
     if (!db) {
-        log("Store missing.");
-        log("------------------------------");
+        log("BM.debugBiometricDB", "Store missing.");
+        log("BM.debugBiometricDB", "------------------------------");
         return;
     }
 
-    log("Object stores:", [...db.objectStoreNames]);
+    log("BM.debugBiometricDB", "Object stores:", [...db.objectStoreNames]);
 
     if (!db.objectStoreNames.contains(C.BIO_STORE)) {
-        log("BIO_STORE does NOT exist.");
-        log("------------------------------");
+        log("BM.debugBiometricDB", "BIO_STORE does NOT exist.");
+        log("BM.debugBiometricDB", "------------------------------");
         return;
     }
 
@@ -264,14 +264,14 @@ export async function debugBiometricDB() {
         const req = store.getAll();
 
         req.onsuccess = () => {
-            log("Records:", req.result);
+            log("BM.debugBiometricDB", "Records:", req.result);
             resolve();
         };
 
         req.onerror = () => reject(req.error);
     });
 
-    log("------------------------------");
+    log("BM.debugBiometricDB", "------------------------------");
 }
 
 export async function clearBiometricIndexedDB() {
@@ -279,17 +279,17 @@ export async function clearBiometricIndexedDB() {
         const request = indexedDB.deleteDatabase(C.BIO_DB_NAME);
 
         request.onsuccess = () => {
-            log(`[clearBiometricIndexedDB] Biometric IndexedDB '${C.BIO_DB_NAME}' deleted successfully`);
+            log("clearBiometricIndexedDB", `Biometric IndexedDB '${C.BIO_DB_NAME}' deleted successfully`);
             resolve(true);
         };
 
         request.onerror = (event) => {
-            error("[clearBiometricIndexedDB] Error deleting IndexedDB:", event);
+            error("clearBiometricIndexedDB", "Error deleting IndexedDB:", event);
             reject(event);
         };
 
         request.onblocked = () => {
-            warn(`[clearBiometricIndexedDB] Delete blocked — close all tabs using '${C.BIO_DB_NAME}'`);
+            warn("clearBiometricIndexedDB", `Delete blocked — close all tabs using '${C.BIO_DB_NAME}'`);
         };
     });
 }

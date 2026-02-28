@@ -11,7 +11,7 @@ import { log, trace, debug, info, warn, error } from './log.js';
 
 export function initGIS() {
 
-    log("[AU.initGIS] called");
+    log("AU.initGIS", "called");
 
     G.tokenClient = google.accounts.oauth2.initTokenClient({
         client_id: C.CLIENT_ID,
@@ -31,12 +31,12 @@ export function initGIS() {
 }
 
 async function handleAuth(resp) {
-    log("[AU.handleAuth] called");
+    log("AU.handleAuth", "called");
 
     if (resp.error) return;
 
     G.accessToken = resp.access_token;
-    log(`[handleAuth] Access token acquired ${G.accessToken}`);
+    log("AU.handleAuth", `Access token acquired ${G.accessToken}`);
 
     await GD.fetchUserEmail();
     await GD.verifySharedRoot(C.ACCESS4_ROOT_ID);
@@ -54,7 +54,7 @@ function isSessionAuthenticated() {
 }
 
 async function onAuthReady(email) {
-    log("[AU.onAuthReady] called");
+    log("AU.onAuthReady", "called");
     UI.showAuthorizedEmail(email);
 
     try {
@@ -63,23 +63,23 @@ async function onAuthReady(email) {
         if (!id) {
             // New device → create identity
             setAuthMode("create");
-            log("[AU.onAuthReady] New device detected, prompting password creation");
+            log("AU.onAuthReady", "New device detected, prompting password creation");
             return;
         }
 
         if (!id.passwordVerifier) {
             // Legacy identity → migration
             setAuthMode("unlock", { migration: true });
-            log("[AU.onAuthReady] Identity missing password verifier — migration mode");
+            log("AU.onAuthReady", "Identity missing password verifier — migration mode");
             return;
         }
 
         UI.showUnlockMessage("Checking for active session...", "info");
         // Attempt session restore first
         if (await attemptSessionRestore()) {
-            log("[AU.onAuthReady] Found an active authenticated browser session — skipping password prompt");
+            log("AU.onAuthReady", "Found an active authenticated browser session — skipping password prompt");
 
-            log("[AU.onAuthReady] G.driveLockState after session restore:" + (G.driveLockState ? { mode: G.driveLockState.mode, self: G.driveLockState.self } : null));
+            log("AU.onAuthReady", "G.driveLockState after session restore:" + (G.driveLockState ? { mode: G.driveLockState.mode, self: G.driveLockState.self } : null));
             UI.showUnlockMessage("Authentication succeeded, proceeding to vault", "success");
             await ID.ensureDevicePublicKey();
             await UI.proceedAfterPasswordSuccess();
@@ -88,17 +88,17 @@ async function onAuthReady(email) {
 
         // Returning user → unlock
         setAuthMode("unlock");
-        log("[AU.onAuthReady] Existing device detected, prompting unlock");
+        log("AU.onAuthReady", "Existing device detected, prompting unlock");
 
     } catch (e) {
-        error("[AU.onAuthReady] Error loading identity:", e.message);
+        error("AU.onAuthReady", "Error loading identity:", e.message);
         UI.showUnlockMessage("Failed to load identity. Try again.");
         UI.signinBtn.disabled = false;
     }
 }
 
 function setAuthMode(mode, options = {}) {
-    log("[AU.setAuthMode] called - mode: " + mode);
+    log("AU.setAuthMode", "called - mode: " + mode);
     G.authMode = mode;
 
     // reset fields
@@ -108,18 +108,18 @@ function setAuthMode(mode, options = {}) {
 }
 
 async function attemptSessionRestore() {
-    log("[AU.attemptSessionRestore] called");
+    log("AU.attemptSessionRestore", "called");
 
     try {
         const stored = sessionStorage.getItem("sv_session_private_key");
 
-        log("[AU.attemptSessionRestore] sessionStorage private key exists:", !!stored);
+        log("AU.attemptSessionRestore", "sessionStorage private key exists:", !!stored);
         if (!stored) {
-            warn("[AU.attemptSessionRestore] No session private key found in sessionStorage");
+            warn("AU.attemptSessionRestore", "No session private key found in sessionStorage");
             return false;
         }
 
-        log("[AU.attemptSessionRestore] Restoring session private key...");
+        log("AU.attemptSessionRestore", "Restoring session private key...");
 
         const bytes = Uint8Array.from(atob(stored), c => c.charCodeAt(0));
 
@@ -133,10 +133,10 @@ async function attemptSessionRestore() {
 
         // Load identity from localStorage
         const id = await ID.loadIdentity(); // gets raw identity
-        log("[AU.attemptSessionRestore] loadIdentity returned:", !!id);
+        log("AU.attemptSessionRestore", "loadIdentity returned:", !!id);
 
         if (!id) {
-            log("[AU.attemptSessionRestore] Identity not found in localStorage despite private key");
+            log("AU.attemptSessionRestore", "Identity not found in localStorage despite private key");
             return false;
         }
 
@@ -147,33 +147,33 @@ async function attemptSessionRestore() {
         G.unlockedIdentity = id;
 
         G.sessionUnlocked = true;
-        log("[AU.attemptSessionRestore] Session restored from sessionStorage");
+        log("AU.attemptSessionRestore", "Session restored from sessionStorage");
 
-        log("[AU.attemptSessionRestore] Session restore check...");
-        log("[AU.attemptSessionRestore] G.unlockedIdentity exists:", !!G.unlockedIdentity);
-        log("[AU.attemptSessionRestore] fingerprint:", G.unlockedIdentity?.fingerprint);
-        log("[AU.attemptSessionRestore] deviceId:", G.unlockedIdentity?.deviceId);
-        log("[AU.attemptSessionRestore] G.currentPrivateKey exists:", !!G.currentPrivateKey);
-        log("[AU.attemptSessionRestore] privateKey type:", G.currentPrivateKey?.type);
-        log("[AU.attemptSessionRestore] privateKey algorithm:", JSON.stringify(G.currentPrivateKey?.algorithm));
+        log("AU.attemptSessionRestore", "Session restore check...");
+        log("AU.attemptSessionRestore", "G.unlockedIdentity exists:", !!G.unlockedIdentity);
+        log("AU.attemptSessionRestore", "fingerprint:", G.unlockedIdentity?.fingerprint);
+        log("AU.attemptSessionRestore", "deviceId:", G.unlockedIdentity?.deviceId);
+        log("AU.attemptSessionRestore", "G.currentPrivateKey exists:", !!G.currentPrivateKey);
+        log("AU.attemptSessionRestore", "privateKey type:", G.currentPrivateKey?.type);
+        log("AU.attemptSessionRestore", "privateKey algorithm:", JSON.stringify(G.currentPrivateKey?.algorithm));
 
         return true;
 
     } catch (err) {
-        warn("[AU.attemptSessionRestore] Session restore failed, clearing");
+        warn("AU.attemptSessionRestore", "Session restore failed, clearing");
         sessionStorage.removeItem("sv_session_private_key");
         return false;
     }
 }
 
 async function ensureAuthorization() {
-    log("[AU.ensureAuthorization] called");
+    log("AU.ensureAuthorization", "called");
 
     const q = `'${C.ACCESS4_ROOT_ID}' in parents and name='${C.AUTH_FILE_NAME}'`;
     const res = await GD.driveFetch(GD.buildDriveUrl("files", { q, fields:"files(id)" }));
 
     if (!res.files.length) {
-        log("[AU.ensureAuthorization] authorized.json not found, creating genesis authorization...");
+        log("AU.ensureAuthorization", "authorized.json not found, creating genesis authorization...");
         await createGenesisAuthorization();
         return;
     }
@@ -182,11 +182,11 @@ async function ensureAuthorization() {
     }));
     if (!data.admins.includes(G.userEmail) && !data.members.includes(G.userEmail))
         throw new Error("Unauthorized user");
-    log("[AU.ensureAuthorization] Authorized user verified");
+    log("AU.ensureAuthorization", "Authorized user verified");
 }
 
 async function createGenesisAuthorization() {
-    log("[AU.createGenesisAuthorization] called");
+    log("AU.createGenesisAuthorization", "called");
 
     const file = await GD.driveFetch(GD.buildDriveUrl("files"), {
         method:"POST",
@@ -212,5 +212,5 @@ async function createGenesisAuthorization() {
             version: 1
         })
     });
-    log(`[createGenesisAuthorization] Genesis authorization created for ${G.userEmail}`);
+    log("AU.createGenesisAuthorization", `Genesis authorization created for ${G.userEmail}`);
 }
