@@ -73,23 +73,23 @@ function bioScopeKey(type) {
 }
 
 export async function attemptBiometricUnlock(callback) {
-    log("BM.attemptBiometricUnlock] called");
+    log("BM.attemptBiometricUnlock", "called");
 
     if (!window.PublicKeyCredential) {
-        warn("BM.attemptBiometricUnlock] Biometric not supported");
+        warn("BM.attemptBiometricUnlock", "Biometric not supported");
         return;
     }
 
     const record = await loadBiometricRecordFromIndexedDB();
     if (!record) {
-        warn("BM.attemptBiometricUnlock] No biometric record found");
+        warn("BM.attemptBiometricUnlock", "No biometric record found");
         return;
     }
 
     const { credentialId, wrappedPassword, iv } = record;
 
     try {
-        log("BM.attemptBiometricUnlock] Triggering biometric prompt...");
+        log("BM.attemptBiometricUnlock", "Triggering biometric prompt...");
         // 1️⃣ Trigger biometric assertion
         await navigator.credentials.get({
             publicKey: {
@@ -115,13 +115,13 @@ export async function attemptBiometricUnlock(callback) {
 
         const password = new TextDecoder().decode(decrypted);
 
-        log("BM.attemptBiometricUnlock] Password decrypted via biometric, proceeding with implicit unlock");
+        log("BM.attemptBiometricUnlock", "Password decrypted via biometric, proceeding with implicit unlock");
 
         if (callback)
             await callback(password);
 
     } catch (err) {
-        warn("BM.attemptBiometricUnlock] Biometric unlock failed:", err.message);
+        warn("BM.attemptBiometricUnlock", "Biometric unlock failed:", err.message);
     }
 }
 
@@ -169,7 +169,7 @@ async function openDB({ write = false } = {}) {
 }
 
 export async function saveBiometricRecord(record) {
-    log("BM.saveBiometricRecord] called");
+    log("BM.saveBiometricRecord", "called");
 
     const db = await openDB({ write: true });
 
@@ -183,7 +183,7 @@ export async function saveBiometricRecord(record) {
 }
 
 export async function loadBiometricRecordFromIndexedDB() {
-    log("BM.loadBiometricRecordFromIndexedDB] called");
+    log("BM.loadBiometricRecordFromIndexedDB", "called");
 
     const db = await openDB({ write: false });
     if (!db) return null;
@@ -198,7 +198,7 @@ export async function loadBiometricRecordFromIndexedDB() {
 }
 
 export async function loadPWK(keyId) {
-    log("BM.loadPWK] called");
+    log("BM.loadPWK", "called");
     const db = await openDB({ write: false });
     if (!db) return null;
 
@@ -211,7 +211,7 @@ export async function loadPWK(keyId) {
 }
 
 async function storePWK(keyId, cryptoKey) {
-    log("BM.storePWK] called");
+    log("BM.storePWK", "called");
 
     const db = await openDB({ write: true });
 
