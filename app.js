@@ -85,40 +85,6 @@ async function releaseDriveLock() {
     };
 }*/
 
-/* ================= BIOMETRIC ================= */
-async function biometricAuthenticateFromGesture() {
-    if (!window.PublicKeyCredential) {
-        log("⚠️ Biometric not supported on this browser");
-        return;
-    }
-
-    const rawId = localStorage.getItem(AU.bioCredKey());
-    const storedPwd = localStorage.getItem(AU.bioPwdKey());
-    if (!rawId || !storedPwd) {
-        log("⚠️ No biometric credential stored");
-        return;
-    }
-
-    try {
-        log("👆 Triggering biometric prompt...");
-        await navigator.credentials.get({
-            publicKey: {
-                challenge: crypto.getRandomValues(new Uint8Array(32)),
-                allowCredentials: [{
-                    type:"public-key",
-                    id: Uint8Array.from(atob(rawId), c => c.charCodeAt(0))
-                }],
-                userVerification:"required"
-            }
-        });
-        log("✅ Biometric authentication prompt completed successfully");
-        log("🔓 Using stored password to unlock identity...");
-        await unlockIdentityFlow(atob(storedPwd));
-    } catch (e) {
-        log("⚠️ Biometric prompt failed or canceled:" + e.message);
-    }
-}
-
 /* ================= STEP 4.1: DEVICE PUBLIC KEY ================= */
 async function hasRecoveryKey() {
     // TEMP: replace with Drive check later
@@ -154,10 +120,6 @@ export function logout() {
     sessionStorage.removeItem("sv_session_private_key");
     UI.resetUnlockUi();
 
-    // 4️⃣ Clear biometric data (optional)
-    localStorage.removeItem(AU.bioCredKey());
-    localStorage.removeItem(AU.bioPwdKey());
-    G.biometricRegistered = false;
     G.biometricIntent = false;
 
     log("[AP.logout] completed");
@@ -252,26 +214,10 @@ async function handleCreateRecoveryClick() {
     unlockBtn.disabled = false;
 }
 
-
-
 /*function isEnvelopeReadOnly() {
     return !G.driveLockState || G.driveLockState.mode !== "write";
 }*/
 
-
-// Button to invoke it doens't exist in the latest ui, add to enable (for testing biometric behavior)
-function handleResetBiometricClick() {
-    localStorage.removeItem(AU.bioCredKey());
-    localStorage.removeItem(AU.bioPwdKey());
-    G.biometricRegistered = false;
-    G.biometricIntent = false;
-    log("⚠️ Biometric registration cleared for testing");
-};
-
-/* ---------- TEMPORARY ---------*/
-
-
-/*-------- TEMPORARY ENDS -------*/
 
 // IMPORTANT - DO NOT DELETE
 window.onload = async () => {

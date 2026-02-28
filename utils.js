@@ -1,6 +1,7 @@
 "use strict";
 
 import { G } from './global.js';
+import { log, trace, debug, info, warn, error } from './log.js';
 
 export function deepFreeze(obj) {
     // 1. Retrieve the property names defined on obj
@@ -33,4 +34,26 @@ function bufferToBase64(buffer) {
 export function format(json) {
     // Determine indentation: undefined (minified), other wise indent by 2 spaces
     return JSON.stringify(json, null, (G.settings?.minifyJson ? undefined : 2));
+}
+
+export function dumpLocalStorageForDebug() {
+    log("[U.dumpLocalStorageForDebug] LocalStorage Dump");
+
+    if (!localStorage.length) {
+        log("[U.dumpLocalStorageForDebug] localStorage is empty");
+        return;
+    }
+
+    for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        const value = localStorage.getItem(key);
+
+        log(`Key: ${key}`);
+        try {
+            log("Parsed:", JSON.parse(value));
+        } catch {
+            log("Raw:", value);
+        }
+        log("-------------");
+    }
 }

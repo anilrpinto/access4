@@ -6,9 +6,7 @@ const _G = {
     accessToken: null,
     userEmail: null,
     needsIdentitySetup: false,
-    unlockedPassword: null, //TODO: remove need to store this
     biometricIntent: false,
-    biometricRegistered: false,
 
     keyRegistry: {
         version: 1,
@@ -31,7 +29,9 @@ const _G = {
     currentPrivateKey: null,
     sessionUnlocked: false,
     settings: {
-        minifyJson: false
+        minifyJson: false,
+        clearBioDbOnLoad: true,
+        clearLocalStorageOnLoad: false
     }
 };
 

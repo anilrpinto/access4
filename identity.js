@@ -3,7 +3,9 @@
 import { C } from './constants.js';
 import { G } from './global.js';
 
+import * as AU from './auth.js';
 import * as ID from './identity.js';
+import * as BM from './biometrics.js';
 import * as CR from './crypto.js';
 import * as GD from './gdrive.js';
 import * as U from './utils.js';
@@ -11,7 +13,6 @@ import * as U from './utils.js';
 import { log, trace, debug, info, warn, error } from './log.js';
 
 const VERIFIER_TEXT = "identity-ok";
-//buildIdentityFromKeypair
 
 /* ---------------------- DEVICE ---------------------- */
 export function getDeviceId() {
@@ -238,12 +239,6 @@ export async function createIdentity(pwd) {
     saveIdentity(identity);
 
     log("[ID.createIdentity] New identity created and stored locally");
-
-    if (G.biometricIntent && !G.biometricRegistered) {
-        log("[ID.createIdentity] Biometric enrollment intent detected, enrolling now...");
-        await enrollBiometric(pwd);
-        G.biometricRegistered = true;
-    }
 }
 
 async function buildIdentityFromKeypair({privateKeyPkcs8, publicKeySpki}, pwd, opts = {}) {
@@ -282,36 +277,7 @@ async function createPasswordVerifier(key) {
     return CR.encrypt(data, key);
 }
 
-export async function enrollBiometric(pwd) {
-    log("[ID.enrollBiometric] called");
 
-    if (!window.PublicKeyCredential) return;
-
-    const cred = await navigator.credentials.create({
-        publicKey: {
-            challenge: crypto.getRandomValues(new Uint8Array(32)),
-            rp: {
-                name:"Access4"
-            },
-            user: {
-                id: crypto.getRandomValues(new Uint8Array(16)),
-                name: G.userEmail,
-                displayName: G.userEmail
-            },
-            pubKeyCredParams: [{
-                type:"public-key",
-                alg: -7
-            }],
-            authenticatorSelection: {
-                userVerification:"required"
-            },
-            timeout: 60000
-        }
-    });
-    localStorage.setItem(bioCredKey(), btoa(String.fromCharCode(...new Uint8Array(cred.rawId))));
-    localStorage.setItem(bioPwdKey(), btoa(pwd));
-    log("[enrollBiometric] Hidden biometric shortcut enrolled");
-}
 
 export async function cacheDecryptedPrivateKey(decryptedPrivateKeyBytes) {
 

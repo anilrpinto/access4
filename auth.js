@@ -46,8 +46,6 @@ async function handleAuth(resp) {
     if (!isSessionAuthenticated())
         UI.promptUnlockPasword();
 
-    G.biometricRegistered = !!localStorage.getItem(bioCredKey());
-
     onAuthReady(G.userEmail);
 }
 
@@ -215,12 +213,4 @@ async function createGenesisAuthorization() {
         })
     });
     log(`[createGenesisAuthorization] Genesis authorization created for ${G.userEmail}`);
-}
-
-export function bioCredKey() {
-    return `access4.bio.cred::${G.userEmail}::${ID.getDeviceId()}`;
-}
-
-export function bioPwdKey() {
-    return `access4.bio.pwd::${G.userEmail}::${ID.getDeviceId()}`;
 }

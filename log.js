@@ -8,7 +8,7 @@ export const INFO = 2;
 export const DEBUG = 3;
 export const TRACE = 4;
 
-let _level = TRACE;
+let _level = DEBUG;
 const _filter = [];
 
 // Mapping levels to colors and labels

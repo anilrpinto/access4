@@ -645,27 +645,16 @@ async function unwrapContentKey(wrappedKeyBase64, keyId) {
 
     // 1️⃣ Try current in-memory private key if keyId matches
     if (G.currentPrivateKey && keyId === id.fingerprint) {
-        log(`[unwrapContentKey] Using G.currentPrivateKey for keyId ${keyId}`);
+        log(`[E.unwrapContentKey] Using G.currentPrivateKey for keyId ${keyId}`);
         return unwrapWithKey(G.currentPrivateKey);
     }
 
-    // 2️⃣ Try previous keys
-    if (id.previousKeys?.length) {
-        const prev = id.previousKeys.find(k => k.fingerprint === keyId);
+    // 2️⃣ Try decrypted previous keys from session
+    if (id._decryptedPreviousKeys?.length) {
+        const prev = id._decryptedPreviousKeys.find(k => k.fingerprint === keyId);
         if (prev) {
-            if (!G.unlockedPassword) throw new Error("Identity not unlocked for previous key");
-
-            log(`[unwrapContentKey] Using previous key for keyId ${keyId}`);
-            const derivedKey = await CR.deriveKey(G.unlockedPassword, prev.kdf);
-            const privateKeyPkcs8 = await CR.decrypt(prev.encryptedPrivateKey, derivedKey);
-            const privateKey = await crypto.subtle.importKey(
-                "pkcs8",
-                privateKeyPkcs8,
-                { name:"RSA-OAEP", hash:"SHA-256" },
-                false,
-                ["unwrapKey"]
-            );
-            return unwrapWithKey(privateKey);
+            log(`[unwrapContentKey] Using decrypted previous key for keyId ${keyId}`);
+            return unwrapWithKey(prev.privateKey);
         }
     }
 
@@ -749,6 +738,7 @@ async function addRecoveryKeyToEnvelope({ publicKey, keyId }) {
 }
 
 export async function encryptAndPersistPlaintext(plainText) {
+    log("[E.encryptAndPersistPlaintext] called");
 
     // Ensure we own the lock
     if (!G.driveLockState || G.driveLockState.envelopeName !== C.ENVELOPE_NAME) {
@@ -765,7 +755,7 @@ export async function encryptAndPersistPlaintext(plainText) {
 
     const envelope = envelopeFile.json;
 
-    log("[E.encryptAndPersistPlaintext] envelope:" + envelope)
+    log("[E.encryptAndPersistPlaintext] envelope:", envelope)
 
     // Unwrap CEK using this device
     const selfEntry = envelope.keys.find(k =>
@@ -781,8 +771,6 @@ export async function encryptAndPersistPlaintext(plainText) {
         selfEntry.keyId
     );
 
-    log('cek: ${JSON.stringify(cek)}');
-
     // Encrypt new payload
     const payload = await encryptPayload(plainText, cek);
 
@@ -795,12 +783,11 @@ export async function encryptAndPersistPlaintext(plainText) {
     // Persist safely (generation + lock heartbeat preserved)
     const written = await writeEnvelopeSafely(C.ENVELOPE_NAME, updatedEnvelope);
 
-    log("🔒 Payload encrypted & written to envelope");
+    log("[E.encryptAndPersistPlaintext] Payload encrypted & written to envelope");
 
     // Verify decrypt immediately (sanity + demo)
     const decrypted = await openEnvelope(written);
-    log("Decrypted payload:");
-    log(decrypted);
+    log("[E.encryptAndPersistPlaintext] Decrypted payload:", decrypted);
 }
 
 /* --- Encrypt Payload with CEK --- */
@@ -819,14 +806,13 @@ async function encryptPayload(plainText, cek) {
 }
 
 async function openEnvelope(envelope) {
-
     log("[E.openEnvelope] called");
 
     validateEnvelope(envelope);
 
     const entry = await selectDecryptableKey(envelope);
 
-    log(`[openEnvelope] Using keyId: ${entry.keyId}`);
+    log(`[E.openEnvelope] Using keyId: ${entry.keyId}`);
 
     const cek = await unwrapContentKey(
         entry.wrappedKey,
@@ -846,6 +832,7 @@ async function openEnvelope(envelope) {
 }
 
 async function selectDecryptableKey(envelope) {
+    log("[E.selectDecryptableKey] called");
 
     const id = await ID.loadIdentity();
     if (!id) throw new Error("Local identity missing");
@@ -866,7 +853,7 @@ async function selectDecryptableKey(envelope) {
 
     if (deviceEntry) {
         if (deviceEntry.keyId !== id.fingerprint) {
-            log("🔁 Envelope encrypted with previous device key — rotation detected");
+            warn("[E.selectDecryptableKey] Envelope encrypted with previous device key — rotation detected");
         }
         return deviceEntry;
     }
@@ -875,7 +862,7 @@ async function selectDecryptableKey(envelope) {
     const recoveryEntry = envelope.keys.find(k => k.role === "recovery");
 
     if (recoveryEntry) {
-        log("🛟 Falling back to recovery key for decryption");
+        warn("[E.selectDecryptableKey] Falling back to recovery key for decryption");
         return recoveryEntry;
     }
 
@@ -892,6 +879,8 @@ function keyMatchesOrIsSuperseded(entryKeyId, localIdentity) {
 }
 
 function validateEnvelope(envelope) {
+    log("[E.validateEnvelope] called");
+
     if (!envelope.version) {
         throw new Error("Envelope missing version");
     }
@@ -933,20 +922,20 @@ function validateEnvelope(envelope) {
     }
 }
 
-export async function loadEnvelopePayloadToUI(envelopeName = C.ENVELOPE_NAME) {
-    log(`[loadEnvelopePayloadToUI] Loading envelope payload from Drive: ${envelopeName}`);
+export async function loadEnvelopePayloadToUI(callback) {
+    log("[E.loadEnvelopePayloadToUI] called - loading envelope payload from Drive");
 
     // 1️⃣ Read envelope file
-    const envelopeFile = await GD.readEnvelopeFromDrive(envelopeName);
+    const envelopeFile = await GD.readEnvelopeFromDrive(C.ENVELOPE_NAME);
     if (!envelopeFile) {
-        warn("️[loadEnvelopePayloadToUI] Envelope file not found");
+        warn("️[E.loadEnvelopePayloadToUI] Envelope file not found");
         return;
     }
 
     const envelope = envelopeFile.json;
 
     if (!envelope.payload) {
-        log("️[loadEnvelopePayloadToUI] Envelope has no payload");
+        log("[E.loadEnvelopePayloadToUI] Envelope has no payload");
         return;
     }
 
@@ -954,10 +943,13 @@ export async function loadEnvelopePayloadToUI(envelopeName = C.ENVELOPE_NAME) {
         // 2️⃣ Decrypt payload using openEnvelope()
         const plaintext = await openEnvelope(envelope);
 
-        log(`[loadEnvelopePayloadToUI] plaintext: |${plaintext}|`);
+        log(`[E.loadEnvelopePayloadToUI] plaintext: |${plaintext}|`);
+
+        if (callback)
+            callback(plaintext);
 
         // 3️⃣ Populate plaintext area in UI
-        plaintextInput.value = plaintext;
+        //plaintextInput.value = plaintext;
 
         log("[E.loadEnvelopePayloadToUI] Payload loaded into plaintext UI");
     } catch (err) {
@@ -1016,7 +1008,7 @@ async function writeEnvelopeSafely(envelopeName, envelopeData, maxRetries = 3, r
             const result = await writeEnvelopeWithLock(envelopeName, envelopeData);
             return result;
         } catch (err) {
-            warn(`[writeEnvelopeSafely] Write attempt failed: ${err.message} retrying...`);
+            warn(`[E.writeEnvelopeSafely] Write attempt failed: ${err.message} retrying...`);
             // If lock was lost mid-write, retry
             await new Promise(r => setTimeout(r, retryDelayMs));
         }
@@ -1039,7 +1031,7 @@ async function assertEnvelopeWrite(envelopeName) {
         throw new Error(`Read-only session — write not permitted for envelope "${envelopeName}"`);
     }
 
-    log(`[assertEnvelopeWrite] Ownership confirmed for envelope "${envelopeName}"`);
+    log(`[E.assertEnvelopeWrite] Ownership confirmed for envelope "${envelopeName}"`);
 
     // Future housekeeping hook: missing device/recovery keys
     // log(`[housekeeping] Envelope ownership confirmed for "${envelopeName}"`);

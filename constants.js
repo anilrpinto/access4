@@ -13,6 +13,8 @@ export const C = deepFreeze({
     HEARTBEAT_INTERVAL: 10_000, // 10 seconds
     LOCK_TTL_MS: 30_000,        // must be > heartbeat
     IDLE_TIMEOUT_MS: 300000,    // 5 mins
+    BIO_DB_NAME: "access4_bio_db",
+    BIO_STORE: "pwk_store",
 
     UNLOCK_ERROR_DEFS: {
         WEAK_PASSWORD: {

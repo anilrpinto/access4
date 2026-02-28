@@ -107,6 +107,20 @@ label {
     color: #0f6d3c; /* calm green */
 }
 
+#titleGesture {
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+}
+
+#titleGesture.bio-none {
+    color: #fff;
+}
+
+#titleGesture.bio-armed {
+    color: #e8410d;
+}
+
 /* --- LOG BOX --- */
 #log {
     width: 100%;
@@ -114,7 +128,7 @@ label {
     overflow-y: auto;
     background: #e0e0e0;
     border-radius: 6px;
-    padding: 0.5rem;
+    padding: 0.5rem 0.5rem 0.5rem 0.5rem;
     font-size: 0.85rem;
     white-space: pre-wrap;
 }
@@ -123,7 +137,7 @@ label {
 #loginView, #unlockedView {
     display: flex;
     flex-direction: column;
-    min-height: 100vh;
+    min-height: 50vh;
 }
 
 #unlockedView {

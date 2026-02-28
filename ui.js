@@ -8,6 +8,8 @@ import * as GD from './gdrive.js';
 import * as E from './envelope.js';
 import * as CR from './crypto.js';
 import * as ID from './identity.js';
+import * as BM from './biometrics.js';
+import * as U from './utils.js';
 
 import { log, trace, debug, info, warn, error } from './log.js';
 
@@ -48,7 +50,7 @@ const resetTimer = () => {
     }, C.IDLE_TIMEOUT_MS);
 };
 
-export function init() {
+export async function init() {
 
     // Cache DOM
     userEmailSpan = document.getElementById("userEmailSpan");
@@ -79,6 +81,18 @@ export function init() {
     initLoginUI();
 
     bindClick(saveBtn, handleSaveClick);
+
+    bindClick(logEl, copyLogsToClipboard);
+
+    if (G.settings.clearBioDbOnLoad)
+        await promptClearBiometricIndexedDB();
+
+    if (G.settings.clearLocalStorageOnLoad)
+        promptClearLocalStorage();
+
+    await BM.debugBiometricDB();
+
+    await updateBiometricIndicator();
 }
 
 export function showUnlockMessage(msg, type = "error") {
@@ -108,42 +122,68 @@ export function promptUnlockPasword() {
 }
 
 export function showAuthorizedEmail(email) {
-    log("[UI.showAuthorizedEmail] email: ", email);
+    log("[UI.showAuthorizedEmail] called - email:", email);
     userEmailSpan.textContent = email;
 }
 
 // attach gesture logic
 function setupTitleGesture() {
-    const t = document.getElementById("titleGesture");
-    if (!t) return;
+    log("[UI.setupTitleGesture] called");
 
-    let timer = null;
+    const el = document.getElementById("titleGesture");
+    if (!el) return;
 
-    t.addEventListener("pointerdown", () => {
-        timer = setTimeout(armBiometric, 5000);
-    });
+    let tapCount = 0;
+    let tapTimer = null;
 
-    ["pointerup", "pointerleave", "pointercancel"].forEach(e =>
-        t.addEventListener(e, () => clearTimeout(timer))
-    );
+    el.addEventListener("pointerdown", async () => {
+        if (!G.userEmail || G.sessionUnlocked) return;
 
-    t.addEventListener("click", async () => {
-        if (!G.biometricRegistered) return;
-        await biometricAuthenticateFromGesture();
+        tapCount++;
+
+        if (!tapTimer) {
+            tapTimer = setTimeout(() => {
+                tapCount = 0;
+                tapTimer = null;
+            }, 3000);
+        }
+
+        if (tapCount >= 5) {
+            clearTimeout(tapTimer);
+            tapCount = 0;
+            tapTimer = null;
+
+            await handleHiddenGesture();
+        }
     });
 }
 
-function armBiometric() {
-    G.biometricIntent = true;
-    log("[armBiometric] Hidden biometric intent armed");
+async function handleHiddenGesture() {
+    log("[UI.handleHiddenGesture] called");
 
-    if (G.unlockedPassword && !G.biometricRegistered) {
-        log("[armBiometric] Password already unlocked, enrolling biometric immediately...");
-        ID.enrollBiometric(G.unlockedPassword).then(() => G.biometricRegistered = true);
+    if (!G.userEmail || G.sessionUnlocked) return;
+
+    // ALWAYS activate intent first
+    G.biometricIntent = true;
+    await updateBiometricIndicator();
+
+    const registered = await BM.isBiometricRegistered();
+
+    if (registered) {
+        await BM.attemptBiometricUnlock(async (password) => {
+            await unlockIdentityFlow(password);
+            await proceedAfterPasswordSuccess();
+        });
+
+        // After attempt, clear temporary intent
+        G.biometricIntent = false;
+        await updateBiometricIndicator();
     }
 }
 
 function initLoginUI() {
+    log("[UI.initLoginUI] called");
+
     // Always show login view
     loginView.style.display = "block";
     unlockedView.style.display = "none";
@@ -162,6 +202,7 @@ function initLoginUI() {
 }
 
 export function resetUnlockUi() {
+    log("[UI.resetUnlockUi] called");
 
     // 3️⃣ Clear UI state
     unlockedView.style.display = "none";
@@ -177,6 +218,8 @@ export function resetUnlockUi() {
     // Reset button state
     unlockBtn.disabled = false;
     unlockBtn.textContent = "Unlock";
+
+    updateBiometricIndicator();
 
     // Clear messages
     showUnlockMessage("");
@@ -197,6 +240,7 @@ export function resetUnlockUi() {
 }
 
 export function setupPasswordPrompt(mode, options = {}) {
+    log("[UI.setupPasswordPrompt] called");
 
     // ✅ Always enable unlockBtn when switching mode
     unlockBtn.disabled = false;
@@ -221,7 +265,7 @@ export function setupPasswordPrompt(mode, options = {}) {
 
 export function showVaultUI({ readOnly = false, onIdle = () => { warn('idle timeout fired') } } = {}) {
 
-    log("[UI.showVaultUI] entered");
+    log("[UI.showVaultUI] called");
 
     // Hide login / password sections
     loginView.style.display = "none";
@@ -377,7 +421,7 @@ async function unlockIdentityFlow(pwd) {
     //log("[UI.unlockIdentityFlow] Identity loaded:", !!id);
     log("[UI.unlockIdentityFlow] Local identity found");
 
-    if (id && identityNeedsPasswordSetup(id)) {
+    if (id && !id.passwordVerifier) {
         log("[UI.unlockIdentityFlow] Identity missing password verifier — attempting auto-migration");
 
         try {
@@ -475,30 +519,72 @@ async function unlockIdentityFlow(pwd) {
     // ─────────────────────────────
     // Session unlocked
     // ─────────────────────────────
-    G.unlockedPassword = pwd;
 
+    // 1️⃣ Cache current private key (imports + sets G.currentPrivateKey)
     await ID.cacheDecryptedPrivateKey(decryptedPrivateKeyBytes);
 
-    // ✅ Attach decrypted key to identity and set global G.unlockedIdentity
+    // 2️⃣ Decrypt ALL previous rotated private keys once (if any)
+    id._decryptedPreviousKeys = [];
+
+    if (id.previousKeys?.length) {
+        for (const prev of id.previousKeys) {
+            try {
+                const derivedPrev = await CR.deriveKey(pwd, prev.kdf);
+                const privateKeyPkcs8 = await CR.decrypt(prev.encryptedPrivateKey, derivedPrev);
+
+                const privateKey = await crypto.subtle.importKey(
+                    "pkcs8",
+                    privateKeyPkcs8,
+                    { name:"RSA-OAEP", hash:"SHA-256" },
+                    false,
+                    ["unwrapKey"]
+                );
+
+                id._decryptedPreviousKeys.push({
+                    fingerprint: prev.fingerprint,
+                    privateKey
+                });
+
+                log(`[UI.unlockIdentityFlow] Previous key ${prev.fingerprint} decrypted for session`);
+            } catch {
+                warn(`[UI.unlockIdentityFlow] Failed to decrypt previous key ${prev.fingerprint}`);
+            }
+        }
+    }
+
+    // 4️⃣ Attach decrypted key to identity + session globals
     id._sessionPrivateKey = G.currentPrivateKey;
     G.unlockedIdentity = id;
     G.sessionUnlocked = true;
 
     log("[UI.unlockIdentityFlow] G.unlockedIdentity set in memory for session");
 
-    if (G.biometricIntent && !G.biometricRegistered) {
-        await enrollBiometric(pwd);
-        G.biometricRegistered = true;
+    if (G.biometricIntent) {
+        const registered = await BM.isBiometricRegistered();
+
+        if (!registered) {
+            try {
+                log("[UI.unlockIdentityFlow] First-time biometric enrollment");
+                await BM.enrollBiometric(pwd);
+                log("[UI.unlockIdentityFlow] Biometric enrollment successful");
+            } catch (err) {
+                warn("[UI.unlockIdentityFlow] Biometric enrollment skipped or failed:", err);
+            }
+        } else {
+            log("[UI.unlockIdentityFlow] Biometric already registered");
+        }
+
+        G.biometricIntent = false;
     }
+
+    // 3️⃣ Immediately destroy password reference
+    pwd = null;
 
     log("[UI.unlockIdentityFlow] Proceeding to device public key exchange");
     await ID.ensureDevicePublicKey();
 
+    await updateBiometricIndicator();
     return id;
-}
-
-function identityNeedsPasswordSetup(id) {
-    return id && !id.passwordVerifier;
 }
 
 export async function proceedAfterPasswordSuccess() {
@@ -518,7 +604,7 @@ export async function proceedAfterPasswordSuccess() {
         warn("[UI.proceedAfterPasswordSuccess] Skipping CEK housekeeping — G.driveLockState not ready or not writable");
     }
 
-    await E.loadEnvelopePayloadToUI();
+    await E.loadEnvelopePayloadToUI(text => plaintextInput.value = text);
 
     // Show unlocked UI in read-only mode if no write lock
     const readOnly = !G.driveLockState?.self || G.driveLockState.mode !== "write";
@@ -527,6 +613,9 @@ export async function proceedAfterPasswordSuccess() {
     }
     showVaultUI({ readOnly, onIdle: (type) => logout() });
 
+    log("IndexedDB dbs: ", JSON.stringify(await indexedDB.databases()));
+
+    U.dumpLocalStorageForDebug();
     log("[UI.proceedAfterPasswordSuccess] Unlock successful!@");
 }
 
@@ -559,3 +648,66 @@ async function handleSaveClick() {
     }
     alert("Saved!");
 }
+
+export async function updateBiometricIndicator() {
+    log("[UI.updateBiometricIndicator] called");
+
+    const el = document.getElementById("titleGesture");
+    if (!el) return;
+
+    el.classList.remove("bio-none","bio-armed");
+
+    if (!window.PublicKeyCredential) {
+        el.classList.add("bio-none");
+        return;
+    }
+
+    if (!G.userEmail) {
+        el.classList.add("bio-none");
+        return;
+    }
+
+    if (G.biometricIntent) {
+        el.classList.add("bio-armed");
+    } else {
+        el.classList.add("bio-none");
+    }
+}
+
+async function copyLogsToClipboard() {
+    if (!logEl) return;
+
+    try {
+        await navigator.clipboard.writeText(logEl.innerText);
+        alert("Logs copied to clipboard");
+    } catch (err) {
+        error("Failed to copy logs:", err);
+    }
+}
+
+async function promptClearBiometricIndexedDB() {
+    const confirmed = window.confirm("Are you sure you want to clear the biometric db? This cannot be undone.");
+
+    if (!confirmed) {
+        log("[promptClearBiometricIndexedDB] Deleting bio metric db canceled");
+        return false;
+    }
+
+    await BM.clearBiometricIndexedDB();
+    log("[promptClearBiometricIndexedDB] db deleted successfully.");
+    return true;
+}
+
+function promptClearLocalStorage() {
+    const confirmed = window.confirm("Are you sure you want to clear all localStorage data for this app? This cannot be undone.");
+
+    if (!confirmed) {
+        log("[promptClearLocalStorage] localStorage clear canceled");
+        return false;
+    }
+
+    localStorage.clear();
+    log("[promptClearLocalStorage] localStorage cleared successfully.");
+    return true;
+}
+
