@@ -33,6 +33,8 @@ export let logEl;
 
 let userEmailSpan;
 let unlockMessage;
+let statusMessage;
+
 let idleTimer;
 let idleCallback = null;
 
@@ -59,6 +61,7 @@ export async function init() {
     confirmPasswordSection = document.getElementById("confirmPasswordSection");
     unlockBtn = document.getElementById("unlockBtn");
     unlockMessage = document.getElementById("unlockMessage");
+    statusMessage = document.getElementById("statusMsg");
 
     logoutBtn = document.getElementById("logoutBtn");
 
@@ -99,6 +102,13 @@ export function showUnlockMessage(msg, type = "error") {
 
     unlockMessage.textContent = msg;
     unlockMessage.className = `unlock-message ${type}`;
+}
+
+function showStatusMessage(msg, type = "error") {
+    if (!statusMessage) return;
+
+    statusMessage.textContent = msg;
+    statusMessage.className = `unlock-message ${type}`;
 }
 
 export function bindClick(el, callback, options = {}) {
@@ -339,7 +349,8 @@ export function updateLockStatusUI() {
     if (!G.driveLockState) return;
 
     const { expiresAt } = G.driveLockState.lock;
-    trace("updateLockStatusUI", `You hold the envelope lock (expires ${expiresAt})`);
+    //trace("updateLockStatusUI", `You hold the envelope lock (expires ${expiresAt})`);
+    showStatusMessage(`Envelope lock expires at ${expiresAt}`, "success")
 }
 
 /* --------- Unlock flow --------- */

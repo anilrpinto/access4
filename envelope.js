@@ -307,6 +307,7 @@ async function createEnvelope(plainText, devicePublicKeyRecord) {
     const payload = await encryptPayload(plainText, cek);
 
     const wrappedKey = await wrapContentKeyForDevice(cek, devicePublicKeyRecord.publicKey.data);
+    const now = new Date().toISOString();
 
     return {
         version:"1.0",
@@ -316,14 +317,17 @@ async function createEnvelope(plainText, devicePublicKeyRecord) {
         },
         payload,
         keys: [{
-            role:"device",
+            role: "device",
             account: devicePublicKeyRecord.account,
             deviceId: devicePublicKeyRecord.deviceId,
             keyId: devicePublicKeyRecord.fingerprint,
             keyVersion: devicePublicKeyRecord.version,
+            created: now,
+            updated: null,
+            publicKeyCreated: devicePublicKeyRecord.created,
             wrappedKey
         }],
-        created: new Date().toISOString()
+        created: now,
     };
 }
 
@@ -400,7 +404,7 @@ async function writeEnvelopeWithLock(envelopeName, envelopeData) {
 }
 
 function evaluateEnvelopeLock(lock, self) {
-    trace("E.evaluateEnvelopeLock] called");
+    //trace("E.evaluateEnvelopeLock", "called");
 
     if (!lock) return { status:"free" };
 
@@ -554,7 +558,7 @@ function startLockHeartbeat({envelopeName, self, readLockFromDrive, writeLockToD
 
             if (G.driveLockState) {
                 G.driveLockState.lock = extended;   // keep local state authoritative
-                //debug(`[startLockHeartbeat.tick] Heartbeat OK (gen=${extended.generation}, expires ${extended.expiresAt})`);
+                trace("E.startLockHeartbeat.tick", `Heartbeat OK (gen=${extended.generation}, expires ${extended.expiresAt})`);
                 UI.updateLockStatusUI();
             }
         } catch (err) {
@@ -595,6 +599,30 @@ export function handleDriveLockLost(info) {
     UI.updateLockStatusUI();
 }
 
+async function reconcileWrapSet({ envelope, cek, registryItems, role, forceWrite, buildEntryMeta }) {
+    let updated = false;
+
+    for (const item of registryItems) {
+        const keyId = item.fingerprint;
+
+        const existing = envelope.keys.find(k => k.keyId === keyId && k.role === role);
+
+        const now = new Date().toISOString();
+
+        if (!existing) {
+            const wrappedKey = await wrapContentKeyForDevice(cek, item.publicKey.data);
+            envelope.keys.push({ role, keyId, created: now, updated: null, publicKeyCreated: item.created || now, wrappedKey, ...buildEntryMeta(item) });
+            updated = true;
+        } else if (forceWrite) {
+            existing.wrappedKey = await wrapContentKeyForDevice(cek, item.publicKey.data);
+            existing.updated = now;
+            existing.publicKeyCreated = existing.publicKeyCreated || item.created || now;
+            updated = true;
+        }
+    }
+    return updated;
+}
+
 export async function wrapCEKForRegistryKeys(forceWrite = false) {
 
     log("E.wrapCEKForRegistryKeys", "called");
@@ -612,19 +640,65 @@ export async function wrapCEKForRegistryKeys(forceWrite = false) {
 
     const envelope = envelopeFile.json;
 
-    log("E.wrapCEKForRegistryKeys", "envelope keys count:" + envelope?.keys?.length ?? 0);
+    log("E.wrapCEKForRegistryKeys", "envelope keys count:" + (envelope?.keys?.length ?? 0));
 
     if (!envelope.keys || !envelope.payload) {
         throw new Error("Invalid envelope structure for CEK housekeeping");
     }
 
+    let updated = false;
+
     const activeDevices = G.keyRegistry.flat.activeDevices;
     const recoveryKeys = G.keyRegistry.flat.recoveryKeys;
+
+    /*
+     * ============================================================
+     * ROLE CONFIGURATION (single source of truth)
+     * ============================================================
+     */
+    const ROLE_CONFIG = [
+        { role: "device", items: activeDevices },
+        { role: "recovery", items: recoveryKeys }
+    ];
+
+    /*
+     * ============================================================
+     * ORPHAN CLEANUP (WRITE MODE ONLY)
+     * ============================================================
+     */
+    if (G.driveLockState?.mode === "write") {
+
+        const allowedByRole = new Map();
+
+        for (const { role, items } of ROLE_CONFIG) {
+            allowedByRole.set(role, new Set(items.map(i => i.fingerprint)));
+        }
+
+        const originalLength = envelope.keys.length;
+
+        envelope.keys = envelope.keys.filter(entry => {
+            const allowedSet = allowedByRole.get(entry.role);
+
+            // Preserve unknown roles defensively
+            if (!allowedSet) return true;
+
+            return allowedSet.has(entry.keyId);
+        });
+
+        if (envelope.keys.length !== originalLength) {
+            updated = true;
+            warn("E.wrapCEKForRegistryKeys", `Orphan CEK entries removed: ${originalLength - envelope.keys.length}`);
+        }
+    }
 
     log("E.wrapCEKForRegistryKeys", "Selecting device key entry...");
     log("E.wrapCEKForRegistryKeys", `G.userEmail: ${G.userEmail.slice(-12)}, self.deviceId: ${G.driveLockState?.self?.deviceId}`);
 
-    // Unwrap CEK using any current device key
+    /*
+     * ============================================================
+     * UNWRAP EXISTING CEK
+     * ============================================================
+     */
     const currentDeviceKeyEntry = await selectDecryptableKey(envelope);
 
     if (!currentDeviceKeyEntry) {
@@ -636,54 +710,37 @@ export async function wrapCEKForRegistryKeys(forceWrite = false) {
     log("E.wrapCEKForRegistryKeys", `Selected deviceId: ${currentDeviceKeyEntry.deviceId}, unwrap keyId: ${currentDeviceKeyEntry.keyId}, G.unlockedIdentity fingerprint: ${G.unlockedIdentity?.fingerprint}`);
 
     const cek = await unwrapContentKey(currentDeviceKeyEntry.wrappedKey, currentDeviceKeyEntry.keyId);
-    let updated = false;
 
-    // Wrap CEK for each active device not already present
-    for (const device of activeDevices) {
-        const existing = envelope.keys.find(k => k.keyId === device.fingerprint);
-        if (!existing) {
-            const wrappedKey = await wrapContentKeyForDevice(cek, device.publicKey.data);
-            envelope.keys.push({
-                role:"device",
-                account: device.account,
-                deviceId: device.deviceId,
-                keyId: device.fingerprint,
-                wrappedKey
-            });
-            log("E.wrapCEKForRegistryKeys", `CEK wrapped for device ${device.deviceId}`);
-            updated = true;
-        } else if (forceWrite) {
-            // Re-wrap CEK even if key exists
-            existing.wrappedKey = await wrapContentKeyForDevice(cek, device.publicKey.data);
-            log("E.wrapCEKForRegistryKeys", `CEK re-wrapped for device ${device.deviceId} (forceWrite)`);
-            updated = true;
-        }
+    /*
+     * ============================================================
+     * ROLE-DRIVEN WRAP RECONCILIATION
+     * ============================================================
+     */
+    for (const { role, items } of ROLE_CONFIG) {
+
+        const roleUpdated = await reconcileWrapSet({ envelope, cek, registryItems: items, role, forceWrite,
+            buildEntryMeta: (item) => {
+                if (role === "device") {
+                    return {
+                        account: item.account,
+                        deviceId: item.deviceId
+                    };
+                }
+                return {}; // recovery or future roles
+            }
+        });
+
+        updated = updated || roleUpdated;
+
+        log("E.wrapCEKForRegistryKeys", `${role} keys updated: ${roleUpdated} forceWrite: ${forceWrite}`
+        );
     }
 
-    log("E.wrapCEKForRegistryKeys", `activeDevices updated: ${updated} forceWrite: ${forceWrite}`);
-
-    // Wrap CEK for recovery keys not already present
-    for (const recovery of recoveryKeys) {
-        const existing = envelope.keys.find(k => k.keyId === recovery.fingerprint);
-        if (!existing) {
-            const wrappedKey = await wrapContentKeyForDevice(cek, recovery.publicKey.data);
-            envelope.keys.push({
-                role:"recovery",
-                keyId: recovery.fingerprint,
-                wrappedKey
-            });
-            log("E.wrapCEKForRegistryKeys", `CEK wrapped for recovery key ${recovery.fingerprint}`);
-            updated = true;
-        } else if (forceWrite) {
-            existing.wrappedKey = await wrapContentKeyForDevice(cek, recovery.publicKey.data);
-            log("E.wrapCEKForRegistryKeys", `CEK re-wrapped for recovery key ${recovery.fingerprint} (forceWrite)`);
-            updated = true;
-        }
-    }
-
-    log("E.wrapCEKForRegistryKeys", `recoveryKeys updated: ${updated} forceWrite: ${forceWrite}`);
-
-    // Write back if updated OR forceWrite
+    /*
+     * ============================================================
+     * WRITE BACK IF UPDATED OR forceWrite
+     * ============================================================
+     */
     if (updated || forceWrite) {
         log("E.wrapCEKForRegistryKeys", "Envelope updated with wrapped keys — writing to Drive");
         await writeEnvelopeSafely(C.ENVELOPE_NAME, envelope);
@@ -693,6 +750,8 @@ export async function wrapCEKForRegistryKeys(forceWrite = false) {
 
     return envelope;
 }
+
+
 
 /* ---Unwrap CEK Using Local Private Key (rotation-safe) --- */
 async function unwrapContentKey(wrappedKeyBase64, keyId) {
@@ -777,11 +836,16 @@ async function addRecoveryKeyToEnvelope({ publicKey, keyId }) {
             throw err;
         }
 
+        const now = new Date().toISOString();
+
         // 5️⃣ Add recovery key to envelope
         envelope.keys.push({
             role:"recovery",
             keyId,
-            wrappedKey
+            wrappedKey,
+            created: now,
+            updated: null,
+            publicKeyCreated: publicKey.created || now
         });
 
         log("E.addRecoveryKeyToEnvelope", "Added recovery key to envelope.keys:" + envelope.keys.map(k => ({
