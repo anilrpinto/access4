@@ -29,7 +29,7 @@ function identityKey() {
     return `access4.identity::${G.userEmail}::${getDeviceId()}`;
 }
 
-export function saveIdentity(id) {
+function saveIdentity(id) {
     localStorage.setItem(identityKey(), JSON.stringify(id));
 }
 
@@ -130,7 +130,7 @@ export async function ensureDevicePublicKey() {
             body: U.format(contentOnly)
         });
 
-        log("ID.ensureDevicePublicKey", `Device public key UPDATED in ${filename}`);
+        log("ID.ensureDevicePublicKey", `Device public key UPDATED in ${filename.slice(-30)}`);
         return;
     }
 
@@ -154,7 +154,7 @@ export async function migrateIdentityWithVerifier(id, pwd) {
     // Create and attach verifier
     id.passwordVerifier = await createPasswordVerifier(key);
 
-    ID.saveIdentity(id);
+    saveIdentity(id);
 
     log("ID.migrateIdentityWithVerifier", "Identity auto-migrated with password verifier");
 }
@@ -238,7 +238,13 @@ export async function createIdentity(pwd) {
 
     saveIdentity(identity);
 
-    log("ID.createIdentity", "New identity created and stored locally");
+    // Use SAME Layer 1 initializer as unlock
+    await cacheDecryptedPrivateKey(keypair.privateKeyPkcs8);
+
+    // Mark identity as unlocked for this session
+    G.unlockedIdentity = identity;
+
+    log("ID.createIdentity", "New identity created and session unlocked");
 }
 
 async function buildIdentityFromKeypair({privateKeyPkcs8, publicKeySpki}, pwd, opts = {}) {

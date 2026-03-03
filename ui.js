@@ -121,7 +121,7 @@ export function promptUnlockPasword() {
 }
 
 export function showAuthorizedEmail(email) {
-    log("UI.showAuthorizedEmail", "called - email:", email);
+    log("UI.showAuthorizedEmail", "called - email:", email ? "axxx.gmail.com" : "empty");
     userEmailSpan.textContent = email;
 }
 
@@ -208,8 +208,7 @@ export function resetUnlockUi() {
     loginView.style.display = "block";
 
     // Clear password inputs
-    passwordInput.value = "";
-    confirmPasswordInput.value = "";
+    clearSensitiveFields();
 
     passwordSection.style.display = "none";
     confirmPasswordSection.style.display = "none";
@@ -241,6 +240,8 @@ export function resetUnlockUi() {
 export function setupPasswordPrompt(mode, options = {}) {
     log("UI.setupPasswordPrompt", "called");
 
+    clearSensitiveFields();
+
     // ✅ Always enable unlockBtn when switching mode
     unlockBtn.disabled = false;
 
@@ -260,6 +261,11 @@ export function setupPasswordPrompt(mode, options = {}) {
         unlockBtn.onclick = handleCreatePasswordClick;
     }
 
+}
+
+function clearSensitiveFields() {
+    passwordInput.value = "";
+    confirmPasswordInput.value = "";
 }
 
 export function showVaultUI({ readOnly = false, onIdle = () => { warn('idle timeout fired') } } = {}) {
@@ -476,7 +482,7 @@ async function unlockIdentityFlow(pwd) {
         id = await ID.loadIdentity();
 
         try {
-            await CR.decrypt(id.encryptedPrivateKey, key);
+            decryptedPrivateKeyBytes = await CR.decrypt(id.encryptedPrivateKey, key);
             decrypted = true;
             log("UI.unlockIdentityFlow", "Decryption succeeded after rotation");
         } catch {
@@ -490,7 +496,7 @@ async function unlockIdentityFlow(pwd) {
     if (!decrypted) {
         log("UI.unlockIdentityFlow", "Rotation failed (safari behavior?) — recreating identity");
 
-        await createIdentity(pwd);
+        await ID.createIdentity(pwd);
         id = await ID.loadIdentity();
 
         if (!id) {
@@ -502,7 +508,7 @@ async function unlockIdentityFlow(pwd) {
 
         try {
             key = await CR.deriveKey(pwd, id.kdf);
-            await decrypt(id.encryptedPrivateKey, key);
+            decryptedPrivateKeyBytes = await decrypt(id.encryptedPrivateKey, key);
             decrypted = true;
             log("UI.unlockIdentityFlow", "Decryption succeeded after recreation");
         } catch {
@@ -581,33 +587,55 @@ async function unlockIdentityFlow(pwd) {
     // 3️⃣ Immediately destroy password reference
     pwd = null;
 
-    log("UI.unlockIdentityFlow", "Proceeding to device public key exchange");
-    await ID.ensureDevicePublicKey();
     await updateBiometricIndicator();
     return id;
 }
 
 export async function proceedAfterPasswordSuccess() {
     log("UI.proceedAfterPasswordSuccess", "called");
-    log("UI.proceedAfterPasswordSuccess", "G.unlockedIdentity exists:", !!G.unlockedIdentity);
-    log("UI.proceedAfterPasswordSuccess", "G.currentPrivateKey exists:", !!G.currentPrivateKey);
+    log("UI.proceedAfterPasswordSuccess", `G.unlockedIdentity exists: ${!!G.unlockedIdentity}, G.currentPrivateKey exists: ${!!G.currentPrivateKey}, fingerprint: ${G.unlockedIdentity?.fingerprint}`);
     log("UI.proceedAfterPasswordSuccess", "G.driveLockState:", G.driveLockState ? { mode: G.driveLockState.mode, self: G.driveLockState.self } : null);
 
-    await E.ensureEnvelope();      // 🔐 guarantees CEK + envelope
-    await ensureRecoveryKey();   // 🔑 may block UI
+    log("UI.proceedAfterPasswordSuccess", "Proceeding to device public key exchange");
+    await ID.ensureDevicePublicKey();
 
-    // ---- New housekeeping: wrap CEK for registry ----
-    if (G.driveLockState?.self && G.driveLockState.envelopeName === C.ENVELOPE_NAME) {
-        log("UI.proceedAfterPasswordSuccess", "Performing CEK housekeeping for all valid devices + recovery keys");
-        await E.wrapCEKForRegistryKeys();  // helper handles load & write
-    } else {
-        warn("UI.proceedAfterPasswordSuccess", "Skipping CEK housekeeping — G.driveLockState not ready or not writable");
+    // 1️⃣ Ensure envelope exists (read-only init only)
+    await E.ensureEnvelope();      // 🔐 guarantees CEK + envelope
+
+    // 2️⃣ Explicitly check authorization
+    const auth = await E.checkEnvelopeAuthorization();
+
+    if (!auth.authorized) {
+        warn("UI.proceedAfterPasswordSuccess", "Device not authorized to decrypt envelope");
+        setupPasswordPrompt("unlock");
+        showUnlockMessage("This device is not authorized to access vault data. Retry after given access", "error");
+        return;
     }
 
+    // 3️⃣ Recovery key only after confirmed authorization
+    await ensureRecoveryKey();
+
+    // 4️⃣ Attempt write lock escalation (optional upgrade)
+    if (G.driveLockState?.mode === "read") {
+        log("UI.proceedAfterPasswordSuccess", "Attempting write lock escalation");
+        await E.tryAcquireEnvelopeWriteLock(); // must NOT throw if fails
+    }
+
+    // 5️⃣ Housekeeping only if we truly have write access
+    if (G.driveLockState?.mode === "write" && G.driveLockState?.self) {
+        log("UI.proceedAfterPasswordSuccess", "Performing CEK housekeepingfor all valid devices + recovery keys");
+        await E.wrapCEKForRegistryKeys();
+    } else {
+        warn("UI.proceedAfterPasswordSuccess", "Skipping CEK housekeeping — G.driveLockState not ready or not writable");
+        log("UI.proceedAfterPasswordSuccess", "Running in read-only mode");
+    }
+
+    // 6️⃣ Load vault payload
     await E.loadEnvelopePayloadToUI(text => plaintextInput.value = text);
 
-    // Show unlocked UI in read-only mode if no write lock
-    const readOnly = !G.driveLockState?.self || G.driveLockState.mode !== "write";
+    // 7️⃣ UI mode strictly derived from lock state
+    const readOnly = G.driveLockState?.mode !== "write";
+
     if (readOnly) {
         warn("UI.proceedAfterPasswordSuccess", "Showing unlocked UI in read-only mode");
     }

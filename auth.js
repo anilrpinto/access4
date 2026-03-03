@@ -149,13 +149,9 @@ async function attemptSessionRestore() {
         G.sessionUnlocked = true;
         log("AU.attemptSessionRestore", "Session restored from sessionStorage");
 
-        log("AU.attemptSessionRestore", "Session restore check...");
-        log("AU.attemptSessionRestore", "G.unlockedIdentity exists:", !!G.unlockedIdentity);
-        log("AU.attemptSessionRestore", "fingerprint:", G.unlockedIdentity?.fingerprint);
-        log("AU.attemptSessionRestore", "deviceId:", G.unlockedIdentity?.deviceId);
-        log("AU.attemptSessionRestore", "G.currentPrivateKey exists:", !!G.currentPrivateKey);
-        log("AU.attemptSessionRestore", "privateKey type:", G.currentPrivateKey?.type);
-        log("AU.attemptSessionRestore", "privateKey algorithm:", JSON.stringify(G.currentPrivateKey?.algorithm));
+        log("AU.attemptSessionRestore", `G.unlockedIdentity exists: ${!!G.unlockedIdentity}, fingerprint: ${G.unlockedIdentity?.fingerprint},
+            deviceId: ${G.unlockedIdentity?.deviceId}, G.currentPrivateKey exists: ${!!G.currentPrivateKey}`);
+        trace("AU.attemptSessionRestore", `privateKey type: ${G.currentPrivateKey?.type}, algorithm: ${JSON.stringify(G.currentPrivateKey?.algorithm)}`);
 
         return true;
 
