@@ -21,15 +21,26 @@
         Signed in as: <b><span id="userEmailSpan">Not signed in</span></b><br>
         <!-- Password input appears after sign-in -->
         <div id="passwordSection">
-            <label>Password</label>
-            <input type="password" id="passwordInput">
-
+            <div>
+                <label>Password</label>
+                <input type="password" id="passwordInput">
+            </div>
             <div id="confirmPasswordSection">
                 <label>Confirm Password</label>
                 <input type="password" id="confirmPasswordInput">
             </div>
+            <br>
+            <button id="unlockBtn">Unlock</button><br><br>
+            <button id="recoverBtn" style="display: none;">Recover</button>
+            <button  id="recoveryLnk" style="display: none;" class="link-button">Need recovery?</button>
+        </div>
+
+        <!-- Recovery Section -->
+        <div id="recoverySection" style="display:none;">
+            <label>Recovery Password</label>
+            <input type="password" id="recoveryPasswordInput">
             <br><br>
-            <button id="unlockBtn">Unlock</button>
+            <button id="recoverBtn">Recover Account</button>
         </div>
         <div id="unlockMessage" class="unlock-message"></div>
     </main>

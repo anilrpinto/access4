@@ -9,26 +9,28 @@ import * as E from './envelope.js';
 import * as CR from './crypto.js';
 import * as ID from './identity.js';
 import * as BM from './biometrics.js';
+import * as R from './recovery.js';
 import * as U from './utils.js';
 
 import { log, trace, debug, info, warn, error } from './log.js';
 
 export let signinBtn;
-export let passwordSection;
-export let confirmPasswordSection;
-export let unlockBtn;
+let passwordSection;
+let confirmPasswordSection;
+let unlockBtn;
+let recoverBtn;
+let recoveryLnk;
 
-export let titleUnlocked;
-export let plaintextInput;
-export let saveBtn;
+let titleUnlocked;
+let plaintextInput;
+let saveBtn;
 
-export let loginView;
-export let unlockedView;
-export let passwordInput;
-export let confirmPasswordInput;
+let loginView;
+let unlockedView;
+let passwordInput;
+let confirmPasswordInput;
 
 export let logoutBtn;
-
 export let logEl;
 
 let userEmailSpan;
@@ -60,6 +62,8 @@ export async function init() {
     passwordSection = document.getElementById("passwordSection");
     confirmPasswordSection = document.getElementById("confirmPasswordSection");
     unlockBtn = document.getElementById("unlockBtn");
+    recoverBtn = document.getElementById("recoverBtn");
+    recoveryLnk = document.getElementById("recoveryLnk");
     unlockMessage = document.getElementById("unlockMessage");
     statusMessage = document.getElementById("statusMsg");
 
@@ -83,8 +87,9 @@ export async function init() {
     setupTitleGesture();
     initLoginUI();
 
+    bindClick(recoveryLnk, handleNeedRecoveryClick);
+    bindClick(recoverBtn, handleRecoverClick);
     bindClick(saveBtn, handleSaveClick);
-
     bindClick(logEl, copyLogsToClipboard);
 
     if (G.settings.clearBioDbOnLoad)
@@ -248,9 +253,10 @@ export function resetUnlockUi() {
 }
 
 export function setupPasswordPrompt(mode, options = {}) {
-    log("UI.setupPasswordPrompt", "called");
+    log("UI.setupPasswordPrompt", "called - mode:" + mode);
 
     clearSensitiveFields();
+    showUnlockMessage("");
 
     // ✅ Always enable unlockBtn when switching mode
     unlockBtn.disabled = false;
@@ -262,15 +268,20 @@ export function setupPasswordPrompt(mode, options = {}) {
         unlockBtn.textContent = "Unlock";
         unlockBtn.onclick = handleUnlockClick;
 
-        showUnlockMessage(options.migration
-            ? "Identity missing password verifier — enter your password to upgrade."
-            :"");
+        showUnlockMessage(options.migration ? "Identity missing password verifier — enter your password to upgrade." : "");
     } else if (mode === "create") {
         confirmPasswordSection.style.display = "block";
         unlockBtn.textContent = "Create Password";
         unlockBtn.onclick = handleCreatePasswordClick;
+    } else if (mode === "recovery-request") {
+        confirmPasswordSection.style.display = "none";
+        unlockBtn.textContent = "Recover";
+        unlockBtn.onclick = handleRecoverClick;
     }
 
+    log("UI.setupPasswordPrompt", `G.recoveryRequest: ${G.recoveryRequest}, G.recoverySession: ${G.recoverySession}`);
+
+    recoveryLnk.style.display = (G.recoveryRequest === true || G.recoverySession === true) ? "none" : "block";
 }
 
 function clearSensitiveFields() {
@@ -355,6 +366,93 @@ export function updateLockStatusUI() {
 
 /* --------- Unlock flow --------- */
 
+async function handleCreateRecoveryClick() {
+    log("UI.handleCreateRecoveryClick", "called - Starting recovery key creation");
+
+    const pwd = passwordInput.value;
+    const confirm = confirmPasswordInput.value;
+
+    if (!pwd || pwd.length < 7) {
+        throw new Error("Recovery password must be at least 7 characters.");
+    }
+    if (pwd !== confirm) {
+        throw new Error("Recovery passwords do not match.");
+    }
+
+    unlockBtn.disabled = true;
+    UI.showUnlockMessage("Creating recovery key…");
+
+    // 1️⃣ Generate RSA keypair (same as device)
+    const keypair = await crypto.subtle.generateKey(
+        {
+            name:"RSA-OAEP",
+            modulusLength: 2048,
+            publicExponent: new Uint8Array([1, 0, 1]),
+            hash:"SHA-256"
+        },
+        true,
+        ["encrypt", "decrypt"]
+    );
+    log("UI.handleCreateRecoveryClick", "Recovery keypair generated");
+
+    // 2️⃣ Export keys
+    const privateKeyPkcs8 = await crypto.subtle.exportKey("pkcs8", keypair.privateKey);
+    const publicKeySpki = await crypto.subtle.exportKey("spki", keypair.publicKey);
+    log("UI.handleCreateRecoveryClick", "Recovery keys exported");
+
+    // 3️⃣ Build recovery identity
+    const recoveryIdentity = await ID.buildIdentityFromKeypair(
+        { privateKeyPkcs8, publicKeySpki },
+        pwd,
+        { type:"recovery", createdBy: ID.getDeviceId() }
+    );
+    log("UI.handleCreateRecoveryClick", "Private key encrypted with recovery password");
+
+    // 4️⃣ Ensure recovery folder
+    const recoveryFolderId = await GD.ensureRecoveryFolder();
+
+    // 5️⃣ Write private recovery file
+    await GD.driveCreateJsonFile({ name:"recovery.private.json", parents: [recoveryFolderId], json: recoveryIdentity });
+    log("UI.handleCreateRecoveryClick", "recovery.private.json written");
+
+    // 6️⃣ Write public recovery file (matching device key structure)
+    const recoveryPublicJson = {
+        type:"recovery",
+        role:"recovery",
+        keyId: recoveryIdentity.fingerprint,
+        fingerprint: recoveryIdentity.fingerprint,
+        created: recoveryIdentity.created,
+        algorithm: {
+            name:"RSA-OAEP",
+            modulusLength: 2048,
+            hash:"SHA-256",
+            usage: ["encrypt"]
+        },
+        publicKey: {
+            format:"spki",
+            encoding:"base64",
+            data: btoa(String.fromCharCode(...new Uint8Array(publicKeySpki)))
+        }
+    };
+
+    await GD.driveCreateJsonFile({
+        name:"recovery.public.json",
+        parents: [recoveryFolderId],
+        json: recoveryPublicJson
+    });
+    log("UI.handleCreateRecoveryClick", "recovery.public.json written");
+
+    // 7️⃣ Add to envelope for CEK housekeeping
+    await addRecoveryKeyToEnvelope({
+        publicKey: publicKeySpki,
+        keyId: recoveryIdentity.fingerprint
+    });
+
+    log("UI.handleCreateRecoveryClick", "Recovery key successfully established");
+    UI.showUnlockMessage("Recovery key created!", "unlock-message success");
+    unlockBtn.disabled = false;
+}
+
 async function handleCreatePasswordClick()  {
     log("UI.handleCreatePasswordClick", "called");
 
@@ -372,6 +470,8 @@ async function handleCreatePasswordClick()  {
     }
 
     try {
+         //SAFETY: Clear any existing local identity before creating new (could be recovery or normal flow)
+        await ID.removeDeviceIdentity();
         await ID.createIdentity(pwd);
         await proceedAfterPasswordSuccess();
         log("UI.handleCreatePasswordClick", "New identity created and unlocked");
@@ -384,9 +484,6 @@ async function handleUnlockClick() {
 
     log("UI.handleUnlockClick", "called");
 
-    if (G.unlockInProgress) return;
-
-    G.unlockInProgress  = true;
     const pwd = passwordInput.value;
 
     showUnlockMessage(""); // clear previous
@@ -613,6 +710,8 @@ export async function proceedAfterPasswordSuccess() {
     // 1️⃣ Ensure envelope exists (read-only init only)
     await E.ensureEnvelope();      // 🔐 guarantees CEK + envelope
 
+    log("UI.proceedAfterPasswordSuccess", `G.recoverySession: ${G.recoverySession}, G.recoveryCEK exists: ${!!G.recoveryCEK}`);
+
     // 2️⃣ Explicitly check authorization
     const auth = await E.checkEnvelopeAuthorization();
 
@@ -624,7 +723,7 @@ export async function proceedAfterPasswordSuccess() {
     }
 
     // 3️⃣ Recovery key only after confirmed authorization
-    await ensureRecoveryKey();
+    await R.ensureRecoveryKey(async () => await promptRecoverySetupUI());
 
     // 4️⃣ Attempt write lock escalation (optional upgrade)
     if (G.driveLockState?.mode === "read") {
@@ -639,6 +738,11 @@ export async function proceedAfterPasswordSuccess() {
     } else {
         warn("UI.proceedAfterPasswordSuccess", "Skipping CEK housekeeping — G.driveLockState not ready or not writable");
         log("UI.proceedAfterPasswordSuccess", "Running in read-only mode");
+    }
+
+    if (G.recoverySession) {
+        G.recoverySession = false;
+        G.recoveryCEK = null;
     }
 
     // 6️⃣ Load vault payload
@@ -658,16 +762,47 @@ export async function proceedAfterPasswordSuccess() {
     log("UI.proceedAfterPasswordSuccess", "Unlock successful!@");
 }
 
-async function ensureRecoveryKey() {
-    log("UI.ensureRecoveryKey", "called");
+function handleNeedRecoveryClick() {
+    log("UI.handleNeedRecoveryClick", "called");
+    G.recoveryRequest = true;
 
-    if (await GD.hasRecoveryKeyOnDrive()) {
-        info("UI.ensureRecoveryKey", "Recovery key already present");
+    setupPasswordPrompt("recovery-request");
+}
+
+async function handleRecoverClick() {
+    log("UI.handleRecoverClick", "called");
+
+    showUnlockMessage("");
+
+    const pwd = passwordInput.value;
+    if (!pwd) {
+        showUnlockMessage("Recovery password required");
         return;
     }
 
-    log("UI.ensureRecoveryKey", "No recovery key found — blocking for recovery setup");
-    await promptRecoverySetupUI();   // ← UI + user input
+    try {
+        await R.handleRecovery(pwd, onRecoveryCEKSuccess);
+    } catch (err) {
+        clearSensitiveFields();
+        // Extract meaningful info from DOMException or normal Error
+        const userMsg = err.message || `${err.name || 'RecoveryError'} — see console`;
+        showUnlockMessage(`Recovery failed: ${userMsg}`);
+
+        // Full error in console for debugging
+        error("UI.handleRecoverClick", "Recovery error:", err);
+    }
+    // 1. load recovery.private.json from Drive
+    // 2. decrypt with password
+    // 3. unwrap CEK
+    // 4. generate new device identity
+    // 5. wrap CEK, write envelope, unlock session
+}
+
+
+async function onRecoveryCEKSuccess() {
+    log("UI.onRecoveryCEKSuccess", "called");
+
+    setupPasswordPrompt("create");
 }
 
 async function handleSaveClick() {

@@ -324,34 +324,6 @@ export async function loadPublicKeyJsonsFromDrive() {
     return publicKeyJsons;
 }
 
-export async function hasRecoveryKeyOnDrive() {
-    log("GD.hasRecoveryKeyOnDrive", "called");
-
-    try {
-        const folders = await driveList({
-            q: `'${C.ACCESS4_ROOT_ID}' in parents and name='recovery' and mimeType='application/vnd.google-apps.folder'`,
-            pageSize: 1
-        });
-
-        log("GD.hasRecoveryKeyOnDrive", "recovery folders found:", folders.length);
-
-        if (!folders.length) return false;
-
-        const recoveryFolderId = folders[0].id;
-
-        const files = await driveList({
-            q: `'${recoveryFolderId}' in parents and name='recovery.public.json'`,
-            pageSize: 1
-        });
-
-        return files.length === 1;
-
-    } catch (e) {
-        error("GD.hasRecoveryKeyOnDrive", "Recovery key check failed:", e.message);
-        throw e; // mandatory block
-    }
-}
-
 export async function ensureRecoveryFolder() {
     const q = `'${C.ACCESS4_ROOT_ID}' in parents and name='recovery' and mimeType='application/vnd.google-apps.folder'`;
     const res = await driveFetch(buildDriveUrl("files", {
@@ -422,4 +394,50 @@ export async function writeLockToDrive(envelopeName, lockJson, existingFileId = 
         parents: [C.ACCESS4_ROOT_ID],
         json: lockJson
     });
+}
+
+/**
+ * Load the recovery.private.json blob from the shared "recovery" folder
+ * on Google Drive.
+ *
+ * @returns {Promise<Object>} Parsed JSON of recovery private key
+ */
+export async function loadRecoveryPrivateBlob() {
+    log("GD.loadRecoveryPrivateBlob", "called");
+
+    try {
+        // 1️⃣ Locate the recovery folder under shared root
+        const recoveryFolders = await driveList({
+            q: `'${C.ACCESS4_ROOT_ID}' in parents and name='recovery' and mimeType='application/vnd.google-apps.folder'`,
+            pageSize: 1
+        });
+
+        if (recoveryFolders.length === 0) {
+            throw new Error("Recovery folder not found on Drive");
+        }
+
+        const recoveryFolderId = recoveryFolders[0].id;
+
+        // 2️⃣ Find the recovery.private.json file
+        const recoveryFiles = await driveList({
+            q: `'${recoveryFolderId}' in parents and name='recovery.private.json' and mimeType='application/json'`,
+            pageSize: 1
+        });
+
+        if (recoveryFiles.length === 0) {
+            throw new Error("recovery.private.json not found in recovery folder");
+        }
+
+        const fileId = recoveryFiles[0].id;
+
+        // 3️⃣ Read the file content as JSON
+        const recoveryJson = await driveReadJsonFile(fileId);
+
+        log("GD.loadRecoveryPrivateBlob", "recovery.private.json loaded successfully");
+        return recoveryJson;
+
+    } catch (err) {
+        error("GD.loadRecoveryPrivateBlob", "Failed to load recovery private blob:", err.message);
+        throw err;
+    }
 }

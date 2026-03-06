@@ -4,7 +4,6 @@ import { C } from './constants.js';
 import { G } from './global.js';
 
 import * as AU from './auth.js';
-import * as ID from './identity.js';
 import * as BM from './biometrics.js';
 import * as CR from './crypto.js';
 import * as GD from './gdrive.js';
@@ -12,7 +11,7 @@ import * as U from './utils.js';
 
 import { log, trace, debug, info, warn, error } from './log.js';
 
-const VERIFIER_TEXT = "identity-ok";
+export const VERIFIER_TEXT = "identity-ok";
 
 /* ---------------------- DEVICE ---------------------- */
 export function getDeviceId() {
@@ -20,7 +19,7 @@ export function getDeviceId() {
     if (!id) {
         id = crypto.randomUUID();
         localStorage.setItem(C.DEVICE_ID_KEY, id);
-        log("ID.getDeviceId] New device ID generated");
+        log("ID.getDeviceId", "New device ID generated: " + id);
     }
     return id;
 }
@@ -29,14 +28,22 @@ function identityKey() {
     return `access4.identity::${G.userEmail}::${getDeviceId()}`;
 }
 
+export function removeDeviceIdentity() {
+    const key = identityKey();
+    if (localStorage.getItem(key)) {
+        warn("ID.removeDeviceIdentity", "Removing identity:" + key);
+        localStorage.removeItem(C.DEVICE_ID_KEY);
+        localStorage.removeItem(key);
+    }
+}
+
 function saveIdentity(id) {
     localStorage.setItem(identityKey(), JSON.stringify(id));
 }
 
 export async function loadIdentity() {
     log("ID.loadIdentity", "called");
-    trace("ID.loadIdentity", "G.sessionUnlocked:", !!G.sessionUnlocked);
-    trace("ID.loadIdentity", "G.unlockedIdentity:", !!G.unlockedIdentity);
+    trace("ID.loadIdentity", `G.sessionUnlocked: ${!!G.sessionUnlocked}, G.unlockedIdentity: ${!!G.unlockedIdentity}`);
 
     if (G.sessionUnlocked && G.unlockedIdentity) {
         log("ID.loadIdentity", "Returning G.unlockedIdentity from memory");
@@ -72,10 +79,10 @@ export async function ensureDevicePublicKey() {
     log("ID.ensureDevicePublicKey", "called");
 
     const folder = await GD.findOrCreateUserFolder();
-    const id = await ID.loadIdentity();
+    const id = await loadIdentity();
     if (!id) throw new Error("Local identity missing");
 
-    const deviceId = ID.getDeviceId();
+    const deviceId = getDeviceId();
     const filename = `${G.userEmail}__${deviceId}.json`;
 
     const q = `'${folder}' in parents and name='${filename}'`;
@@ -140,7 +147,7 @@ export async function ensureDevicePublicKey() {
         content: U.format(pubData)
     });
 
-    log("ID.ensureDevicePublicKey", `Device public key UPLOADED to ${filename}`);
+    log("ID.ensureDevicePublicKey", `Device public key UPLOADED to ${filename.slice(-30)}`);
 }
 
 export async function migrateIdentityWithVerifier(id, pwd) {
@@ -171,7 +178,7 @@ export async function verifyPasswordVerifier(verifier, key) {
 export async function rotateDeviceIdentity(pwd) {
     log("ID.rotateDeviceIdentity", "called - Rotating device identity key");
 
-    const oldIdentity = await ID.loadIdentity();
+    const oldIdentity = await loadIdentity();
     if (!oldIdentity) {
         throw new Error("Cannot rotate — no existing identity");
     }
@@ -247,7 +254,7 @@ export async function createIdentity(pwd) {
     log("ID.createIdentity", "New identity created and session unlocked");
 }
 
-async function buildIdentityFromKeypair({privateKeyPkcs8, publicKeySpki}, pwd, opts = {}) {
+export async function buildIdentityFromKeypair({privateKeyPkcs8, publicKeySpki}, pwd, opts = {}) {
     log("ID.buildIdentityFromKeypair", "called");
 
     // Note: Consider utils.bufferToBase64(publicKeySpki) in case of overflow error because of String.fromCharCode

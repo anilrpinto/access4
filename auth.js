@@ -36,7 +36,7 @@ async function handleAuth(resp) {
     if (resp.error) return;
 
     G.accessToken = resp.access_token;
-    log("AU.handleAuth", `Access token acquired ${G.accessToken}`);
+    trace("AU.handleAuth", `Acquired access token [${G.accessToken?.slice(0, 20)}...]`);
 
     await GD.fetchUserEmail();
     await GD.verifySharedRoot(C.ACCESS4_ROOT_ID);

@@ -28,6 +28,11 @@ const _G = {
     unlockedIdentity: null,   // Holds decrypted identity for current session
     currentPrivateKey: null,
     sessionUnlocked: false,
+
+    recoveryRequest: false,
+    recoverySession: false,
+    recoveryCEK: null,
+
     settings: {
         minifyJson: false,
         clearBioDbOnLoad: false,

@@ -265,6 +265,26 @@ async function getDriveLockSelf() {
 export async function checkEnvelopeAuthorization() {
     log("E.checkEnvelopeAuthorization", "called");
 
+    /*
+     * ============================================================
+     * RECOVERY AUTHORIZATION PATH
+     * ============================================================
+     */
+    if (G.recoverySession === true) {
+        if (!G.recoveryCEK) {
+            warn("E.checkEnvelopeAuthorization", "Recovery session active but no session CEK present");
+            return { authorized: false, reason: "Recovery CEK missing" };
+        }
+
+        log("E.checkEnvelopeAuthorization", "Authorization granted via recovery session");
+        return { authorized: true, entry: { role: "recovery-session" } };
+    }
+
+    /*
+     * ============================================================
+     * NORMAL DEVICE AUTHORIZATION
+     * ============================================================
+     */
     const envelopeFile = await GD.readEnvelopeFromDrive(C.ENVELOPE_NAME);
 
     if (!envelopeFile?.json) {
@@ -696,20 +716,28 @@ export async function wrapCEKForRegistryKeys(forceWrite = false) {
 
     /*
      * ============================================================
-     * UNWRAP EXISTING CEK
+     * UNWRAP ELIGIBLE CEK
      * ============================================================
      */
-    const currentDeviceKeyEntry = await selectDecryptableKey(envelope);
+    let cek;
 
-    if (!currentDeviceKeyEntry) {
-        error("E.wrapCEKForRegistryKeys", "No device key available to unwrap CEK");
-        throw new Error("Missing envelope CEK error] This user+device isn't authorized to access vault data yet");
+    if (G.recoverySession === true && G.recoveryCEK) {
+        log("E.wrapCEKForRegistryKeys", "Using recovery CEK (recovery mode)");
+        cek = G.recoveryCEK;
+        G.recoveryCEK = null;   // null it immediately as it's role is done
+    } else {
+        const currentDeviceKeyEntry = await selectDecryptableKey(envelope);
+
+        if (!currentDeviceKeyEntry) {
+            error("E.wrapCEKForRegistryKeys", "No device key available to unwrap CEK");
+            throw new Error("Missing envelope CEK error] This user+device isn't authorized to access vault data yet");
+        }
+
+        log("E.wrapCEKForRegistryKeys", "Attempting CEK unwrap");
+        log("E.wrapCEKForRegistryKeys", `Selected deviceId: ${currentDeviceKeyEntry.deviceId}, unwrap keyId: ${currentDeviceKeyEntry.keyId}, G.unlockedIdentity fingerprint: ${G.unlockedIdentity?.fingerprint}`);
+
+        cek = await unwrapContentKey(currentDeviceKeyEntry.wrappedKey, currentDeviceKeyEntry.keyId);
     }
-
-    log("E.wrapCEKForRegistryKeys", "Attempting CEK unwrap");
-    log("E.wrapCEKForRegistryKeys", `Selected deviceId: ${currentDeviceKeyEntry.deviceId}, unwrap keyId: ${currentDeviceKeyEntry.keyId}, G.unlockedIdentity fingerprint: ${G.unlockedIdentity?.fingerprint}`);
-
-    const cek = await unwrapContentKey(currentDeviceKeyEntry.wrappedKey, currentDeviceKeyEntry.keyId);
 
     /*
      * ============================================================
@@ -750,8 +778,6 @@ export async function wrapCEKForRegistryKeys(forceWrite = false) {
 
     return envelope;
 }
-
-
 
 /* ---Unwrap CEK Using Local Private Key (rotation-safe) --- */
 async function unwrapContentKey(wrappedKeyBase64, keyId) {

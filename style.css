@@ -107,6 +107,24 @@ label {
     color: #0f6d3c; /* calm green */
 }
 
+.link-button {
+    background: none;
+    border: none;
+    color: #007bff; /* Standard "link blue" or your brand color */
+    padding: 0;
+    font: inherit;
+    cursor: pointer;
+    text-decoration: none; /* This removes the underline */
+
+    /* Mobile Optimization: removes the grey highlight box on tap in some browsers */
+    -webkit-tap-highlight-color: transparent;
+}
+
+/* Optional: Subtle change when pressed to give user feedback */
+.link-button:active {
+    opacity: 0.6;
+}
+
 #titleGesture {
     user-select: none;
     -webkit-user-select: none;

@@ -67,3 +67,15 @@ export async function encrypt(data, key) {
         data: btoa(String.fromCharCode(...new Uint8Array(enc)))
     };
 }
+
+export async function unwrapCEKWithPrivateKey(wrappedCEK, privateKey) {
+    return await crypto.subtle.unwrapKey(
+        "raw",
+        Uint8Array.from(atob(wrappedCEK), c => c.charCodeAt(0)),
+        privateKey,
+        { name: "RSA-OAEP" },
+        { name: "AES-GCM", length: 256 },
+        true,
+        ["encrypt", "decrypt"]
+    );
+}
