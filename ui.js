@@ -364,8 +364,6 @@ export function updateLockStatusUI() {
     showStatusMessage(`Envelope lock expires at ${expiresAt}`, "success")
 }
 
-/* --------- Unlock flow --------- */
-
 async function handleCreateRecoveryClick() {
     log("UI.handleCreateRecoveryClick", "called - Starting recovery key creation");
 
@@ -443,7 +441,7 @@ async function handleCreateRecoveryClick() {
     log("UI.handleCreateRecoveryClick", "recovery.public.json written");
 
     // 7️⃣ Add to envelope for CEK housekeeping
-    await addRecoveryKeyToEnvelope({
+    await E.addRecoveryKeyToEnvelope({
         publicKey: publicKeySpki,
         keyId: recoveryIdentity.fingerprint
     });

@@ -277,7 +277,7 @@ async function hasRecoveryKeyOnDrive() {
             pageSize: 1
         });
 
-        log("R.hasRecoveryKeyOnDrive", "recovery folders found:", folders.length);
+        log("R.hasRecoveryKeyOnDrive", "recovery folders found:", folders?.length);
 
         if (!folders.length) return false;
 

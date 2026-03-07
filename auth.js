@@ -173,40 +173,19 @@ async function ensureAuthorization() {
         await createGenesisAuthorization();
         return;
     }
-    const data = await GD.driveFetch(GD.buildDriveUrl(`files/${res.files[0].id}`, {
-        alt:"media"
-    }));
+    const data = await GD.driveFetch(GD.buildDriveUrl(`files/${res.files[0].id}`, { alt:"media" }));
+
     if (!data.admins.includes(G.userEmail) && !data.members.includes(G.userEmail))
         throw new Error("Unauthorized user");
+
     log("AU.ensureAuthorization", "Authorized user verified");
 }
 
 async function createGenesisAuthorization() {
     log("AU.createGenesisAuthorization", "called");
 
-    const file = await GD.driveFetch(GD.buildDriveUrl("files"), {
-        method:"POST",
-        headers: {
-            "Content-Type":"application/json"
-        },
-        body: JSON.stringify({
-            name: C.AUTH_FILE_NAME,
-            parents: [C.ACCESS4_ROOT_ID]
-        })
-    });
-    await GD.driveFetch(GD.buildDriveUrl(`files/${file.id}`, {
-        uploadType:"media"
-    }), {
-        method:"PATCH",
-        headers: {
-            "Content-Type":"application/json"
-        },
-        body: JSON.stringify({
-            admins: [G.userEmail],
-            members: [G.userEmail],
-            created: new Date().toISOString(),
-            version: 1
-        })
-    });
+    const file = await GD.createFileOrFolder(C.AUTH_FILE_NAME, C.ACCESS4_ROOT_ID);
+    await GD.drivePatchJsonFile(file.id, { admins: [G.userEmail], members: [G.userEmail], created: new Date().toISOString(), version: 1 });
+
     log("AU.createGenesisAuthorization", `Genesis authorization created for ${G.userEmail}`);
 }

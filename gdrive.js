@@ -121,7 +121,7 @@ export async function driveCreateJsonFile({ name, parents, json }) {
             parents,
             mimeType: "application/json"
         },
-        content: JSON.stringify(json),
+        content: U.format(json),
         contentType: "application/json"
     });
 
@@ -184,10 +184,8 @@ export async function findOrCreateUserFolder() {
 
     log("GD.findOrCreateUserFolder", "called");
     const rootQ = `'${C.ACCESS4_ROOT_ID}' in parents and name='${C.PUBKEY_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder'`;
-    const rootRes = await driveFetch(buildDriveUrl("files", {
-        q: rootQ,
-        fields:"files(id)"
-    }));
+    const rootRes = await driveFetch(buildDriveUrl("files", { q: rootQ, fields:"files(id)" }));
+
     const root = rootRes.files.length ? rootRes.files[0].id :
     (await driveFetch(buildDriveUrl("files"), {
         method:"POST",
@@ -221,6 +219,25 @@ export async function findOrCreateUserFolder() {
     });
 
     return folder.id;
+}
+
+export async function createFileOrFolder(name, parents = [], folder = false) {
+    // Ensure parents is always an array, even if a single string is passed
+    const parentArray = Array.isArray(parents) ? parents : [parents];
+
+    const body = {
+        name: name,
+        parents: parentArray
+    };
+
+    if (folder)
+        body.mimeType = "application/vnd.google-apps.folder";
+
+    return await driveFetch(buildDriveUrl("files"), {
+        method:"POST",
+        headers: { "Content-Type":"application/json" },
+        body: JSON.stringify(body)
+    });
 }
 
 async function markPreviousDriveKeyDeprecated(oldFingerprint, newFingerprint) {
@@ -326,10 +343,7 @@ export async function loadPublicKeyJsonsFromDrive() {
 
 export async function ensureRecoveryFolder() {
     const q = `'${C.ACCESS4_ROOT_ID}' in parents and name='recovery' and mimeType='application/vnd.google-apps.folder'`;
-    const res = await driveFetch(buildDriveUrl("files", {
-        q,
-        fields:"files(id)"
-    }));
+    const res = await driveFetch(buildDriveUrl("files", { q, fields:"files(id)" }));
 
     if (res.files.length) {
         return res.files[0].id;

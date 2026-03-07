@@ -858,7 +858,7 @@ async function addRecoveryKeyToEnvelope({ publicKey, keyId }) {
             wrappedKey = await wrapContentKeyForDevice(cek, publicKey);
             log("E.addRecoveryKeyToEnvelope", "CEK wrapped for recovery key");
         } catch (err) {
-            error("E.addRecoveryKeyToEnvelope", "Error wrapping CEK:", err);
+            error("E.addRecoveryKeyToEnvelope", "Error wrapping recovery CEK:", err);
             throw err;
         }
 
