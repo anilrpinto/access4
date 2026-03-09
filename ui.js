@@ -4,6 +4,7 @@ import { C } from './constants.js';
 import { G } from './global.js';
 import { logout } from './app.js';
 
+import * as AU from './auth.js';
 import * as GD from './gdrive.js';
 import * as E from './envelope.js';
 import * as CR from './crypto.js';
@@ -11,31 +12,24 @@ import * as ID from './identity.js';
 import * as BM from './biometrics.js';
 import * as R from './recovery.js';
 import * as U from './utils.js';
+import { loadUI } from './uihelper.js';
 
 import { log, trace, debug, info, warn, error } from './log.js';
 
-export let signinBtn;
-let passwordSection;
-let confirmPasswordSection;
-let unlockBtn;
-let recoverBtn;
-let recoveryLnk;
+export let logEl = document.getElementById("log");;
 
-let titleUnlocked;
-let plaintextInput;
-let saveBtn;
+const main = loadUI(["loginView", "vaultView", "vaultTitle"]); //document.getElementById("loginView");
 
-let loginView;
-let unlockedView;
-let passwordInput;
-let confirmPasswordInput;
+const login = loadUI(['signinBtn', 'userEmailSpan', 'pwdSection', 'confirmPwdSection', 'pwdInput', 'confirmPwdInput',
+    'unlockBtn', 'recoverBtn', 'recoveryLnk', 'statusMsg'], 'login_');
 
-export let logoutBtn;
-export let logEl;
+const vault = loadUI(['mainSection', 'data', 'recoveryRotationBtn', 'logoutBtn', 'saveBtn', 'statusMsg'], 'vault_', 'vaultBody');
 
-let userEmailSpan;
-let unlockMessage;
-let statusMessage;
+const vaultRecoveryKey = loadUI(['mainSection', 'currentPwdSection', 'currentPwdInput', 'pwdInput',
+    'confirmPwdInput', 'rotateBtn', 'cancelBtn', 'statusMsg'], 'vaultRecoveryKey_', 'vaultBody');
+
+export let signinBtn = login.signinBtn;
+export let logoutBtn = vault.logoutBtn;
 
 let idleTimer;
 let idleCallback = null;
@@ -56,40 +50,20 @@ const resetTimer = () => {
 
 export async function init() {
 
-    // Cache DOM
-    userEmailSpan = document.getElementById("userEmailSpan");
-    signinBtn = document.getElementById("signinBtn");
-    passwordSection = document.getElementById("passwordSection");
-    confirmPasswordSection = document.getElementById("confirmPasswordSection");
-    unlockBtn = document.getElementById("unlockBtn");
-    recoverBtn = document.getElementById("recoverBtn");
-    recoveryLnk = document.getElementById("recoveryLnk");
-    unlockMessage = document.getElementById("unlockMessage");
-    statusMessage = document.getElementById("statusMsg");
-
-    logoutBtn = document.getElementById("logoutBtn");
-
-    loginView = document.getElementById("loginView");
-    unlockedView = document.getElementById("unlockedView");
-    passwordInput = document.getElementById("passwordInput");
-    confirmPasswordInput = document.getElementById("confirmPasswordInput");
-    logEl = document.getElementById("log");
-
-    titleUnlocked = document.getElementById("titleUnlocked");
-    plaintextInput = document.getElementById("plaintextInput");
-    saveBtn = document.getElementById("saveBtn");
+    signinBtn = login.signinBtn;
+    logoutBtn = vault.logoutBtn;
 
     // Initial UI state
-    passwordSection.style.display = "none";
-    confirmPasswordSection.style.display = "none";
-    unlockedView.style.display = "none";
+    login.pwdSection.setVisible(false);
+    login.confirmPwdSection.setVisible(false);
+    main.vaultView.setVisible(false);
 
     setupTitleGesture();
     initLoginUI();
 
-    bindClick(recoveryLnk, handleNeedRecoveryClick);
-    bindClick(recoverBtn, handleRecoverClick);
-    bindClick(saveBtn, handleSaveClick);
+    bindClick(login.recoveryLnk, doNeedRecoveryClick);
+    bindClick(login.recoverBtn, doRecoverClick);
+    bindClick(vault.saveBtn, doSaveClick);
     bindClick(logEl, copyLogsToClipboard);
 
     if (G.settings.clearBioDbOnLoad)
@@ -103,17 +77,17 @@ export async function init() {
 }
 
 export function showUnlockMessage(msg, type = "error") {
-    if (!unlockMessage) return;
+    if (!login.statusMsg) return;
 
-    unlockMessage.textContent = msg;
-    unlockMessage.className = `unlock-message ${type}`;
+    login.statusMsg.textContent = msg;
+    login.statusMsg.className = `status-message ${type}`;
 }
 
 function showStatusMessage(msg, type = "error") {
-    if (!statusMessage) return;
+    if (!vault.statusMsg) return;
 
-    statusMessage.textContent = msg;
-    statusMessage.className = `unlock-message ${type}`;
+    vault.statusMsg.textContent = msg;
+    vault.statusMsg.className = `status-message ${type}`;
 }
 
 export function bindClick(el, callback, options = {}) {
@@ -130,14 +104,15 @@ export function bindClick(el, callback, options = {}) {
 
 export function promptUnlockPasword() {
     logEl.textContent = "";
-    signinBtn.disabled = true;
-    logoutBtn.disabled = false;
-    passwordSection.style.display = "block";
+
+    login.signinBtn.setEnabled(false);
+    vault.logoutBtn.setEnabled(true);
+    login.pwdSection.setVisible(true);
 }
 
 export function showAuthorizedEmail(email) {
     log("UI.showAuthorizedEmail", "called - email:", email ? "axxx.gmail.com" : "empty");
-    userEmailSpan.textContent = email;
+    login.userEmailSpan.textContent = email;
 }
 
 // attach gesture logic
@@ -167,13 +142,13 @@ function setupTitleGesture() {
             tapCount = 0;
             tapTimer = null;
 
-            await handleHiddenGesture();
+            await doHiddenGesture();
         }
     });
 }
 
-async function handleHiddenGesture() {
-    log("UI.handleHiddenGesture", "called");
+async function doHiddenGesture() {
+    log("UI.doHiddenGesture", "called");
 
     if (!G.userEmail || G.sessionUnlocked) return;
 
@@ -199,38 +174,38 @@ function initLoginUI() {
     log("UI.initLoginUI", "called");
 
     // Always show login view
-    loginView.style.display = "block";
-    unlockedView.style.display = "none";
+    main.loginView.setVisible(true);
+    main.vaultView.setVisible(false);
 
     // Hide password input sections until needed
-    passwordSection.style.display = "none";
-    confirmPasswordSection.style.display = "none";
+    login.pwdSection.setVisible(false);
+    login.confirmPwdSection.setVisible(false);
 
-    signinBtn.disabled = false;
+    signinBtn.setEnabled(true);
 
     // Reset any messages
     showUnlockMessage("");
 
     // Disable save button initially
-    saveBtn.disabled = true;
+    vault.saveBtn.setEnabled(false);
 }
 
 export function resetUnlockUi() {
     log("UI.resetUnlockUi", "called");
 
     // 3️⃣ Clear UI state
-    unlockedView.style.display = "none";
-    loginView.style.display = "block";
+    main.vaultView.setVisible(false);
+    main.loginView.setVisible(true);
 
     // Clear password inputs
     clearSensitiveFields();
 
-    passwordSection.style.display = "none";
-    confirmPasswordSection.style.display = "none";
+    login.pwdSection.setVisible(false);
+    login.confirmPwdSection.setVisible(false);
 
     // Reset button state
-    unlockBtn.disabled = false;
-    unlockBtn.textContent = "Unlock";
+    login.unlockBtn.setText("Unlock");
+    login.unlockBtn.setEnabled(true);
 
     updateBiometricIndicator();
 
@@ -248,71 +223,77 @@ export function resetUnlockUi() {
 
     if (G.authMode !== "create" && G.authMode !== "unlock") {
         showAuthorizedEmail(null);
-        signinBtn.disabled = false;
+        signinBtn.setEnabled(true);
     }
 }
 
-export function setupPasswordPrompt(mode, options = {}) {
+export async function setupPasswordPrompt(mode, options = {}) {
     log("UI.setupPasswordPrompt", "called - mode:" + mode);
 
     clearSensitiveFields();
     showUnlockMessage("");
 
     // ✅ Always enable unlockBtn when switching mode
-    unlockBtn.disabled = false;
+     login.unlockBtn.setEnabled(true);
 
-    passwordSection.style.display = "block";
+    login.pwdSection.setVisible(true);
 
     if (mode === "unlock") {
-        confirmPasswordSection.style.display = "none";
-        unlockBtn.textContent = "Unlock";
-        unlockBtn.onclick = handleUnlockClick;
+        login.confirmPwdSection.setVisible(false);
+        login.unlockBtn.setText("Unlock");
+        login.unlockBtn.onclick = doUnlockClick;
 
         showUnlockMessage(options.migration ? "Identity missing password verifier — enter your password to upgrade." : "");
     } else if (mode === "create") {
-        confirmPasswordSection.style.display = "block";
-        unlockBtn.textContent = "Create Password";
-        unlockBtn.onclick = handleCreatePasswordClick;
+        login.confirmPwdSection.setVisible(true);
+        login.unlockBtn.setText("Create Password");
+        login.unlockBtn.onclick = doCreatePasswordClick;
     } else if (mode === "recovery-request") {
-        confirmPasswordSection.style.display = "none";
-        unlockBtn.textContent = "Recover";
-        unlockBtn.onclick = handleRecoverClick;
+        login.confirmPwdSection.setVisible(false);
+        login.unlockBtn.setText("Recover");
+        login.unlockBtn.onclick = doRecoverClick;
     }
 
     log("UI.setupPasswordPrompt", `G.recoveryRequest: ${G.recoveryRequest}, G.recoverySession: ${G.recoverySession}`);
 
-    recoveryLnk.style.display = (G.recoveryRequest === true || G.recoverySession === true) ? "none" : "block";
+    login.recoveryLnk.style.display = (G.recoveryRequest === true || G.recoverySession === true || !(await R.hasRecoveryKeyOnDrive())) ? "none" : "block";
 }
 
 function clearSensitiveFields() {
-    passwordInput.value = "";
-    confirmPasswordInput.value = "";
+    login.pwdInput.clear();
+    login.confirmPwdInput.clear();
 }
 
 export function showVaultUI({ readOnly = false, onIdle = () => { warn('idle timeout fired') } } = {}) {
 
     log("UI.showVaultUI", "called");
 
-    // Hide login / password sections
-    loginView.style.display = "none";
-    passwordSection.style.display = "none";
-    confirmPasswordSection.style.display = "none";
+    // Hide login section
+    main.loginView.setVisible(false);
+
+    if (AU.isAdmin()) {
+        vault.recoveryRotationBtn.setVisible(true);
+        bindClick(vault.recoveryRotationBtn, showRecoveryRotationUI);
+    } else {
+        warn("UI.showVaultUI", "Recovery option turned off for non-admin user");
+        vault.recoveryRotationBtn.setVisible(false);
+    }
 
     // Show main unlocked view
-    unlockedView.style.display = "block";
+    main.vaultView.setVisible(true);
 
     // Update UI for read-only mode
     if (readOnly) {
         warn("UI.showVaultUI", "Unlocked UI in read-only mode: disabling save button");
-        saveBtn.disabled = true;
-        saveBtn.title = "Read-only mode: cannot save";
-        plaintextInput.readOnly = true;
-        titleUnlocked.textContent = "Unlocked (Read-only)";
+        vault.saveBtn.setEnabled(false);
+        vault.saveBtn.title = "Read-only mode: cannot save";
+        vault.data.readOnly = true;
+        main.vaultTitle.setText("Unlocked (Read-only)");
     } else {
-        saveBtn.disabled = false;
-        saveBtn.title = "";
-        plaintextInput.readOnly = false;
-        titleUnlocked.textContent = "Unlocked";
+        vault.saveBtn.setEnabled(true);
+        vault.saveBtn.title = "";
+        vault.data.readOnly = false;
+        main.vaultTitle.setText("Unlocked");
     }
 
     // Events that "wake up" the timer
@@ -326,36 +307,6 @@ export function showVaultUI({ readOnly = false, onIdle = () => { warn('idle time
     resetTimer();
 }
 
-export function promptRecoverySetupUI() {
-    log("UI.promptRecoverySetupUI", "called");
-
-    return new Promise(resolve => {
-        // reuse existing inputs
-        resetUnlockUi();
-
-        passwordSection.style.display = "block";
-        confirmPasswordSection.style.display = "block";
-
-        unlockBtn.textContent = "Create Recovery Password";
-        unlockBtn.disabled = false;
-
-        showUnlockMessage(
-            "Create a recovery password. This allows account recovery if all devices are lost.",
-            "unlock-message"
-        );
-
-        unlockBtn.onclick = async () => {
-            try {
-                await handleCreateRecoveryClick();
-                resolve();
-            } catch (e) {
-                unlockBtn.disabled = false;
-                showUnlockMessage(e.message || "Recovery setup failed", "unlock-message error");
-            }
-        };
-    });
-}
-
 export function updateLockStatusUI() {
     if (!G.driveLockState) return;
 
@@ -364,100 +315,129 @@ export function updateLockStatusUI() {
     showStatusMessage(`Envelope lock expires at ${expiresAt}`, "success")
 }
 
-async function handleCreateRecoveryClick() {
-    log("UI.handleCreateRecoveryClick", "called - Starting recovery key creation");
+export function showRecoveryRotationStatusMessage(msg, type = "error") {
+    if (!vaultRecoveryKey.statusMsg) return;
 
-    const pwd = passwordInput.value;
-    const confirm = confirmPasswordInput.value;
-
-    if (!pwd || pwd.length < 7) {
-        throw new Error("Recovery password must be at least 7 characters.");
-    }
-    if (pwd !== confirm) {
-        throw new Error("Recovery passwords do not match.");
-    }
-
-    unlockBtn.disabled = true;
-    UI.showUnlockMessage("Creating recovery key…");
-
-    // 1️⃣ Generate RSA keypair (same as device)
-    const keypair = await crypto.subtle.generateKey(
-        {
-            name:"RSA-OAEP",
-            modulusLength: 2048,
-            publicExponent: new Uint8Array([1, 0, 1]),
-            hash:"SHA-256"
-        },
-        true,
-        ["encrypt", "decrypt"]
-    );
-    log("UI.handleCreateRecoveryClick", "Recovery keypair generated");
-
-    // 2️⃣ Export keys
-    const privateKeyPkcs8 = await crypto.subtle.exportKey("pkcs8", keypair.privateKey);
-    const publicKeySpki = await crypto.subtle.exportKey("spki", keypair.publicKey);
-    log("UI.handleCreateRecoveryClick", "Recovery keys exported");
-
-    // 3️⃣ Build recovery identity
-    const recoveryIdentity = await ID.buildIdentityFromKeypair(
-        { privateKeyPkcs8, publicKeySpki },
-        pwd,
-        { type:"recovery", createdBy: ID.getDeviceId() }
-    );
-    log("UI.handleCreateRecoveryClick", "Private key encrypted with recovery password");
-
-    // 4️⃣ Ensure recovery folder
-    const recoveryFolderId = await GD.ensureRecoveryFolder();
-
-    // 5️⃣ Write private recovery file
-    await GD.driveCreateJsonFile({ name:"recovery.private.json", parents: [recoveryFolderId], json: recoveryIdentity });
-    log("UI.handleCreateRecoveryClick", "recovery.private.json written");
-
-    // 6️⃣ Write public recovery file (matching device key structure)
-    const recoveryPublicJson = {
-        type:"recovery",
-        role:"recovery",
-        keyId: recoveryIdentity.fingerprint,
-        fingerprint: recoveryIdentity.fingerprint,
-        created: recoveryIdentity.created,
-        algorithm: {
-            name:"RSA-OAEP",
-            modulusLength: 2048,
-            hash:"SHA-256",
-            usage: ["encrypt"]
-        },
-        publicKey: {
-            format:"spki",
-            encoding:"base64",
-            data: btoa(String.fromCharCode(...new Uint8Array(publicKeySpki)))
-        }
-    };
-
-    await GD.driveCreateJsonFile({
-        name:"recovery.public.json",
-        parents: [recoveryFolderId],
-        json: recoveryPublicJson
-    });
-    log("UI.handleCreateRecoveryClick", "recovery.public.json written");
-
-    // 7️⃣ Add to envelope for CEK housekeeping
-    await E.addRecoveryKeyToEnvelope({
-        publicKey: publicKeySpki,
-        keyId: recoveryIdentity.fingerprint
-    });
-
-    log("UI.handleCreateRecoveryClick", "Recovery key successfully established");
-    UI.showUnlockMessage("Recovery key created!", "unlock-message success");
-    unlockBtn.disabled = false;
+    vaultRecoveryKey.statusMsg.textContent = msg;
+    vaultRecoveryKey.statusMsg.className = `status-message ${type}`;
 }
 
-async function handleCreatePasswordClick()  {
-    log("UI.handleCreatePasswordClick", "called");
+function doCancelRecoveryRotationClick() {
+    log("UI.doCancelRecoveryRotationClick", "called");
+    vaultRecoveryKey.mainSection.setVisible(false);
+    vault.mainSection.setVisible(true);
+}
 
-    const pwd = passwordInput.value;
-    const confirm = confirmPasswordInput.value;
+async function showRecoveryRotationUI() {
+    log("UI.showRecoveryRotationUI", "called");
 
-    if (!pwd || pwd.length < 7) {
+    const rotateMode = await R.hasRecoveryKeyOnDrive();
+
+    vaultRecoveryKey.currentPwdSection.setVisible(rotateMode);
+    vaultRecoveryKey.rotateBtn.setText(rotateMode ? "Rotate recovery" : "Create recovery");
+    vaultRecoveryKey.mainSection.setVisible(true);
+    vault.mainSection.setVisible(false);
+
+    vaultRecoveryKey.rotateBtn.onClick((e) => doRotateRecoveryKeyClick(rotateMode));
+    vaultRecoveryKey.cancelBtn.onClick((e) => doCancelRecoveryRotationClick());
+
+    showRecoveryRotationStatusMessage("Create a recovery password. This allows account recovery if all devices are lost.", "status-message");
+}
+
+async function doRotateRecoveryKeyClick(rotateMode) {
+    log("UI.doRotateRecoveryKeyClick", "called - Starting recovery key creation in rotateMode:", rotateMode);
+
+    try {
+
+        AU.requireAdmin();
+
+        if (rotateMode) {
+            const currPwd = vaultRecoveryKey.currentPwdInput.value;
+            if (!currPwd || currPwd.length < C.PASSWORD_MIN_LEN || !(await R.verifyRecoveryPassword(currPwd))) {
+                throw new Error("Incorrect current password");
+            }
+        }
+
+        const pwd = vaultRecoveryKey.pwdInput.value;
+        const confirm = vaultRecoveryKey.confirmPwdInput.value;
+
+        if (!pwd || pwd.length < C.PASSWORD_MIN_LEN) {
+            throw new Error("Recovery password must be at least 7 characters.");
+        }
+        if (pwd !== confirm) {
+            throw new Error("Recovery passwords do not match.");
+        }
+
+        vaultRecoveryKey.currentPwdInput.clear();
+        vaultRecoveryKey.pwdInput.clear();
+        vaultRecoveryKey.confirmPwdInput.clear();
+
+        vaultRecoveryKey.rotateBtn.setEnabled(false);
+        showRecoveryRotationStatusMessage("Creating recovery key please wait...");
+
+        const recoveryIdentity = await ID.createRecoveryIdentity(pwd);
+
+        log("UI.doRotateRecoveryKeyClick", "Private key encrypted with recovery password");
+
+        // 4️⃣ Ensure recovery folder
+        const recoveryFolderId = await GD.ensureRecoveryFolder();
+
+        // 5️⃣ Write private recovery file
+        await GD.driveCreateJsonFile({ name:"recovery.private.json", parents: [recoveryFolderId], json: recoveryIdentity, overwrite: true });
+        log("UI.doRotateRecoveryKeyClick", "recovery.private.json written");
+
+        // 6️⃣ Write public recovery file (matching device key structure)
+        const recoveryPublicJson = {
+            type:"recovery",
+            role:"recovery",
+            keyId: recoveryIdentity.fingerprint,
+            fingerprint: recoveryIdentity.fingerprint,
+            created: recoveryIdentity.created,
+            algorithm: {
+                name:"RSA-OAEP",
+                modulusLength: 2048,
+                hash:"SHA-256",
+                usage: ["encrypt"]
+            },
+            publicKey: {
+                format:"spki",
+                encoding:"base64",
+                data: recoveryIdentity.publicKey
+            }
+        };
+
+        await GD.driveCreateJsonFile({name:"recovery.public.json", parents: [recoveryFolderId], json: recoveryPublicJson, overwrite: true });
+        log("UI.doRotateRecoveryKeyClick", "recovery.public.json written");
+
+        // Refresh registry with newly uploaded recovery public key
+        await E.buildKeyRegistryFromDrive(await GD.loadPublicKeyJsonsFromDrive());
+
+        // 7️⃣ Add to envelope for CEK housekeeping
+        await E.addRecoveryKeyToEnvelope({
+            publicKey: recoveryIdentity.publicKey,
+            keyId: recoveryIdentity.fingerprint
+        });
+
+        log("UI.doRotateRecoveryKeyClick", "Recovery key successfully established");
+        //showRecoveryRotationStatusMessage("Recovery key created!", "status-message success");
+
+        vaultRecoveryKey.rotateBtn.setEnabled(true);
+        doCancelRecoveryRotationClick();
+        showStatusMessage("Recovery key created!", "status-message success");
+
+    } catch (err) {
+        vaultRecoveryKey.rotateBtn.setEnabled(true);
+        showRecoveryRotationStatusMessage(err.message || "Recovery setup failed", "status-message error");
+    }
+}
+
+async function doCreatePasswordClick()  {
+    log("UI.doCreatePasswordClick", "called");
+
+    const pwd = login.pwdInput.value;
+    const confirm = login.confirmPwdInput.value;
+
+    if (!pwd || pwd.length < C.PASSWORD_MIN_LEN) {
         showUnlockMessage("Password too weak");
         return;
     }
@@ -472,17 +452,17 @@ async function handleCreatePasswordClick()  {
         await ID.removeDeviceIdentity();
         await ID.createIdentity(pwd);
         await proceedAfterPasswordSuccess();
-        log("UI.handleCreatePasswordClick", "New identity created and unlocked");
+        log("UI.doCreatePasswordClick", "New identity created and unlocked");
     } catch (e) {
         showUnlockMessage(e.message);
     }
 }
 
-async function handleUnlockClick() {
+async function doUnlockClick() {
 
-    log("UI.handleUnlockClick", "called");
+    log("UI.doUnlockClick", "called");
 
-    const pwd = passwordInput.value;
+    const pwd = login.pwdInput.value;
 
     showUnlockMessage(""); // clear previous
 
@@ -501,7 +481,7 @@ async function handleUnlockClick() {
             .find(d => d.code === e.code);
 
         showUnlockMessage(def?.message || e.message || "Unlock failed");
-        error("UI.handleUnlockClick", "Unlock failed:", (def?.message || e.message));
+        error("UI.doUnlockClick", "Unlock failed:", (def?.message || e.message));
     }
 }
 
@@ -509,7 +489,7 @@ async function unlockIdentityFlow(pwd) {
 
     log("UI.unlockIdentityFlow", "called");
 
-    if (!pwd || pwd.length < 7) {
+    if (!pwd || pwd.length < C.PASSWORD_MIN_LEN) {
         const e = new Error(C.UNLOCK_ERROR_DEFS.WEAK_PASSWORD.message);
         e.code = C.UNLOCK_ERROR_DEFS.WEAK_PASSWORD.code;
         throw e;
@@ -636,34 +616,8 @@ async function unlockIdentityFlow(pwd) {
     // 1️⃣ Cache current private key (imports + sets G.currentPrivateKey)
     await ID.cacheDecryptedPrivateKey(decryptedPrivateKeyBytes);
 
-    // 2️⃣ Decrypt ALL previous rotated private keys once (if any)
-    id._decryptedPreviousKeys = [];
-
-    if (id.previousKeys?.length) {
-        for (const prev of id.previousKeys) {
-            try {
-                const derivedPrev = await CR.deriveKey(pwd, prev.kdf);
-                const privateKeyPkcs8 = await CR.decrypt(prev.encryptedPrivateKey, derivedPrev);
-
-                const privateKey = await crypto.subtle.importKey(
-                    "pkcs8",
-                    privateKeyPkcs8,
-                    { name:"RSA-OAEP", hash:"SHA-256" },
-                    false,
-                    ["unwrapKey"]
-                );
-
-                id._decryptedPreviousKeys.push({
-                    fingerprint: prev.fingerprint,
-                    privateKey
-                });
-
-                log("UI.unlockIdentityFlow", `Previous key ${prev.fingerprint} decrypted for session`);
-            } catch {
-                warn("UI.unlockIdentityFlow", `Failed to decrypt previous key ${prev.fingerprint}`);
-            }
-        }
-    }
+    // decrypt rotated identity keys
+    await ID.decryptPreviousKeys(id, pwd);
 
     // 4️⃣ Attach decrypted key to identity + session globals
     id._sessionPrivateKey = G.currentPrivateKey;
@@ -721,7 +675,8 @@ export async function proceedAfterPasswordSuccess() {
     }
 
     // 3️⃣ Recovery key only after confirmed authorization
-    await R.ensureRecoveryKey(async () => await promptRecoverySetupUI());
+    // Recovery is now managed from Vault UI security menu
+    //~await R.ensureRecoveryKey(async () => await promptRecoveryPasswordUI());
 
     // 4️⃣ Attempt write lock escalation (optional upgrade)
     if (G.driveLockState?.mode === "read") {
@@ -744,7 +699,7 @@ export async function proceedAfterPasswordSuccess() {
     }
 
     // 6️⃣ Load vault payload
-    await E.loadEnvelopePayloadToUI(text => plaintextInput.value = text);
+    await E.loadEnvelopePayloadToUI(text => vault.data.value = text);
 
     // 7️⃣ UI mode strictly derived from lock state
     const readOnly = G.driveLockState?.mode !== "write";
@@ -760,19 +715,19 @@ export async function proceedAfterPasswordSuccess() {
     log("UI.proceedAfterPasswordSuccess", "Unlock successful!@");
 }
 
-function handleNeedRecoveryClick() {
-    log("UI.handleNeedRecoveryClick", "called");
+function doNeedRecoveryClick() {
+    log("UI.doNeedRecoveryClick", "called");
     G.recoveryRequest = true;
 
     setupPasswordPrompt("recovery-request");
 }
 
-async function handleRecoverClick() {
-    log("UI.handleRecoverClick", "called");
+async function doRecoverClick() {
+    log("UI.doRecoverClick", "called");
 
     showUnlockMessage("");
 
-    const pwd = passwordInput.value;
+    const pwd = login.pwdInput.value;
     if (!pwd) {
         showUnlockMessage("Recovery password required");
         return;
@@ -787,7 +742,7 @@ async function handleRecoverClick() {
         showUnlockMessage(`Recovery failed: ${userMsg}`);
 
         // Full error in console for debugging
-        error("UI.handleRecoverClick", "Recovery error:", err);
+        error("UI.doRecoverClick", "Recovery error:", err);
     }
     // 1. load recovery.private.json from Drive
     // 2. decrypt with password
@@ -796,27 +751,26 @@ async function handleRecoverClick() {
     // 5. wrap CEK, write envelope, unlock session
 }
 
-
 async function onRecoveryCEKSuccess() {
     log("UI.onRecoveryCEKSuccess", "called");
 
     setupPasswordPrompt("create");
 }
 
-async function handleSaveClick() {
-    log("UI.handleSaveClick", "called");
+async function doSaveClick() {
+    log("UI.doSaveClick", "called");
 
-    const text = plaintextInput.value;
+    const text = vault.data.value;
     if (!text) {
-        warn("UI.handleSaveClick] Nothing to encrypt");
+        warn("UI.doSaveClick] Nothing to encrypt");
         return;
     }
 
     try {
         await E.encryptAndPersistPlaintext(text);
-        //plaintextInput.value = "";
+        //vault.data.value = "";
     } catch (e) {
-        error("UI.handleSaveClick] Encryption failed:", e.message);
+        error("UI.doSaveClick", "Encryption failed:", e.message);
     }
     alert("Saved!");
 }
@@ -882,4 +836,3 @@ function promptClearLocalStorage() {
     log("UI.promptClearLocalStorage", "localStorage cleared successfully.");
     return true;
 }
-

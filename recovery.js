@@ -200,24 +200,43 @@ export async function restoreFromRecovery(password) {
     return true;
 }
 
+/**
+ * Returns the decrypted private key bytes if the recovery password is correct.
+ * Returns null if password is invalid or recovery key is missing/corrupted.
+ */
+async function decryptRecoveryPassword(pwd) {
+    log("R.verifyRecoveryPassword", "called");
+
+    try {
+        // Load encrypted recovery private key
+        const recoveryBlob = await GD.loadRecoveryPrivateBlob();
+        if (!recoveryBlob) return null;
+
+        // Derive key
+        const recoveryKey = await CR.deriveKey(pwd, recoveryBlob.kdf);
+
+        // Attempt decrypt
+        const decryptedPrivateKeyBytes = await CR.decrypt(recoveryBlob.encryptedPrivateKey, recoveryKey);
+
+        // Success
+        return decryptedPrivateKeyBytes;
+    } catch (err) {
+        log("R.verifyRecoveryPassword", "failed:", err?.message || err?.name || err);
+        return null;
+    }
+}
+
+export async function verifyRecoveryPassword(pwd) {
+    return !!(await decryptRecoveryPassword(pwd));
+}
+
 export async function handleRecovery(pwd, onCEKSuccessCb) {
 
     log("R.handleRecovery", "called");
 
-    // 1️⃣ Load recovery private key from Drive
-    const recoveryBlob = await GD.loadRecoveryPrivateBlob();
-
-    // 2️⃣ Decrypt recovery private key with user-supplied password
-    const recoveryKey = await CR.deriveKey(pwd, recoveryBlob.kdf);
-
-    let recoveryPrivateKeyBytes;
-
-    // 3️⃣ Decrypt recovery private key
-    try {
-        recoveryPrivateKeyBytes = await CR.decrypt(recoveryBlob.encryptedPrivateKey, recoveryKey);
-    } catch(e) {
-        throw new Error("Incorrect recovery password or corrupted recovery key");
-    }
+    // 1️⃣ Verify password and get decrypted key
+    const recoveryPrivateKeyBytes = await decryptRecoveryPassword(pwd);
+    if (!recoveryPrivateKeyBytes) throw new Error("Incorrect recovery password or corrupted recovery key");
 
     // Import decrypted private key into crypto subtle
     const recoveryPrivateKey = await crypto.subtle.importKey(
@@ -234,7 +253,7 @@ export async function handleRecovery(pwd, onCEKSuccessCb) {
     const envelopeFile = await GD.readEnvelopeFromDrive(C.ENVELOPE_NAME);
     if (!envelopeFile) throw new Error("Vault envelope not found");
 
-    const envelope = envelopeFile.json; // <--- your missing line
+    const envelope = envelopeFile.json;
     log("R.handleRecovery", "Vault envelope loaded");
 
     // 5️⃣ Find the CEK wrapped for recovery identity
@@ -255,6 +274,7 @@ export async function handleRecovery(pwd, onCEKSuccessCb) {
         await onCEKSuccessCb();
 }
 
+/* Commented as no longer
 export async function ensureRecoveryKey(setupRecoveryCb) {
     log("R.ensureRecoveryKey", "called");
 
@@ -266,9 +286,9 @@ export async function ensureRecoveryKey(setupRecoveryCb) {
     log("R.ensureRecoveryKey", "No recovery key found — blocking for recovery setup");
     if (setupRecoveryCb)
         await setupRecoveryCb();
-}
+}*/
 
-async function hasRecoveryKeyOnDrive() {
+export async function hasRecoveryKeyOnDrive() {
     log("R.hasRecoveryKeyOnDrive", "called");
 
     try {
@@ -284,14 +304,20 @@ async function hasRecoveryKeyOnDrive() {
         const recoveryFolderId = folders[0].id;
 
         const files = await GD.driveList({
-            q: `'${recoveryFolderId}' in parents and name='recovery.public.json'`,
-            pageSize: 1
+            q: `'${recoveryFolderId}' in parents and (name='${C.RECOVERY_KEY_PUBLIC_FILE}' or name='${C.RECOVERY_KEY_PRIVATE_FILE}')`,
+            pageSize: 2
         });
 
-        return files.length === 1;
+        const names = files.map(f => f.name);
+
+        const exists = names.includes(C.RECOVERY_KEY_PUBLIC_FILE) && names.includes(C.RECOVERY_KEY_PRIVATE_FILE);
+
+        log("R.hasRecoveryKeyOnDrive", "recovery pair exists:", exists);
+
+        return exists;
 
     } catch (e) {
         error("R.hasRecoveryKeyOnDrive", "Recovery key check failed:", e.message);
-        throw e; // mandatory block
+        throw e;
     }
 }

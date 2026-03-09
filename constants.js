@@ -8,6 +8,8 @@ export const C = deepFreeze({
     ACCESS4_ROOT_ID: "1zQPiXTCDlPjzgD1YZiVKsRB2s4INUS_g",
     AUTH_FILE_NAME: "authorized.json",
     ENVELOPE_NAME: "envelope.json",
+    RECOVERY_KEY_PUBLIC_FILE: "recovery.public.json",
+    RECOVERY_KEY_PRIVATE_FILE: "recovery.private.json",
     PUBKEY_FOLDER_NAME: "pub-keys",
     DEVICE_ID_KEY: "access4.device.id",
     HEARTBEAT_INTERVAL: 10_000, // 10 seconds
@@ -15,6 +17,7 @@ export const C = deepFreeze({
     IDLE_TIMEOUT_MS: 300000,    // 5 mins
     BIO_DB_NAME: "access4_bio_db",
     BIO_STORE: "pwk_store",
+    PASSWORD_MIN_LEN: 7,
 
     UNLOCK_ERROR_DEFS: {
         WEAK_PASSWORD: {

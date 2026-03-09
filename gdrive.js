@@ -58,6 +58,10 @@ export async function findDriveFileByName(name) {
     return _driveFindFileByNameInFolder(name, C.ACCESS4_ROOT_ID);
 }
 
+async function findDriveFileByNameInFolder(name, folderId) {
+    return _driveFindFileByNameInFolder(name, folderId);
+}
+
 export async function driveReadJsonFile(fileId) {
     const res = await _driveFetchRaw(
         buildDriveUrl(`files/${fileId}`, { alt: "media" })
@@ -114,13 +118,19 @@ export async function driveMultipartUpload({ metadata, content, contentType = "a
     return json;
 }
 
-export async function driveCreateJsonFile({ name, parents, json }) {
+export async function driveCreateJsonFile({ name, parents, json, overwrite = false }) {
+
+    if (overwrite) {
+        const existingFile = await findDriveFileByNameInFolder(name, parents?.[0]);
+        if (existingFile?.id) {
+            await drivePatchJsonFile(existingFile.id, json);
+            return existingFile.id;
+        }
+    }
+
+    // Otherwise, create new
     const data = await driveMultipartUpload({
-        metadata: {
-            name,
-            parents,
-            mimeType: "application/json"
-        },
+        metadata: { name, parents, mimeType: "application/json" },
         content: U.format(json),
         contentType: "application/json"
     });

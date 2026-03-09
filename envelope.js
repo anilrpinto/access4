@@ -51,6 +51,9 @@ export async function ensureEnvelope() {
     log("E.ensureEnvelope", "activeDevices registry:", G.keyRegistry.flat.activeDevices.length);
     log("E.ensureEnvelope", "recoveryKeys registry:", G.keyRegistry.flat.recoveryKeys.length);
 
+    if (G.keyRegistry.flat.recoveryKeys.length == 0)
+        warn("E.ensureEnvelope", "WARNING: NO RECOVERY KEY ENTRY IN ENVELOPE. CREATE ONE IMMEDIATELY!!");
+
     // ─── Fast path: load existing envelope ───
     const existing = await GD.readEnvelopeFromDrive(C.ENVELOPE_NAME);
     if (existing?.json) {
@@ -68,7 +71,7 @@ export async function ensureEnvelope() {
     return await writeEnvelopeWithLock(C.ENVELOPE_NAME, envelope);
 }
 
-async function buildKeyRegistryFromDrive(rawPublicKeyJsons) {
+export async function buildKeyRegistryFromDrive(rawPublicKeyJsons) {
     log("E.buildKeyRegistryFromDrive", "called");
 
     resetKeyRegistry(); // keep global registry mutable
@@ -702,7 +705,12 @@ export async function wrapCEKForRegistryKeys(forceWrite = false) {
             // Preserve unknown roles defensively
             if (!allowedSet) return true;
 
-            return allowedSet.has(entry.keyId);
+            const exists = allowedSet.has(entry.keyId);
+
+            if (!exists)
+                warn("E.wrapCEKForRegistryKeys", `Removing orphan keyId: ${entry.keyId}`);
+
+            return exists;
         });
 
         if (envelope.keys.length !== originalLength) {
@@ -760,8 +768,7 @@ export async function wrapCEKForRegistryKeys(forceWrite = false) {
 
         updated = updated || roleUpdated;
 
-        log("E.wrapCEKForRegistryKeys", `${role} keys updated: ${roleUpdated} forceWrite: ${forceWrite}`
-        );
+        log("E.wrapCEKForRegistryKeys", `${role} keys updated: ${roleUpdated}, forceWrite: ${forceWrite}`);
     }
 
     /*
@@ -826,7 +833,8 @@ async function unwrapContentKey(wrappedKeyBase64, keyId) {
     throw new Error("No private key available for keyId:" + keyId);
 }
 
-async function addRecoveryKeyToEnvelope({ publicKey, keyId }) {
+//rename to registerRecoveryKey()
+export async function addRecoveryKeyToEnvelope({ publicKey, keyId }) {
     log("E.addRecoveryKeyToEnvelope", "called - Adding recovery key to envelope...");
 
     // 1️⃣ Load existing envelope from Drive
@@ -843,12 +851,15 @@ async function addRecoveryKeyToEnvelope({ publicKey, keyId }) {
     if (envelope.keys?.some(k => k.role === "recovery" && k.keyId === keyId)) {
         warn("E.addRecoveryKeyToEnvelope", "Recovery key already present in envelope, skipping add");
     } else {
-        // 3️⃣ Unwrap CEK using the first active device key
-        log("E.addRecoveryKeyToEnvelope", "Unwrapping CEK with active device key...");
+        // 3️⃣ Select decryptable envelope entry safely
+        log("E.addRecoveryKeyToEnvelope", "Selecting decryptable envelope key...");
+        const entry = await selectDecryptableKey(envelope);
+
         const cek = await unwrapContentKey(
-            envelope.keys[0].wrappedKey,
-            envelope.keys[0].keyId
+            entry.wrappedKey,
+            entry.keyId
         );
+
         log("E.addRecoveryKeyToEnvelope", "CEK unwrapped");
 
         // 4️⃣ Wrap CEK for the new recovery key
@@ -871,7 +882,7 @@ async function addRecoveryKeyToEnvelope({ publicKey, keyId }) {
             wrappedKey,
             created: now,
             updated: null,
-            publicKeyCreated: publicKey.created || now
+            publicKeyCreated: now
         });
 
         log("E.addRecoveryKeyToEnvelope", "Added recovery key to envelope.keys:" + envelope.keys.map(k => ({
@@ -917,7 +928,7 @@ export async function encryptAndPersistPlaintext(plainText) {
 
     const envelope = envelopeFile.json;
 
-    log("E.encryptAndPersistPlaintext", "envelope:", envelope)
+    trace("E.encryptAndPersistPlaintext", "envelope:", envelope)
 
     // Unwrap CEK using this device
     const selfEntry = envelope.keys.find(k =>

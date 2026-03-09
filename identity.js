@@ -258,7 +258,16 @@ export async function buildIdentityFromKeypair({privateKeyPkcs8, publicKeySpki},
     log("ID.buildIdentityFromKeypair", "called");
 
     // Note: Consider utils.bufferToBase64(publicKeySpki) in case of overflow error because of String.fromCharCode
-    const pubB64 = btoa(String.fromCharCode(...new Uint8Array(publicKeySpki)));
+    //const pubB64 = btoa(String.fromCharCode(...new Uint8Array(publicKeySpki)));
+
+    // Actually faced a silent error that resulted in an empty base64 key data being written and had to switch to the helper method
+    // TODO: Change similar code that commented above to the below implementation throughout the app
+    const pubB64 = U.bufferToBase64(publicKeySpki);
+
+    if (pubB64.length < 200) {
+        throw new Error("Public key export failed");
+    }
+
     const fingerprint = await CR.computePublicKeyFingerprint(publicKeySpki);
 
     const saltBytes = crypto.getRandomValues(new Uint8Array(16));
@@ -314,5 +323,57 @@ export async function cacheDecryptedPrivateKey(decryptedPrivateKeyBytes) {
     } catch (e) {
         warn("ID.cacheDecryptedPrivateKey", "Session caching failed (non-fatal):", e.message);
     }
+}
 
+export async function createRecoveryIdentity(pwd) {
+    log("ID.createRecoveryIdentity", "called");
+
+    // 1️⃣ Generate RSA keypair
+    const keypair = await generateDeviceKeypair();
+
+    // 2️⃣ Build recovery identity
+    const recoveryIdentity = await buildIdentityFromKeypair(
+        keypair,
+        pwd,
+        { type: "recovery", createdBy: getDeviceId() }
+    );
+
+    log("ID.createRecoveryIdentity", "Recovery identity built");
+
+    // 3️⃣ Return identity (UI or envelope code will handle Drive writes)
+    return recoveryIdentity;
+}
+
+// identity.js
+export async function decryptPreviousKeys(id, pwd) {
+    log("ID.decryptPreviousKeys", "called");
+
+    id._decryptedPreviousKeys = [];
+
+    if (!id.previousKeys?.length) return;
+
+    for (const prev of id.previousKeys) {
+        try {
+            const derivedPrev = await CR.deriveKey(pwd, prev.kdf);
+            const privateKeyPkcs8 = await CR.decrypt(prev.encryptedPrivateKey, derivedPrev);
+
+            const privateKey = await crypto.subtle.importKey(
+                "pkcs8",
+                privateKeyPkcs8,
+                { name: "RSA-OAEP", hash: "SHA-256" },
+                false,
+                ["unwrapKey"]
+            );
+
+            id._decryptedPreviousKeys.push({
+                fingerprint: prev.fingerprint,
+                privateKey
+            });
+
+            log("ID.decryptPreviousKeys", `Previous key ${prev.fingerprint} decrypted for session`);
+
+        } catch {
+            warn("ID.decryptPreviousKeys", `Failed to decrypt previous key ${prev.fingerprint}`);
+        }
+    }
 }

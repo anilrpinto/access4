@@ -169,13 +169,19 @@ async function ensureAuthorization() {
     const res = await GD.driveFetch(GD.buildDriveUrl("files", { q, fields:"files(id)" }));
 
     if (!res.files.length) {
-        log("AU.ensureAuthorization", "authorized.json not found, creating genesis authorization...");
+        log("AU.ensureAuthorization", `${C.AUTH_FILE_NAME} not found, creating genesis authorization...`);
         await createGenesisAuthorization();
         return;
     }
     const data = await GD.driveFetch(GD.buildDriveUrl(`files/${res.files[0].id}`, { alt:"media" }));
 
-    if (!data.admins.includes(G.userEmail) && !data.members.includes(G.userEmail))
+    // Cache authorization structure for use in the app
+    G.auth = {
+        admins: data.admins || [],
+        members: data.members || []
+    };
+
+    if (!G.auth.admins.includes(G.userEmail) && !G.auth.members.includes(G.userEmail))
         throw new Error("Unauthorized user");
 
     log("AU.ensureAuthorization", "Authorized user verified");
@@ -188,4 +194,17 @@ async function createGenesisAuthorization() {
     await GD.drivePatchJsonFile(file.id, { admins: [G.userEmail], members: [G.userEmail], created: new Date().toISOString(), version: 1 });
 
     log("AU.createGenesisAuthorization", `Genesis authorization created for ${G.userEmail}`);
+}
+
+export function isAdmin() {
+    return G.auth?.admins?.includes(G.userEmail);
+}
+
+export function isMember() {
+    return G.auth?.members?.includes(G.userEmail);
+}
+
+export function requireAdmin() {
+    if (!isAdmin())
+        throw new Error("Administrator privileges required");
 }

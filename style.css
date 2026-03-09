@@ -1,8 +1,15 @@
 :root {
-    --header-bg: #4A6572; /* bluish-gray */
+    --header-bg: #4A6572;
     --primary-color: #1E90FF;
     --text-color: #ffffff;
     --bg-color: #f5f7fa;
+    --error-color: #b3261e;
+    --success-color: #0f6d3c;
+}
+
+/* --- RESET & BASE --- */
+* {
+    box-sizing: border-box; /* Ensures padding doesn't break width */
 }
 
 body {
@@ -14,7 +21,7 @@ body {
     min-height: 100vh;
 }
 
-/* --- COMMON HEADER --- */
+/* --- HEADER --- */
 header {
     width: 100%;
     background-color: var(--header-bg);
@@ -22,12 +29,11 @@ header {
     padding: 1.5rem 1rem;
     text-align: center;
     box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-
     display: flex;
-    flex-direction: column; /* stack title + logout vertically */
+    flex-direction: column;
     justify-content: center;
     align-items: center;
-    gap: 0.5rem; /* small space between title and button */
+    gap: 0.5rem;
 }
 
 header h1 {
@@ -36,7 +42,7 @@ header h1 {
     font-weight: bold;
 }
 
-/* --- MAIN CONTENT --- */
+/* --- MAIN LAYOUT --- */
 main {
     width: 90%;
     max-width: 400px;
@@ -46,23 +52,57 @@ main {
     gap: 1rem;
 }
 
-/* Buttons and input */
-button, input {
+/* --- FORM ELEMENTS --- */
+/* Unified styling for all inputs and buttons ensures equal width */
+input,
+button,
+textarea {
     width: 100%;
     padding: 0.75rem 1rem;
     font-size: 1rem;
     border-radius: 6px;
     border: 1px solid #ccc;
-    box-sizing: border-box;
+    font-family: inherit;
+    display: block;
 }
 
+input:focus,
+textarea:focus {
+    outline: 2px solid var(--primary-color);
+    border-color: transparent;
+}
+
+label {
+    font-weight: 600;
+    margin-bottom: 0.4rem;
+    display: block;
+    font-size: 1rem;
+    color: #333;
+}
+
+/* Grouping labels and inputs for consistent spacing */
+.input-group {
+    margin-bottom: 1rem;
+    width: 100%;
+}
+
+/* --- BUTTONS --- */
 button {
     background-color: var(--primary-color);
     color: #fff;
     border: none;
     cursor: pointer;
     font-weight: bold;
-    transition: background 0.2s;
+    transition: background 0.2s, opacity 0.2s;
+    margin-bottom: 8px;
+}
+
+button:hover {
+    filter: brightness(1.1);
+}
+
+button:active {
+    opacity: 0.8;
 }
 
 button:disabled {
@@ -70,122 +110,94 @@ button:disabled {
     cursor: not-allowed;
 }
 
-input {
-    border: 1px solid #ccc;
-    font-size: 1rem;
+/* Horizontal button layouts (Rotate/Cancel) */
+.button-group {
+    display: flex;
+    gap: 10px;
+    margin-top: 5px;
 }
 
-label {
-    font-weight: 600;
-    margin-bottom: 0.25rem;
-    display: block;
-    font-size: 1rem;
+.button-group button {
+    flex: 1; /* Makes buttons share the width equally */
 }
 
-/* Hide password section initially */
-#passwordSection {
-    display: none;
+/* Specific styling for the link-style buttons */
+.link-button {
+    background: none;
+    border: none;
+    color: var(--primary-color);
+    padding: 0;
+    font-weight: normal;
+    width: auto !important; /* Prevents stretching */
+    display: inline-block;
+
+    /* Remove the global button margin and gap impact */
+    margin: 0 !important;
+    line-height: 1.2;
 }
 
-#confirmPasswordSection {
-    display: none;
+.link-button:hover {
+    text-decoration: underline;
 }
 
-.unlock-message {
+/* --- MESSAGES & LOGS --- */
+.status-message {
     margin-top: 12px;
     min-height: 1.2em;
     font-size: 0.95rem;
     text-align: center;
-    transition: opacity 0.2s ease;
 }
 
-.unlock-message.error {
-    color: #b3261e; /* material red */
-}
+.status-message.error { color: var(--error-color); }
+.status-message.success { color: var(--success-color); }
 
-.unlock-message.success {
-    color: #0f6d3c; /* calm green */
-}
-
-.link-button {
-    background: none;
-    border: none;
-    color: #007bff; /* Standard "link blue" or your brand color */
-    padding: 0;
-    font: inherit;
-    cursor: pointer;
-    text-decoration: none; /* This removes the underline */
-
-    /* Mobile Optimization: removes the grey highlight box on tap in some browsers */
-    -webkit-tap-highlight-color: transparent;
-}
-
-/* Optional: Subtle change when pressed to give user feedback */
-.link-button:active {
-    opacity: 0.6;
-}
-
-#titleGesture {
-    user-select: none;
-    -webkit-user-select: none;
-    -webkit-touch-callout: none;
-}
-
-#titleGesture.bio-none {
-    color: #fff;
-}
-
-#titleGesture.bio-armed {
-    color: #e8410d;
-}
-
-/* --- LOG BOX --- */
 #log {
     width: 100%;
     flex: 1;
     overflow-y: auto;
     background: #e0e0e0;
     border-radius: 6px;
-    padding: 0.5rem 0.5rem 0.5rem 0.5rem;
+    padding: 0.5rem;
     font-size: 0.85rem;
     white-space: pre-wrap;
+    font-family: monospace;
 }
 
-/* --- VIEWS --- */
-#loginView, #unlockedView {
+/* --- VISIBILITY CONTROL --- */
+#login_pwdSection,
+#login_confirmPwdSection,
+#vaultView,
+#vaultRecoveryKey_mainSection,
+#vaultRecoveryKey_currentPwdSection {
+    display: none; /* Controlled via JS loadUI.setVisible */
+}
+
+/* --- LOGIN RECOVERY SECTION --- */
+#login_recoverySection {
+    width: 100%;
     display: flex;
     flex-direction: column;
-    min-height: 50vh;
+    align-items: center; /* This centers the "Need recovery?" link */
+    gap: 0.5rem;
+    margin-top: 0.5rem;
 }
 
-#unlockedView {
-    display: none; /* hidden initially */
+/* Ensure the link-button doesn't inherit 100% width from the global rule */
+.link-button {
+    width: auto !important;
+    text-align: center;
 }
 
+/* --- TEXTAREA --- */
 textarea {
-    width: 100%;
-    padding: 0.75rem 1rem;
-    font-size: 1rem;
-    border-radius: 6px;
-    border: 1px solid #ccc;
-    box-sizing: border-box;
     resize: vertical;
-    font-family: inherit;
+    min-height: 120px;
 }
 
-/* Responsive adjustments */
+
+/* --- RESPONSIVE --- */
 @media (min-width: 600px) {
-    main {
-        margin-top: 3rem;
-    }
-}
-
-@media (min-width: 900px) {
-    header h1 {
-        font-size: 2rem;
-    }
-
-    main {
-        max-width: 500px;
-    }
+    main { margin-top: 3rem; }
+    header h1 { font-size: 2rem; }
+    main { max-width: 500px; }
 }

@@ -8,6 +8,11 @@ const _G = {
     needsIdentitySetup: false,
     biometricIntent: false,
 
+    auth: {
+        admins: [],
+        members: []
+    },
+
     keyRegistry: {
         version: 1,
         loadedAt: null,

@@ -15,51 +15,70 @@
         <h1 id="titleGesture">Login</h1>
     </header>
 
-    <main>
+    <main id="loginBody">
         <!-- Sign-in button -->
-        <button id="signinBtn">Sign in with Google</button><br>
-        Signed in as: <b><span id="userEmailSpan">Not signed in</span></b><br>
+        <button id="login_signinBtn">Sign in with Google</button><br>
+        Signed in as: <b><span id="login_userEmailSpan">Not signed in</span></b><br>
         <!-- Password input appears after sign-in -->
-        <div id="passwordSection">
-            <div>
+        <div id="login_pwdSection">
+            <div class="input-group">
                 <label>Password</label>
-                <input type="password" id="passwordInput">
+                <input type="password" id="login_pwdInput">
             </div>
-            <div id="confirmPasswordSection">
+            <div id="login_confirmPwdSection" class="input-group">
                 <label>Confirm Password</label>
-                <input type="password" id="confirmPasswordInput">
+                <input type="password" id="login_confirmPwdInput">
             </div>
-            <br>
-            <button id="unlockBtn">Unlock</button><br><br>
-            <button id="recoverBtn" style="display: none;">Recover</button>
-            <button  id="recoveryLnk" style="display: none;" class="link-button">Need recovery?</button>
+            <button id="login_unlockBtn">Unlock</button>
+            <div id="login_recoverySection">
+                <button id="login_recoverBtn" style="display: none;">Recover</button>
+                <button  id="login_recoveryLnk" style="display: none;" class="link-button">Need recovery?</button>
+            </div>
+            <div id="login_statusMsg" class="unlock-message"></div>
         </div>
-
-        <!-- Recovery Section -->
-        <div id="recoverySection" style="display:none;">
-            <label>Recovery Password</label>
-            <input type="password" id="recoveryPasswordInput">
-            <br><br>
-            <button id="recoverBtn">Recover Account</button>
-        </div>
-        <div id="unlockMessage" class="unlock-message"></div>
     </main>
 </div>
 
-<!-- UNLOCKED VIEW -->
-<div id="unlockedView">
+<!-- VAULT VIEW -->
+<div id="vaultView">
     <header>
-        <h1 id="titleUnlocked">Welcome</h1>
+        <h1 id="vaultTitle">Welcome</h1>
     </header>
 
-    <main class="unlocked-main">
-        <button id="logoutBtn">Logout</button>
-        <button id="saveBtn">Save</button>
+    <main id="vaultBody">
 
-        <!-- 🔐 Encrypted Note UI -->
-        <textarea id="plaintextInput" rows="5"
-                placeholder="Type text here, encrypt it, then unlock on another device…"></textarea>
-        <div id="statusMsg" class="unlock-message"></div>
+        <!-- Vault Rotate Recovery Key Section -->
+        <div id="vaultRecoveryKey_mainSection" style="display: none;">
+            <div id="vaultRecoveryKey_currentPwdSection" class="input-group" style="display: none;">
+                <label>Current Password</label>
+                <input type="password" id="vaultRecoveryKey_currentPwdInput">
+            </div>
+            <div class="input-group">
+                <label>Password</label>
+                <input type="password" id="vaultRecoveryKey_pwdInput">
+            </div>
+            <div class="input-group">
+                <label>Confirm Password</label>
+                <input type="password" id="vaultRecoveryKey_confirmPwdInput">
+            </div>
+            <div class="button-group">
+                <button id="vaultRecoveryKey_cancelBtn">Cancel</button>
+                <button id="vaultRecoveryKey_rotateBtn">Rotate Key</button>
+            </div>
+            <div id="vaultRecoveryKey_statusMsg" class="unlock-message"></div>
+        </div>
+
+        <!-- Vault Main Section -->
+        <div id="vault_mainSection">
+            <button id="vault_recoveryRotationBtn">Recovery Rotation</button>
+            <button id="vault_logoutBtn">Logout</button>
+            <button id="vault_saveBtn">Save</button>
+
+            <!-- 🔐 Encrypted Note UI -->
+            <textarea id="vault_data" rows="5"
+                    placeholder="Type text here, encrypt it, then unlock on another device…"></textarea>
+            <div id="vault_statusMsg" class="unlock-message"></div>
+        </div>
     </main>
 </div>
 <pre id="log"></pre>
