@@ -16,11 +16,11 @@ import { loadUI } from './uihelper.js';
 
 import { log, trace, debug, info, warn, error } from './log.js';
 
-export let logEl = document.getElementById("log");;
+export let logEl = document.getElementById('log');
 
-const main = loadUI(["loginView", "vaultView", "vaultTitle"]); //document.getElementById("loginView");
+const main = loadUI(['loginView', 'vaultView', 'vaultTitle']);
 
-const login = loadUI(['signinBtn', 'userEmailSpan', 'pwdSection', 'confirmPwdSection', 'pwdInput', 'confirmPwdInput',
+const login = loadUI(['signinBtn', 'userEmailSpan', 'authMsg', 'pwdSection', 'confirmPwdSection', 'pwdInput', 'confirmPwdInput',
     'unlockBtn', 'recoverBtn', 'recoveryLnk', 'statusMsg'], 'login_');
 
 const vault = loadUI(['mainSection', 'data', 'recoveryRotationBtn', 'logoutBtn', 'saveBtn', 'statusMsg'], 'vault_', 'vaultBody');
@@ -76,6 +76,14 @@ export async function init() {
     await updateBiometricIndicator();
 }
 
+export function showAuthMessage(msg, type = "error") {
+    if (!login.authMsg) return;
+
+    login.authMsg.textContent = msg;
+    login.authMsg.className = `status-message ${type}`;
+    login.signinBtn.setEnabled(true);
+}
+
 export function showUnlockMessage(msg, type = "error") {
     if (!login.statusMsg) return;
 
@@ -83,7 +91,7 @@ export function showUnlockMessage(msg, type = "error") {
     login.statusMsg.className = `status-message ${type}`;
 }
 
-function showStatusMessage(msg, type = "error") {
+export function showStatusMessage(msg, type = "error") {
     if (!vault.statusMsg) return;
 
     vault.statusMsg.textContent = msg;
@@ -230,6 +238,8 @@ export function resetUnlockUi() {
 export async function setupPasswordPrompt(mode, options = {}) {
     log("UI.setupPasswordPrompt", "called - mode:" + mode);
 
+    login.authMsg.setVisible(false);
+
     clearSensitiveFields();
     showUnlockMessage("");
 
@@ -241,17 +251,17 @@ export async function setupPasswordPrompt(mode, options = {}) {
     if (mode === "unlock") {
         login.confirmPwdSection.setVisible(false);
         login.unlockBtn.setText("Unlock");
-        login.unlockBtn.onclick = doUnlockClick;
+        login.unlockBtn.onClick(doUnlockClick);
 
         showUnlockMessage(options.migration ? "Identity missing password verifier — enter your password to upgrade." : "");
     } else if (mode === "create") {
         login.confirmPwdSection.setVisible(true);
         login.unlockBtn.setText("Create Password");
-        login.unlockBtn.onclick = doCreatePasswordClick;
+        login.unlockBtn.onClick(doCreatePasswordClick);
     } else if (mode === "recovery-request") {
         login.confirmPwdSection.setVisible(false);
         login.unlockBtn.setText("Recover");
-        login.unlockBtn.onclick = doRecoverClick;
+        login.unlockBtn.onClick(doRecoverClick);
     }
 
     log("UI.setupPasswordPrompt", `G.recoveryRequest: ${G.recoveryRequest}, G.recoverySession: ${G.recoverySession}`);
@@ -273,7 +283,7 @@ export function showVaultUI({ readOnly = false, onIdle = () => { warn('idle time
 
     if (AU.isAdmin()) {
         vault.recoveryRotationBtn.setVisible(true);
-        bindClick(vault.recoveryRotationBtn, showRecoveryRotationUI);
+        vault.recoveryRotationBtn.onClick(showRecoveryRotationUI);
     } else {
         warn("UI.showVaultUI", "Recovery option turned off for non-admin user");
         vault.recoveryRotationBtn.setVisible(false);
@@ -681,7 +691,7 @@ export async function proceedAfterPasswordSuccess() {
     // 4️⃣ Attempt write lock escalation (optional upgrade)
     if (G.driveLockState?.mode === "read") {
         log("UI.proceedAfterPasswordSuccess", "Attempting write lock escalation");
-        await E.tryAcquireEnvelopeWriteLock(); // must NOT throw if fails
+        await E.tryAcquireEnvelopeWriteLock({ onUpdate: updateLockStatusUI }); // must NOT throw if fails
     }
 
     // 5️⃣ Housekeeping only if we truly have write access
@@ -767,7 +777,7 @@ async function doSaveClick() {
     }
 
     try {
-        await E.encryptAndPersistPlaintext(text);
+        await E.encryptAndPersistPlaintext(text, { onUpdate: updateLockStatusUI });
         //vault.data.value = "";
     } catch (e) {
         error("UI.doSaveClick", "Encryption failed:", e.message);

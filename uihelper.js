@@ -9,7 +9,18 @@ import { log, trace, debug, info, warn, error } from './log.js';
  */
 export function loadUI(names, prefix = "", scope = document) {
     const ui = {};
-    const root = typeof scope === "string" ? document.getElementById(scope) : scope;
+
+    // FIX: Robust scope detection
+    let root;
+    if (typeof scope === "string") {
+        root = document.getElementById(scope);
+    } else if (scope && !scope.querySelector && typeof scope === "object") {
+        // If scope is a UI object from a previous loadUI call, find the first actual element
+        root = Object.values(scope).find(el => el instanceof HTMLElement);
+    } else {
+        root = scope;
+    }
+
     const searchArea = root || document;
 
     // Internal helper to attach the method to individual DOM elements
@@ -21,6 +32,7 @@ export function loadUI(names, prefix = "", scope = document) {
 
             // This doesn't work as expected
             //this.style.display = show ? "" : "none";
+            return this; // Allow chaining
         };
 
         el.setText = function(text) {
@@ -29,16 +41,19 @@ export function loadUI(names, prefix = "", scope = document) {
             } else {
                 this.textContent = text ?? "";
             }
+            return this;
         };
 
         el.setValue = function(val) {
             if ("value" in this) {
                 this.value = val ?? "";
             }
+            return this;
         };
 
         el.setEnabled = function(enabled) {
             this.disabled = !enabled;
+            return this;
         };
 
         el.clear = function() {
@@ -47,6 +62,7 @@ export function loadUI(names, prefix = "", scope = document) {
             } else {
                 this.textContent = "";
             }
+            return this;
         }
 
         el.onClick = function(handler) {
@@ -67,41 +83,44 @@ export function loadUI(names, prefix = "", scope = document) {
             attachMethods(element); // Attach .setVisible() to the element itself
             ui[name] = element;
         } else {
-            try {
-                warn(`UI Loader: "${id}" not found.`);
-            } catch (err) {
-                console.log(`UI Loader: "${id}" not found.`);
-            }
+            const msg = `UI Loader: "${id}" not found.`;
+            try { warn(msg); } catch (err) { console.warn(msg); }
         }
     });
 
-    // Group helpers
+    // --- GROUP HELPERS ---
+    // Added safety checks to ensure we only loop over HTMLElements, not the helper functions
+
     ui.setVisible = (show) => {
-        Object.values(ui).forEach(el => el.setVisible?.(show));
+        Object.values(ui).forEach(el => {
+            if (el instanceof HTMLElement) el.setVisible?.(show);
+        });
     };
 
     ui.setText = (text) => {
-        Object.values(ui).forEach(el => el.setText?.(text));
+        Object.values(ui).forEach(el => {
+            if (el instanceof HTMLElement) el.setText?.(text);
+        });
     };
 
     ui.setEnabled = (enabled) => {
-        Object.values(ui).forEach(el => el.setEnabled?.(enabled));
+        Object.values(ui).forEach(el => {
+            if (el instanceof HTMLElement) el.setEnabled?.(enabled);
+        });
     };
 
     ui.clear = function() {
-        names.forEach(function(name) {
-            if (ui[name] && ui[name].clear) ui[name].clear();
+        Object.values(ui).forEach(el => {
+            if (el instanceof HTMLElement) el.clear?.();
         });
     };
 
     // FIXED: Added check for 'el.classList' to prevent "Cannot read properties of undefined"
     ui.onClick = (handler) => {
         Object.values(ui).forEach(el => {
-            // Check: Is it a DOM element? Does it have a tagName? Does it have classList?
             if (el instanceof HTMLElement && el.tagName) {
                 const isButton = el.tagName === "BUTTON";
                 const isLink = el.classList?.contains("link-button");
-
                 if (isButton || isLink) {
                     el.onClick(handler);
                 }

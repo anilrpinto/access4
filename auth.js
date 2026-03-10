@@ -33,20 +33,29 @@ export function initGIS() {
 async function handleAuth(resp) {
     log("AU.handleAuth", "called");
 
-    if (resp.error) return;
+    try {
 
-    G.accessToken = resp.access_token;
-    trace("AU.handleAuth", `Acquired access token [${G.accessToken?.slice(0, 20)}...]`);
+        if (resp.error) return;
 
-    await GD.fetchUserEmail();
-    await GD.verifySharedRoot(C.ACCESS4_ROOT_ID);
-    await GD.verifyWritable(C.ACCESS4_ROOT_ID);
-    await ensureAuthorization();
+        G.accessToken = resp.access_token;
+        trace("AU.handleAuth", `Acquired access token [${G.accessToken?.slice(0, 20)}...]`);
 
-    if (!isSessionAuthenticated())
-        UI.promptUnlockPasword();
+        await GD.fetchUserEmail();
+        UI.showAuthorizedEmail(G.userEmail);
 
-    onAuthReady(G.userEmail);
+        await GD.verifySharedRoot(C.ACCESS4_ROOT_ID);
+        await GD.verifyWritable(C.ACCESS4_ROOT_ID);
+        await ensureAuthorization();
+
+        if (!isSessionAuthenticated())
+            UI.promptUnlockPasword();
+
+        onAuthReady(G.userEmail);
+    } catch (err) {
+        error("AU.handleAuth", "Error after signin: " + err);
+        UI.showAuthMessage(err);
+        //alert("Error after signin: " + err);
+    }
 }
 
 function isSessionAuthenticated() {
@@ -55,7 +64,6 @@ function isSessionAuthenticated() {
 
 async function onAuthReady(email) {
     log("AU.onAuthReady", "called");
-    UI.showAuthorizedEmail(email);
 
     try {
         const id = await ID.loadIdentity();
@@ -167,13 +175,14 @@ async function ensureAuthorization() {
 
     const q = `'${C.ACCESS4_ROOT_ID}' in parents and name='${C.AUTH_FILE_NAME}'`;
     const res = await GD.driveFetch(GD.buildDriveUrl("files", { q, fields:"files(id)" }));
+    let data;
 
     if (!res.files.length) {
         log("AU.ensureAuthorization", `${C.AUTH_FILE_NAME} not found, creating genesis authorization...`);
-        await createGenesisAuthorization();
-        return;
+        data = await createGenesisAuthorization();
+    } else {
+        data = await GD.driveFetch(GD.buildDriveUrl(`files/${res.files[0].id}`, { alt:"media" }));
     }
-    const data = await GD.driveFetch(GD.buildDriveUrl(`files/${res.files[0].id}`, { alt:"media" }));
 
     // Cache authorization structure for use in the app
     G.auth = {
@@ -191,9 +200,13 @@ async function createGenesisAuthorization() {
     log("AU.createGenesisAuthorization", "called");
 
     const file = await GD.createFileOrFolder(C.AUTH_FILE_NAME, C.ACCESS4_ROOT_ID);
-    await GD.drivePatchJsonFile(file.id, { admins: [G.userEmail], members: [G.userEmail], created: new Date().toISOString(), version: 1 });
+
+    const data = { admins: [G.userEmail], members: [G.userEmail], created: new Date().toISOString(), version: 1 };
+    await GD.drivePatchJsonFile(file.id, data);
 
     log("AU.createGenesisAuthorization", `Genesis authorization created for ${G.userEmail}`);
+
+    return data;
 }
 
 export function isAdmin() {
