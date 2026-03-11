@@ -6,6 +6,7 @@ import { logout } from './app.js';
 
 import * as AU from './auth.js';
 import * as GD from './gdrive.js';
+import * as RG from './registry.js';
 import * as E from './envelope.js';
 import * as CR from './crypto.js';
 import * as ID from './identity.js';
@@ -404,9 +405,9 @@ async function doRotateRecoveryKeyClick(rotateMode) {
             fingerprint: recoveryIdentity.fingerprint,
             created: recoveryIdentity.created,
             algorithm: {
-                name:"RSA-OAEP",
-                modulusLength: 2048,
-                hash:"SHA-256",
+                name: CR.CR_ALG.RSA.OAEP,
+                modulusLength: CR.CR_ALG.RSA_MODULUS_LENGTH,
+                hash: CR.CR_ALG.HASH.SHA256,
                 usage: ["encrypt"]
             },
             publicKey: {
@@ -420,7 +421,7 @@ async function doRotateRecoveryKeyClick(rotateMode) {
         log("UI.doRotateRecoveryKeyClick", "recovery.public.json written");
 
         // Refresh registry with newly uploaded recovery public key
-        await E.buildKeyRegistryFromDrive(await GD.loadPublicKeyJsonsFromDrive());
+        await RG.buildKeyRegistryFromDrive(await GD.loadPublicKeyJsonsFromDrive());
 
         // 7️⃣ Add to envelope for CEK housekeeping
         await E.addRecoveryKeyToEnvelope({
@@ -696,7 +697,7 @@ export async function proceedAfterPasswordSuccess() {
 
     // 5️⃣ Housekeeping only if we truly have write access
     if (G.driveLockState?.mode === "write" && G.driveLockState?.self) {
-        log("UI.proceedAfterPasswordSuccess", "Performing CEK housekeepingfor all valid devices + recovery keys");
+        log("UI.proceedAfterPasswordSuccess", "Performing CEK housekeeping for all valid devices + recovery keys");
         await E.wrapCEKForRegistryKeys();
     } else {
         warn("UI.proceedAfterPasswordSuccess", "Skipping CEK housekeeping — G.driveLockState not ready or not writable");
@@ -746,6 +747,7 @@ async function doRecoverClick() {
     try {
         await R.handleRecovery(pwd, onRecoveryCEKSuccess);
     } catch (err) {
+        alert(err);
         clearSensitiveFields();
         // Extract meaningful info from DOMException or normal Error
         const userMsg = err.message || `${err.name || 'RecoveryError'} — see console`;

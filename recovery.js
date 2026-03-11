@@ -30,9 +30,7 @@ export async function unlockRecoveryIdentity(pwd) {
         const aesKey = await CR.deriveKey(pwd, blob.kdf);
 
         // 3️⃣ Verify password
-        const verifierBytes = new Uint8Array(
-            await CR.decrypt(blob.passwordVerifier, aesKey)
-        );
+        const verifierBytes = new Uint8Array(await CR.decrypt(blob.passwordVerifier, aesKey));
 
         const expected = new TextEncoder().encode(VERIFIER_TEXT);
 
@@ -41,28 +39,15 @@ export async function unlockRecoveryIdentity(pwd) {
         }
 
         // 4️⃣ Decrypt PKCS8
-        const pkcs8Bytes = await CR.decrypt(
-            blob.encryptedPrivateKey,
-            aesKey
-        );
+        const pkcs8Bytes = await CR.decrypt(blob.encryptedPrivateKey, aesKey );
 
         // 5️⃣ Import RSA private key
-        const privateKey = await crypto.subtle.importKey(
-            "pkcs8",
-            pkcs8Bytes,
-            { name: "RSA-OAEP", hash: "SHA-256" },
-            false,
-            ["decrypt"]
-        );
+        const privateKey = await CR.importRSAPrivateKey(pkcs8Bytes, ["decrypt"]);
 
         // 6️⃣ Verify fingerprint integrity
-        const publicKeySpki = Uint8Array.from(
-            atob(blob.publicKey),
-            c => c.charCodeAt(0)
-        );
+        const publicKeySpki = Uint8Array.from(atob(blob.publicKey), c => c.charCodeAt(0));
 
-        const computedFingerprint =
-        await CR.computePublicKeyFingerprint(publicKeySpki);
+        const computedFingerprint = await CR.computePublicKeyFingerprint(publicKeySpki);
 
         if (computedFingerprint !== blob.fingerprint) {
             throw new Error("Recovery key integrity check failed");
@@ -82,123 +67,17 @@ export async function unlockRecoveryIdentity(pwd) {
     }
 }
 
-async function importRecoveryPrivateKey(pkcs8Bytes) {
-    return await crypto.subtle.importKey(
-        "pkcs8",
-        pkcs8Bytes,
-        {
-            name: "RSA-OAEP",
-            hash: "SHA-256"
-        },
-        false,
-        ["unwrapKey"]
-    );
-}
-
 async function unwrapCEKWithRecoveryKey(envelope, recoveryPrivateKey) {
     const entry = envelope.keys.find(k => k.role === "recovery");
     if (!entry) {
         throw new Error("No recovery key entry in envelope.");
     }
 
-    const wrappedBytes = CR.b64ToBuf(entry.wrappedKey);
+    const wrappedCEKBytes = CR.b64ToBuf(entry.wrappedKey);
 
-    return await crypto.subtle.unwrapKey(
-        "raw",
-        wrappedBytes,
-        recoveryPrivateKey,
-        {
-            name: "RSA-OAEP"
-        },
-        {
-            name: "AES-GCM",
-            length: 256
-        },
-        false,
-        ["encrypt", "decrypt"]
-    );
+    return await CR.unwrapCEKWithPrivateKey(wrappedCEKBytes, recoveryPrivateKey);
 }
 
-export async function restoreFromRecovery(password) {
-    log("[restoreFromRecovery] starting");
-
-    // 1️⃣ Unlock recovery private key
-    const pkcs8 = await unlockRecoveryIdentity(password);
-    if (!pkcs8) throw new Error("Recovery password invalid.");
-
-    const recoveryPrivateKey = await importRecoveryPrivateKey(pkcs8);
-
-    // 2️⃣ Load envelope
-    const envelopeFile = await GD.findEnvelopeFile();
-    if (!envelopeFile) throw new Error("Envelope not found.");
-
-    const envelope = await GD.readEnvelope(envelopeFile.id);
-
-    // 3️⃣ Unwrap CEK
-    const contentKey = await unwrapCEKWithRecoveryKey(
-        envelope,
-        recoveryPrivateKey
-    );
-
-    log("[restoreFromRecovery] CEK unwrapped successfully");
-
-    // 4️⃣ Create new device identity (LOCAL FIRST)
-    const newIdentity = await createIdentity(password);
-    // createIdentity already:
-    // - generates RSA pair
-    // - encrypts private key
-    // - stores in localStorage
-    // - uploads public key to Drive
-
-    log("[restoreFromRecovery] new device identity created");
-
-    // 5️⃣ Import new device public key
-    const devicePublicKey = await crypto.subtle.importKey(
-        "spki",
-        CR.b64ToBuf(newIdentity.publicKey),
-        {
-            name: "RSA-OAEP",
-            hash: "SHA-256"
-        },
-        false,
-        ["wrapKey"]
-    );
-
-    // 6️⃣ Wrap CEK for new device
-    const wrapped = await crypto.subtle.wrapKey(
-        "raw",
-        contentKey,
-        devicePublicKey,
-        { name: "RSA-OAEP" }
-    );
-
-    const wrappedB64 = CR.bufToB64(wrapped);
-
-    envelope.keys.push({
-        role: "device",
-        account: newIdentity.account,
-        deviceId: newIdentity.deviceId,
-        keyId: newIdentity.keyId,
-        wrappedKey: wrappedB64,
-        publicKeyCreated: newIdentity.publicKeyCreated
-    });
-
-    log("[restoreFromRecovery] CEK wrapped for new device");
-
-    // 7️⃣ Write envelope
-    await GD.writeEnvelopeWithLock(envelopeFile.id, envelope);
-
-    log("[restoreFromRecovery] envelope updated");
-
-    await UI.unlockIdentityFlow(password);
-
-    G.unlockedIdentity = newIdentity;
-    G.sessionUnlocked = true;
-
-    log("[restoreFromRecovery] complete");
-
-    return true;
-}
 
 /**
  * Returns the decrypted private key bytes if the recovery password is correct.
@@ -239,13 +118,7 @@ export async function handleRecovery(pwd, onCEKSuccessCb) {
     if (!recoveryPrivateKeyBytes) throw new Error("Incorrect recovery password or corrupted recovery key");
 
     // Import decrypted private key into crypto subtle
-    const recoveryPrivateKey = await crypto.subtle.importKey(
-        "pkcs8",
-        recoveryPrivateKeyBytes,
-        { name: "RSA-OAEP", hash: "SHA-256" },
-        false,
-        ["unwrapKey"]
-    );
+    const recoveryPrivateKey = await CR.importRSAPrivateKey(recoveryPrivateKeyBytes, ["unwrapKey"]);
 
     log("R.handleRecovery", "Recovery private key decrypted");
 
@@ -273,20 +146,6 @@ export async function handleRecovery(pwd, onCEKSuccessCb) {
     if (onCEKSuccessCb)
         await onCEKSuccessCb();
 }
-
-/* Commented as no longer
-export async function ensureRecoveryKey(setupRecoveryCb) {
-    log("R.ensureRecoveryKey", "called");
-
-    if (await hasRecoveryKeyOnDrive()) {
-        info("R.ensureRecoveryKey", "Recovery key already present");
-        return;
-    }
-
-    log("R.ensureRecoveryKey", "No recovery key found — blocking for recovery setup");
-    if (setupRecoveryCb)
-        await setupRecoveryCb();
-}*/
 
 export async function hasRecoveryKeyOnDrive() {
     log("R.hasRecoveryKeyOnDrive", "called");
@@ -321,3 +180,107 @@ export async function hasRecoveryKeyOnDrive() {
         throw e;
     }
 }
+
+
+// Seems unused
+/* No usages
+async function importRecoveryPrivateKey(pkcs8Bytes) {
+    return await crypto.subtle.importKey(
+        "pkcs8",
+        pkcs8Bytes,
+        {
+            name: "RSA-OAEP",
+            hash: "SHA-256"
+        },
+        false,
+        ["unwrapKey"]
+    );
+}
+*/
+
+/*export async function restoreFromRecovery(password) {
+    log("[restoreFromRecovery] starting");
+
+    // 1️⃣ Unlock recovery private key
+    const pkcs8 = await unlockRecoveryIdentity(password);
+    if (!pkcs8) throw new Error("Recovery password invalid.");
+
+    const recoveryPrivateKey = await importRecoveryPrivateKey(pkcs8);
+
+    // 2️⃣ Load envelope
+    const envelopeFile = await GD.findEnvelopeFile();
+    if (!envelopeFile) throw new Error("Envelope not found.");
+
+    const envelope = await GD.readEnvelope(envelopeFile.id);
+
+    // 3️⃣ Unwrap CEK
+    const cek = await unwrapCEKWithRecoveryKey(envelope, recoveryPrivateKey);
+
+    log("[restoreFromRecovery] CEK unwrapped successfully");
+
+    // 4️⃣ Create new device identity (LOCAL FIRST)
+    const newIdentity = await createIdentity(password);
+    // createIdentity already:
+    // - generates RSA pair
+    // - encrypts private key
+    // - stores in localStorage
+    // - uploads public key to Drive
+
+    log("[restoreFromRecovery] new device identity created");
+
+    // 5️⃣ Import new device public key
+    const devicePublicKey = await crypto.subtle.importKey(
+        "spki",
+        CR.b64ToBuf(newIdentity.publicKey),
+        {
+            name: "RSA-OAEP",
+            hash: "SHA-256"
+        },
+        false,
+        ["wrapKey"]
+    );
+
+    // 6️⃣ Wrap CEK for new device
+    const wrapped = await CR.wrapCEKForPublicKey(cek, devicePublicKey);
+
+    const wrappedB64 = CR.bufToB64(wrapped);
+
+    envelope.keys.push({
+        role: "device",
+        account: newIdentity.account,
+        deviceId: newIdentity.deviceId,
+        keyId: newIdentity.keyId,
+        wrappedKey: wrappedB64,
+        publicKeyCreated: newIdentity.publicKeyCreated
+    });
+
+    log("[restoreFromRecovery] CEK wrapped for new device");
+
+    // 7️⃣ Write envelope
+    await GD.writeEnvelopeWithLock(envelopeFile.id, envelope);
+
+    log("[restoreFromRecovery] envelope updated");
+
+    await UI.unlockIdentityFlow(password);
+
+    G.unlockedIdentity = newIdentity;
+    G.sessionUnlocked = true;
+
+    log("[restoreFromRecovery] complete");
+
+    return true;
+}*/
+
+/* Commented as no longer
+export async function ensureRecoveryKey(setupRecoveryCb) {
+    log("R.ensureRecoveryKey", "called");
+
+    if (await hasRecoveryKeyOnDrive()) {
+        info("R.ensureRecoveryKey", "Recovery key already present");
+        return;
+    }
+
+    log("R.ensureRecoveryKey", "No recovery key found — blocking for recovery setup");
+    if (setupRecoveryCb)
+        await setupRecoveryCb();
+}*/

@@ -2,6 +2,7 @@
 
 import { C } from './constants.js';
 import { G } from './global.js';
+import { CR_ALG } from './crypto.js';
 
 import * as AU from './auth.js';
 import * as BM from './biometrics.js';
@@ -17,7 +18,7 @@ export const VERIFIER_TEXT = "identity-ok";
 export function getDeviceId() {
     let id = localStorage.getItem(C.DEVICE_ID_KEY);
     if (!id) {
-        id = crypto.randomUUID();
+        id = CR.generateUUID();
         localStorage.setItem(C.DEVICE_ID_KEY, id);
         log("ID.getDeviceId", "New device ID generated: " + id);
     }
@@ -89,10 +90,7 @@ export async function ensureDevicePublicKey() {
     const res = await GD.driveFetch(GD.buildDriveUrl("files", { q, fields:"files(id)" }));
 
     // Compute fingerprint (canonical keyId)
-    const pubBytes = Uint8Array.from(atob(id.publicKey), c => c.charCodeAt(0));
-    //const hashBuffer = await crypto.subtle.digest("SHA-256", pubBytes);
-    //const fingerprint = btoa(String.fromCharCode(...new Uint8Array(hashBuffer)));
-
+    const pubBytes = CR.b64ToBuf(id.publicKey);
     const fingerprint = await CR.computePublicKeyFingerprint(pubBytes);
 
     const pubData = {
@@ -106,10 +104,10 @@ export async function ensureDevicePublicKey() {
         supersedes: id.supersedes || null,
         created: new Date().toISOString(),
         algorithm: {
-            type:"RSA",
+            type: CR_ALG.RSA.DEFAULT,
             usage: ["wrapKey"],
-            modulusLength: 2048,
-            hash:"SHA-256"
+            modulusLength: CR_ALG.RSA_MODULUS_LENGTH,
+            hash: CR_ALG.HASH.SHA256
         },
         publicKey: {
             format:"spki",
@@ -217,23 +215,11 @@ export async function rotateDeviceIdentity(pwd) {
 async function generateDeviceKeypair() {
     log("ID.generateDeviceKeypair", "called");
 
-    const pair = await crypto.subtle.generateKey({
-        name:"RSA-OAEP",
-        modulusLength: 2048,
-        publicExponent: new Uint8Array([1, 0, 1]),
-        hash:"SHA-256"
-    },
-        true,
-        ["encrypt", "decrypt"]
-    );
+    const pair = await CR.generateRSAKeypair();
+    const privateKeyPkcs8 = await CR.exportPrivateKey(pair.privateKey);
+    const publicKeySpki = await CR.exportPublicKey(pair.publicKey);
 
-    const privateKeyPkcs8 = await crypto.subtle.exportKey("pkcs8", pair.privateKey);
-    const publicKeySpki = await crypto.subtle.exportKey("spki", pair.publicKey);
-
-    return {
-        privateKeyPkcs8,
-        publicKeySpki
-    };
+    return { privateKeyPkcs8, publicKeySpki };
 }
 
 /* --------------- CREATE IDENTITY start ----------------- */
@@ -254,27 +240,24 @@ export async function createIdentity(pwd) {
     log("ID.createIdentity", "New identity created and session unlocked");
 }
 
-export async function buildIdentityFromKeypair({privateKeyPkcs8, publicKeySpki}, pwd, opts = {}) {
+async function buildIdentityFromKeypair({privateKeyPkcs8, publicKeySpki}, pwd, opts = {}) {
     log("ID.buildIdentityFromKeypair", "called");
 
-    // Note: Consider utils.bufferToBase64(publicKeySpki) in case of overflow error because of String.fromCharCode
+    // Note: Consider CR.bufToB64(publicKeySpki) in case of overflow error because of String.fromCharCode
     //const pubB64 = btoa(String.fromCharCode(...new Uint8Array(publicKeySpki)));
 
     // Actually faced a silent error that resulted in an empty base64 key data being written and had to switch to the helper method
-    // TODO: Change similar code that commented above to the below implementation throughout the app
-    const pubB64 = U.bufferToBase64(publicKeySpki);
+    // TODO: Change similar code that's commented above to the below implementation throughout the app
+    const pubB64 = CR.bufToB64(publicKeySpki);
 
-    if (pubB64.length < 200) {
-        throw new Error("Public key export failed");
+    if (pubB64.length < 300) {
+        throw new Error("Invalid RSA public key export");
     }
 
     const fingerprint = await CR.computePublicKeyFingerprint(publicKeySpki);
 
-    const saltBytes = crypto.getRandomValues(new Uint8Array(16));
-    const kdf = {
-        salt: btoa(String.fromCharCode(...saltBytes)),
-        iterations: 100000
-    };
+    const saltBytes = CR.randomBytes(CR_ALG.SALT_LENGTH);
+    const kdf = { salt: CR.bufToB64(saltBytes), iterations: CR_ALG.PBKDF2_ITERATIONS };
 
     const key = await CR.deriveKey(pwd, kdf);
     const passwordVerifier = await createPasswordVerifier(key);
@@ -295,8 +278,7 @@ export async function buildIdentityFromKeypair({privateKeyPkcs8, publicKeySpki},
 
 async function createPasswordVerifier(key) {
     log("ID.createPasswordVerifier", "called");
-    const data = new TextEncoder().encode(VERIFIER_TEXT);
-    return CR.encrypt(data, key);
+    return CR.encrypt(VERIFIER_TEXT, key);
 }
 
 export async function cacheDecryptedPrivateKey(decryptedPrivateKeyBytes) {
@@ -305,18 +287,11 @@ export async function cacheDecryptedPrivateKey(decryptedPrivateKeyBytes) {
     try {
         if (!decryptedPrivateKeyBytes) throw new Error("No decrypted key available");
 
-        const base64 = U.bufferToBase64(decryptedPrivateKeyBytes);
+        const base64 = CR.bufToB64(decryptedPrivateKeyBytes);
         sessionStorage.setItem("sv_session_private_key", base64);
 
         // Keep in-memory reference for session restore
-        G.currentPrivateKey = await crypto.subtle.importKey(
-            "pkcs8",
-            decryptedPrivateKeyBytes,
-            { name:"RSA-OAEP", hash:"SHA-256" },
-            false,
-            ["decrypt", "unwrapKey"]
-        );
-
+        G.currentPrivateKey = await CR.importRSAPrivateKey(decryptedPrivateKeyBytes);
         G.sessionUnlocked = true;
         log("ID.cacheDecryptedPrivateKey", "Session private key cached");
 
@@ -344,7 +319,6 @@ export async function createRecoveryIdentity(pwd) {
     return recoveryIdentity;
 }
 
-// identity.js
 export async function decryptPreviousKeys(id, pwd) {
     log("ID.decryptPreviousKeys", "called");
 
@@ -356,20 +330,9 @@ export async function decryptPreviousKeys(id, pwd) {
         try {
             const derivedPrev = await CR.deriveKey(pwd, prev.kdf);
             const privateKeyPkcs8 = await CR.decrypt(prev.encryptedPrivateKey, derivedPrev);
+            const privateKey = await CR.importRSAPrivateKey(privateKeyPkcs8, ["unwrapKey"]);
 
-            const privateKey = await crypto.subtle.importKey(
-                "pkcs8",
-                privateKeyPkcs8,
-                { name: "RSA-OAEP", hash: "SHA-256" },
-                false,
-                ["unwrapKey"]
-            );
-
-            id._decryptedPreviousKeys.push({
-                fingerprint: prev.fingerprint,
-                privateKey
-            });
-
+            id._decryptedPreviousKeys.push({ fingerprint: prev.fingerprint, privateKey });
             log("ID.decryptPreviousKeys", `Previous key ${prev.fingerprint} decrypted for session`);
 
         } catch {

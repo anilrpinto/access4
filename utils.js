@@ -20,18 +20,7 @@ export function deepFreeze(obj) {
     return Object.freeze(obj);
 }
 
-// A safer version for buffers of any size instead of a straight
-// btoa(String.fromCharCode(...new Uint8Array(buffer)))
-export function bufferToBase64(buffer) {
-    let binary = '';
-    const bytes = new Uint8Array(buffer);
-    const chunkSize = 0x8000; // 32k chunks
-    for (let i = 0; i < bytes.length; i += chunkSize) {
-        const chunk = bytes.subarray(i, i + chunkSize);
-        binary += String.fromCharCode(...chunk);
-    }
-    return btoa(binary);
-}
+
 
 export function format(json) {
     // Determine indentation: undefined (minified), other wise indent by 2 spaces
