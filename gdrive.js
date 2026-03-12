@@ -1,11 +1,97 @@
-"use strict";
+import { C, G, U, log, trace, debug, info, warn, error } from './exports.js';
 
-import { C } from './constants.js';
-import { G } from './global.js';
-import * as U from './utils.js';
+/**
+ * IMPORTANT:
+ * Drive has separate endpoints for metadata vs file content.
+ * NEVER send JSON content to drive/v3/files.
+ * Use upload/drive/v3/files for media writes.
+ */
 
-import { log, trace, debug, info, warn, error } from './log.js';
+function _buildDriveListUrl(params = {}) {
+    return buildDriveUrl("files", {
+        ...params,
+        supportsAllDrives: true,
+        includeItemsFromAllDrives: true
+    });
+}
 
+/*
+ * URL builder (media uploads) (KEEP)
+ */
+function _buildDriveUploadUrl(path, params = {}) {
+    const qs = new URLSearchParams({
+        supportsAllDrives: "true",
+        includeItemsFromAllDrives: "true",
+        ...params
+    });
+    return `https://www.googleapis.com/upload/drive/v3/${path}?${qs}`;
+}
+
+/*
+ * URL builder (metadata & listing) (KEEP)
+ */
+function buildDriveUrl(path, params = {}) {
+    params.supportsAllDrives = true;
+    // Commented as only needed for LIST calls not GET
+    //params.includeItemsFromAllDrives = true;
+    return `https://www.googleapis.com/drive/v3/${path}?` +
+    Object.entries(params).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
+}
+
+async function _driveFindFileByNameInFolder(name, folderId) {
+    const q = [
+        `name='${name.replace(/'/g, "\\'")}'`,
+        `'${folderId}' in parents`,
+        `trashed=false`
+    ].join(" and ");
+
+    const res = await _driveApiGet("files", { q, fields: "files(id,name,modifiedTime)" });
+
+    return res.files?.[0] || null;
+}
+
+/*
+ * GET wrapper (KEEP)
+ */
+async function _driveApiGet(path, params = {}) {
+    return driveFetch(
+        buildDriveUrl(path, params),
+        { method: "GET" }
+    );
+}
+
+/*
+ * raw response (KEEP)
+ */
+async function _driveFetchRaw(url, options = {}) {
+    options.headers ||= {};
+    options.headers.Authorization = `Bearer ${G.accessToken}`;
+
+    const res = await fetch(url, options);
+    if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text);
+    }
+    return res;
+}
+
+/*
+ * JSON response (KEEP)
+ */
+async function driveFetch(url, options = {}) {
+    options.headers ||= {};
+    options.headers.Authorization = `Bearer ${G.accessToken}`;
+    const res = await fetch(url, options);
+    if (!res.ok) throw new Error(`Drive fetch failed: ${res.status} ${res.statusText}`);
+    return res.json();
+}
+
+
+/**
+ * EXPORTED FUNCTIONS
+ */
+
+// KEEP
 export async function fetchUserEmail() {
     const res = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
         headers: {
@@ -18,6 +104,7 @@ export async function fetchUserEmail() {
     log("GD.fetchUserEmail", "Signed in as xxx@gmail.com"); //+ G.userEmail);
 }
 
+// KEEP
 export async function verifyWritable(folderId) {
     log("GD.verifyWritable", "called - Verifying Drive write access (probe)");
     await fetch(buildDriveUrl("files", {
@@ -31,6 +118,7 @@ export async function verifyWritable(folderId) {
     log("GD.verifyWritable", "Drive access verified (read scope OK)");
 }
 
+// KEEP
 export async function verifySharedRoot(root) {
     log("GD.verifySharedRoot", "called");
     await driveFetch(buildDriveUrl(`files/${root}`, {
@@ -38,30 +126,20 @@ export async function verifySharedRoot(root) {
     }));
 }
 
-export async function driveFetch(url, options = {}) {
-    options.headers ||= {};
-    options.headers.Authorization = `Bearer ${G.accessToken}`;
-    const res = await fetch(url, options);
-    if (!res.ok) throw new Error(`Drive fetch failed: ${res.status} ${res.statusText}`);
-    return res.json();
-}
-
-export function buildDriveUrl(path, params = {}) {
-    params.supportsAllDrives = true;
-    // Commented as only needed for LIST calls not GET
-    //params.includeItemsFromAllDrives = true;
-    return `https://www.googleapis.com/drive/v3/${path}?` +
-    Object.entries(params).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
-}
-
+/*
+ * Convenience for root (KEEP) - rename to indicate ROOT files finder
+ */
 export async function findDriveFileByName(name) {
-    return _driveFindFileByNameInFolder(name, C.ACCESS4_ROOT_ID);
+    return findDriveFileByNameInFolder(name, C.ACCESS4_ROOT_ID);
 }
 
-async function findDriveFileByNameInFolder(name, folderId) {
+export async function findDriveFileByNameInFolder(name, folderId) {
     return _driveFindFileByNameInFolder(name, folderId);
 }
 
+/*
+ * JSON reader (KEEP)
+ */
 export async function driveReadJsonFile(fileId) {
     const res = await _driveFetchRaw(
         buildDriveUrl(`files/${fileId}`, { alt: "media" })
@@ -69,6 +147,9 @@ export async function driveReadJsonFile(fileId) {
     return await res.json();
 }
 
+/*
+ * JSON writer (KEEP)
+ */
 export async function drivePatchJsonFile(fileId, json) {
     await _driveFetchRaw(
         _buildDriveUploadUrl(`files/${fileId}`, { uploadType: "media" }),
@@ -80,11 +161,17 @@ export async function drivePatchJsonFile(fileId, json) {
     );
 }
 
+/*
+ * File listing (KEEP)
+ */
 export async function driveList(params) {
     const res = await driveFetch(_buildDriveListUrl(params));
     return res.files || [];
 }
 
+/*
+ * File creation (KEEP)
+ */
 export async function driveMultipartUpload({ metadata, content, contentType = "application/json" }) {
     const boundary = "-------access4-" + crypto.randomUUID();
 
@@ -138,66 +225,14 @@ export async function driveCreateJsonFile({ name, parents, json, overwrite = fal
     return data.id;
 }
 
-function _buildDriveListUrl(params = {}) {
-    return buildDriveUrl("files", {
-        ...params,
-        supportsAllDrives: true,
-        includeItemsFromAllDrives: true
-    });
-}
-
-function _buildDriveUploadUrl(path, params = {}) {
-    const qs = new URLSearchParams({
-        supportsAllDrives: "true",
-        includeItemsFromAllDrives: "true",
-        ...params
-    });
-    return `https://www.googleapis.com/upload/drive/v3/${path}?${qs}`;
-}
-
-// IMPORTANT:
-// Drive has separate endpoints for metadata vs file content.
-// NEVER send JSON content to drive/v3/files.
-// Use upload/drive/v3/files for media writes.
-async function _driveFindFileByNameInFolder(name, folderId) {
-    const q = [
-        `name='${name.replace(/'/g, "\\'")}'`,
-        `'${folderId}' in parents`,
-        `trashed=false`
-    ].join(" and ");
-
-    const res = await _driveApiGet("files", { q, fields: "files(id,name,modifiedTime)" });
-
-    return res.files?.[0] || null;
-}
-
-async function _driveApiGet(path, params = {}) {
-    return driveFetch(
-        buildDriveUrl(path, params),
-        { method: "GET" }
-    );
-}
-
-async function _driveFetchRaw(url, options = {}) {
-    options.headers ||= {};
-    options.headers.Authorization = `Bearer ${G.accessToken}`;
-
-    const res = await fetch(url, options);
-    if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text);
-    }
-    return res;
-}
-
+// KEEP
 export async function findOrCreateUserFolder() {
 
     log("GD.findOrCreateUserFolder", "called");
     const rootQ = `'${C.ACCESS4_ROOT_ID}' in parents and name='${C.PUBKEY_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder'`;
     const rootRes = await driveFetch(buildDriveUrl("files", { q: rootQ, fields:"files(id)" }));
 
-    const root = rootRes.files.length ? rootRes.files[0].id :
-    (await driveFetch(buildDriveUrl("files"), {
+    const root = rootRes.files.length ? rootRes.files[0].id : (await driveFetch(buildDriveUrl("files"), {
         method:"POST",
         headers: {
             "Content-Type":"application/json"
@@ -250,107 +285,7 @@ export async function createFileOrFolder(name, parents = [], folder = false) {
     });
 }
 
-async function markPreviousDriveKeyDeprecated(oldFingerprint, newFingerprint) {
-    log("GD.markPreviousDriveKeyDeprecated", "called");
-
-    const folder = await findOrCreateUserFolder();
-    const filenamePattern = `${G.userEmail}__`; // all device keys for this user
-    const q = `'${folder}' in parents and name contains '${filenamePattern}'`;
-    const res = await driveFetch(buildDriveUrl("files", { q, fields:"files(id,name)" }));
-
-    if (!res.files.length) {
-        log("GD.markPreviousDriveKeyDeprecated", "no drive files found to mark keys as deprecated");
-        return; // nothing to patch
-    }
-
-    for (const file of res.files) {
-        const fileData = await driveFetch(buildDriveUrl(`files/${file.id}`, { alt:"media" }));
-        if (fileData.keyId !== oldFingerprint) continue; // not the old key
-
-        // --- PATCH only mutable fields ---
-        const patchData = {
-            state:"deprecated",
-            supersededBy: newFingerprint
-        };
-
-        await driveFetch(buildDriveUrl(`files/${file.id}`, { uploadType:"media" }), {
-            method:"PATCH",
-            headers: { "Content-Type":"application/json" },
-            body: JSON.stringify(patchData)
-        });
-
-        log("GD.markPreviousDriveKeyDeprecated", `Marked keyId (${oldFingerprint}) as deprecated in file:${file.id}`);
-    }
-}
-
-export async function loadPublicKeyJsonsFromDrive() {
-    log("GD.loadPublicKeyJsonsFromDrive", "called");
-    const publicKeyJsons = [];
-
-    // 1️⃣ Locate pub-keys folder
-    const pubKeysFolders = await driveList({
-        q: `'${C.ACCESS4_ROOT_ID}' in parents and name='pub-keys' and mimeType='application/vnd.google-apps.folder'`,
-        pageSize: 1
-    });
-
-    if (pubKeysFolders.length === 0) {
-        warn("GD.loadPublicKeyJsonsFromDrive", "pub-keys folder not found");
-        return publicKeyJsons;
-    }
-
-    const pubKeysRootId = pubKeysFolders[0].id;
-
-    // 2️⃣ Enumerate email subfolders
-    const accountFolders = await driveList({
-        q: `'${pubKeysRootId}' in parents and mimeType='application/vnd.google-apps.folder'`,
-        pageSize: 100
-    });
-
-    for (const accountFolder of accountFolders) {
-        // 3️⃣ Enumerate device key files
-        const deviceKeyFiles = await driveList({
-            q: `'${accountFolder.id}' in parents and mimeType='application/json'`,
-            pageSize: 100
-        });
-
-        for (const file of deviceKeyFiles) {
-            try {
-                const json = await driveReadJsonFile(file.id);
-                publicKeyJsons.push(json);
-            } catch (err) {
-                error("GD.loadPublicKeyJsonsFromDrive", `Failed to read ${file.name}: ${err.message}`);
-            }
-        }
-    }
-
-    // 4️⃣ Load recovery public key (optional)
-    const recoveryFolders = await driveList({
-        q: `'${C.ACCESS4_ROOT_ID}' in parents and name='recovery' and mimeType='application/vnd.google-apps.folder'`,
-        pageSize: 1
-    });
-
-    if (recoveryFolders.length > 0) {
-        const recoveryFolderId = recoveryFolders[0].id;
-
-        const recoveryPublicFiles = await driveList({
-            q: `'${recoveryFolderId}' in parents and name='recovery.public.json'`,
-            pageSize: 1
-        });
-
-        if (recoveryPublicFiles.length > 0) {
-            try {
-                const recoveryJson = await driveReadJsonFile(recoveryPublicFiles[0].id);
-                publicKeyJsons.push(recoveryJson);
-            } catch (err) {
-                error("GD.loadPublicKeyJsonsFromDrive", "Failed to read recovery.public.json");
-            }
-        }
-    }
-
-    log("GD.loadPublicKeyJsonsFromDrive", `Loaded ${publicKeyJsons.length} public keys`);
-    return publicKeyJsons;
-}
-
+// KEEP
 export async function ensureRecoveryFolder() {
     const q = `'${C.ACCESS4_ROOT_ID}' in parents and name='recovery' and mimeType='application/vnd.google-apps.folder'`;
     const res = await driveFetch(buildDriveUrl("files", { q, fields:"files(id)" }));
@@ -372,6 +307,7 @@ export async function ensureRecoveryFolder() {
     return folder.id;
 }
 
+// KEEP
 export async function readEnvelopeFromDrive(envelopeName) {
     log("GD.readEnvelopeFromDrive", "called");
 
@@ -386,6 +322,7 @@ export async function readEnvelopeFromDrive(envelopeName) {
     };
 }
 
+// KEEP
 export async function readLockFromDrive(envelopeName) {
     //trace("GD.readLockFromDrive", "called");
     const lockName = `${envelopeName}.lock`;
@@ -401,6 +338,7 @@ export async function readLockFromDrive(envelopeName) {
     };
 }
 
+// KEEP
 export async function writeLockToDrive(envelopeName, lockJson, existingFileId = null) {
     //trace("GD.writeLockToDrive", "called lockJson:", JSON.stringify(lockJson));
 
@@ -426,6 +364,7 @@ export async function writeLockToDrive(envelopeName, lockJson, existingFileId = 
  *
  * @returns {Promise<Object>} Parsed JSON of recovery private key
  */
+// KEEP
 export async function loadRecoveryPrivateBlob() {
     log("GD.loadRecoveryPrivateBlob", "called");
 
@@ -465,3 +404,36 @@ export async function loadRecoveryPrivateBlob() {
         throw err;
     }
 }
+
+/*async function markPreviousDriveKeyDeprecated(oldFingerprint, newFingerprint) {
+    log("GD.markPreviousDriveKeyDeprecated", "called");
+
+    const folder = await findOrCreateUserFolder();
+    const filenamePattern = `${G.userEmail}__`; // all device keys for this user
+    const q = `'${folder}' in parents and name contains '${filenamePattern}'`;
+    const res = await driveFetch(buildDriveUrl("files", { q, fields:"files(id,name)" }));
+
+    if (!res.files.length) {
+        log("GD.markPreviousDriveKeyDeprecated", "no drive files found to mark keys as deprecated");
+        return; // nothing to patch
+    }
+
+    for (const file of res.files) {
+        const fileData = await driveFetch(buildDriveUrl(`files/${file.id}`, { alt:"media" }));
+        if (fileData.keyId !== oldFingerprint) continue; // not the old key
+
+        // --- PATCH only mutable fields ---
+        const patchData = {
+            state:"deprecated",
+            supersededBy: newFingerprint
+        };
+
+        await driveFetch(buildDriveUrl(`files/${file.id}`, { uploadType:"media" }), {
+            method:"PATCH",
+            headers: { "Content-Type":"application/json" },
+            body: JSON.stringify(patchData)
+        });
+
+        log("GD.markPreviousDriveKeyDeprecated", `Marked keyId (${oldFingerprint}) as deprecated in file:${file.id}`);
+    }
+}*/

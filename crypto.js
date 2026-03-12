@@ -1,7 +1,35 @@
-"use strict";
-
 import { log, trace, debug, info, warn, error } from './log.js';
 
+// Helpers
+function normalizeBytes(data) {
+    if (data instanceof Uint8Array) {
+        return data;
+    }
+
+    if (data instanceof ArrayBuffer) {
+        return new Uint8Array(data);
+    }
+
+    if (typeof data === "string") {
+        return new TextEncoder().encode(data);
+    }
+
+    throw new Error("CR.encrypt: Unsupported input type");
+}
+
+function assertKeyUsage(key, requiredUsage) {
+
+    if (!key.usages.includes(requiredUsage)) {
+        throw new Error(
+            `CryptoKey missing required usage '${requiredUsage}'. ` +
+            `Actual usages: [${key.usages.join(", ")}]`
+        );
+    }
+}
+
+/**
+ * EXPORTED FUNCTIONS
+ */
 export const CR_ALG = {
     RSA: {
         DEFAULT: "RSA",
@@ -204,33 +232,6 @@ export async function generateCEK() {
         true,
         ["encrypt","decrypt"]
     );
-}
-
-// Helpers
-function normalizeBytes(data) {
-    if (data instanceof Uint8Array) {
-        return data;
-    }
-
-    if (data instanceof ArrayBuffer) {
-        return new Uint8Array(data);
-    }
-
-    if (typeof data === "string") {
-        return new TextEncoder().encode(data);
-    }
-
-    throw new Error("CR.encrypt: Unsupported input type");
-}
-
-function assertKeyUsage(key, requiredUsage) {
-
-    if (!key.usages.includes(requiredUsage)) {
-        throw new Error(
-            `CryptoKey missing required usage '${requiredUsage}'. ` +
-            `Actual usages: [${key.usages.join(", ")}]`
-        );
-    }
 }
 
 export function bufToB64(input) {

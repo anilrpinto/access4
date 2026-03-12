@@ -46,6 +46,34 @@ function _log(level, icon, TAG, msg, ...args) {
     }
 }
 
+function _isLogLevelEnabled(level) {
+    return _level === level;
+}
+
+export function isTraceEnabled() {
+    return _isLogLevelEnabled(TRACE);
+}
+
+export function isLogEnabled() {
+    return isDebugEnabled();
+}
+
+export function isDebugEnabled() {
+    return _isLogLevelEnabled(DEBUG);
+}
+
+export function isInfoEnabled() {
+    return _isLogLevelEnabled(INFO);
+}
+
+export function isWarnEnabled() {
+    return _isLogLevelEnabled(WARN);
+}
+
+export function isErrorEnabled() {
+    return _isLogLevelEnabled(ERROR);
+}
+
 export function log(TAG, message, ...args) {
     debug(TAG, message, ...args);
 }

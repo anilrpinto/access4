@@ -1,13 +1,7 @@
 "use strict";
 
-import { G, clearGlobals } from './global.js';
-
-import * as GD from './gdrive.js';
-import * as AU from './auth.js';
-import * as E from './envelope.js';
-import * as UI from './ui.js';
-
-import { log, trace, debug, info, warn, error, setLogLevel, onlyLogLevels, TRACE, DEBUG, INFO, WARN, ERROR } from './log.js';
+import { G, clearGlobals, GD, AU, E, UI, log, trace, debug, info, warn, error,
+    setLogLevel, onlyLogLevels, TRACE, DEBUG, INFO, WARN, ERROR } from './exports.js';
 
 function onLoad() {
 
@@ -47,6 +41,23 @@ async function releaseDriveLock() {
     G.driveLockState = null;
 }
 
+window.onload = async () => {
+    await onLoad();
+    //await initGIS();
+
+    // Clear any lingering G.driveLockState in memory
+    //G.driveLockState = null;
+    clearGlobals();
+    UI.resetUnlockUi();
+
+    // Optional: detect if a user was partially logged in
+    // If you want logout to be final, skip restoring user session
+    // Otherwise, you could try reacquiring the lock here
+};
+
+/**
+ * EXPORTED FUNCTIONS
+ */
 export function logout() {
     log("AP.logout", "Logging out...");
 
@@ -66,17 +77,3 @@ export function logout() {
 
     log("AP.logout", "completed");
 }
-
-window.onload = async () => {
-    await onLoad();
-    //await initGIS();
-
-    // Clear any lingering G.driveLockState in memory
-    //G.driveLockState = null;
-    clearGlobals();
-    UI.resetUnlockUi();
-
-    // Optional: detect if a user was partially logged in
-    // If you want logout to be final, skip restoring user session
-    // Otherwise, you could try reacquiring the lock here
-};

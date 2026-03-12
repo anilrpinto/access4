@@ -1,4 +1,3 @@
-"use strict";
 
 import { G } from './global.js';
 import { log, trace, debug, info, warn, error } from './log.js';
@@ -19,8 +18,6 @@ export function deepFreeze(obj) {
 
     return Object.freeze(obj);
 }
-
-
 
 export function format(json) {
     // Determine indentation: undefined (minified), other wise indent by 2 spaces

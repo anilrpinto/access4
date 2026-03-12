@@ -1,16 +1,7 @@
-"use strict";
-
-import { C } from './constants.js';
-import { G } from './global.js';
+//WARN: MUST be defined before the barrel import from exports or there could be circular dependency crashes
 import { CR_ALG } from './crypto.js';
 
-import * as AU from './auth.js';
-import * as BM from './biometrics.js';
-import * as CR from './crypto.js';
-import * as GD from './gdrive.js';
-import * as U from './utils.js';
-
-import { log, trace, debug, info, warn, error } from './log.js';
+import { C, G, CR, AU, BM, GD, U, log, trace, debug, info, warn, error } from './exports.js';
 
 export const VERIFIER_TEXT = "identity-ok";
 
@@ -75,19 +66,31 @@ function loadIdentityFromStorage() {
     }
 }
 
+export function devicePublicKeyDriveJsonName() {
+    return `${G.userEmail}_${getDeviceId()}.json`;
+}
+
 /* ---------------------- PUBLIC KEY ---------------------- */
 export async function ensureDevicePublicKey() {
     log("ID.ensureDevicePublicKey", "called");
 
-    const folder = await GD.findOrCreateUserFolder();
     const id = await loadIdentity();
     if (!id) throw new Error("Local identity missing");
 
     const deviceId = getDeviceId();
-    const filename = `${G.userEmail}__${deviceId}.json`;
 
-    const q = `'${folder}' in parents and name='${filename}'`;
-    const res = await GD.driveFetch(GD.buildDriveUrl("files", { q, fields:"files(id)" }));
+    const folder = await GD.findOrCreateUserFolder();
+    log("ID.ensureDevicePublicKey", `folder: ${folder}`);
+
+    const filename = devicePublicKeyDriveJsonName();
+    const file = await GD.findDriveFileByNameInFolder(filename, folder);
+
+    log("ID.ensureDevicePublicKey", `file: ${file?.id ?? "none"}`);
+
+    if (file?.id) {
+        log("ID.ensureDevicePublicKey", `Device public key already exists as ...${filename.slice(-30)}`);
+        return;
+    }
 
     // Compute fingerprint (canonical keyId)
     const pubBytes = CR.b64ToBuf(id.publicKey);
@@ -118,26 +121,6 @@ export async function ensureDevicePublicKey() {
         browser: navigator.userAgentData?.brands?.map(b => b.brand).join(",") || navigator.userAgent,
         os: navigator.platform
     };
-
-    if (res.files.length > 0) {
-        const fileId = res.files[0].id;
-
-        // --- PATCH only the content fields (Drive forbids updating certain metadata) ---
-        const contentOnly = {
-            publicKey: pubData.publicKey,
-            state: pubData.state,
-            supersedes: pubData.supersedes
-        };
-
-        await GD.driveFetch(GD.buildDriveUrl(`files/${fileId}`, { uploadType:"media" }), {
-            method:"PATCH",
-            headers: { "Content-Type":"application/json" },
-            body: U.format(contentOnly)
-        });
-
-        log("ID.ensureDevicePublicKey", `Device public key UPDATED in ${filename.slice(-30)}`);
-        return;
-    }
 
     // File doesn't exist → create new
     await GD.driveMultipartUpload({

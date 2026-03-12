@@ -1,21 +1,7 @@
-"use strict";
+import { C, G, AU, BM, CR, ID, R, E, RG, GD, U, log, trace, debug, info, warn, error } from './exports.js';
 
-import { C } from './constants.js';
-import { G } from './global.js';
 import { logout } from './app.js';
-
-import * as AU from './auth.js';
-import * as GD from './gdrive.js';
-import * as RG from './registry.js';
-import * as E from './envelope.js';
-import * as CR from './crypto.js';
-import * as ID from './identity.js';
-import * as BM from './biometrics.js';
-import * as R from './recovery.js';
-import * as U from './utils.js';
 import { loadUI } from './uihelper.js';
-
-import { log, trace, debug, info, warn, error } from './log.js';
 
 export let logEl = document.getElementById('log');
 
@@ -421,7 +407,7 @@ async function doRotateRecoveryKeyClick(rotateMode) {
         log("UI.doRotateRecoveryKeyClick", "recovery.public.json written");
 
         // Refresh registry with newly uploaded recovery public key
-        await RG.buildKeyRegistryFromDrive(await GD.loadPublicKeyJsonsFromDrive());
+        await RG.buildKeyRegistryFromDrive(await RG.loadPublicKeyJsonsFromDrive());
 
         // 7️⃣ Add to envelope for CEK housekeeping
         await E.addRecoveryKeyToEnvelope({

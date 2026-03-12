@@ -1,5 +1,3 @@
-"use strict";
-
 import { log, trace, debug, info, warn, error } from './log.js';
 
 /**

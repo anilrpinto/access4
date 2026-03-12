@@ -1,34 +1,4 @@
-"use strict";
-
-import { C } from './constants.js';
-import { G } from './global.js';
-
-import * as ID from './identity.js';
-import * as GD from './gdrive.js';
-import * as UI from './ui.js';
-
-import { log, trace, debug, info, warn, error } from './log.js';
-
-export function initGIS() {
-
-    log("AU.initGIS", "called");
-
-    G.tokenClient = google.accounts.oauth2.initTokenClient({
-        client_id: C.CLIENT_ID,
-        scope: C.SCOPES,
-        callback: handleAuth
-    });
-
-    if (G.gisPrompt) {
-        // Promts for accounts regardless (helpful in switching account)
-        G.tokenClient.requestAccessToken({ prompt:"consent select_account" })
-    } else {
-        // Do not prompt for choosing other accounts if atleast one is signed in to Google already
-        G.tokenClient.requestAccessToken({ prompt:"" });
-    }
-
-    UI.signinBtn.disabled = true;
-}
+import { C, G, ID, GD, UI, log, trace, debug, info, warn, error, isTraceEnabled } from './exports.js';
 
 async function handleAuth(resp) {
     log("AU.handleAuth", "called");
@@ -173,15 +143,14 @@ async function attemptSessionRestore() {
 async function ensureAuthorization() {
     log("AU.ensureAuthorization", "called");
 
-    const q = `'${C.ACCESS4_ROOT_ID}' in parents and name='${C.AUTH_FILE_NAME}'`;
-    const res = await GD.driveFetch(GD.buildDriveUrl("files", { q, fields:"files(id)" }));
-    let data;
+    const file = await GD.findDriveFileByName(C.AUTH_FILE_NAME);
 
-    if (!res.files.length) {
+    let data;
+    if (file?.id) {
+        data = await GD.driveReadJsonFile(file.id);
+    } else {
         log("AU.ensureAuthorization", `${C.AUTH_FILE_NAME} not found, creating genesis authorization...`);
         data = await createGenesisAuthorization();
-    } else {
-        data = await GD.driveFetch(GD.buildDriveUrl(`files/${res.files[0].id}`, { alt:"media" }));
     }
 
     // Cache authorization structure for use in the app
@@ -189,6 +158,9 @@ async function ensureAuthorization() {
         admins: data.admins || [],
         members: data.members || []
     };
+
+    if (isTraceEnabled())
+        trace("AU.ensureAuthorization", `G.auth: ${JSON.stringify(G.auth)}`);
 
     if (!G.auth.admins.includes(G.userEmail) && !G.auth.members.includes(G.userEmail))
         throw new Error("Unauthorized user");
@@ -205,8 +177,31 @@ async function createGenesisAuthorization() {
     await GD.drivePatchJsonFile(file.id, data);
 
     log("AU.createGenesisAuthorization", `Genesis authorization created for ${G.userEmail}`);
-
     return data;
+}
+
+/**
+ * EXPORTED FUNCTIONS
+ */
+export function initGIS() {
+
+    log("AU.initGIS", "called");
+
+    G.tokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: C.CLIENT_ID,
+        scope: C.SCOPES,
+        callback: handleAuth
+    });
+
+    if (G.gisPrompt) {
+        // Promts for accounts regardless (helpful in switching account)
+        G.tokenClient.requestAccessToken({ prompt:"consent select_account" })
+    } else {
+        // Do not prompt for choosing other accounts if atleast one is signed in to Google already
+        G.tokenClient.requestAccessToken({ prompt:"" });
+    }
+
+    UI.signinBtn.disabled = true;
 }
 
 export function isAdmin() {

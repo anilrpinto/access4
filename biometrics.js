@@ -1,14 +1,113 @@
-"use strict";
-
-import { C } from './constants.js';
-import { G } from './global.js';
-
-import * as ID from './identity.js';
-
-import { log, trace, debug, info, warn, error } from './log.js';
+import { C, G, ID, log, trace, debug, info, warn, error } from './exports.js';
 
 const DB_VERSION = 1;
 
+function bioScopeKey(type) {
+    return `access4.bio::${type}::${G.userEmail}::${ID.getDeviceId()}`;
+}
+
+async function openDB({ write = false } = {}) {
+    return new Promise((resolve, reject) => {
+        const req = indexedDB.open(C.BIO_DB_NAME);
+
+        req.onerror = (e) => reject(e.target.error);
+
+        req.onsuccess = async (e) => {
+            const db = e.target.result;
+
+            const hasStore = db.objectStoreNames.contains(C.BIO_STORE);
+
+            // ✅ Store exists → done
+            if (hasStore) {
+                resolve(db);
+                return;
+            }
+
+            // ❌ Store missing + read mode → treat as empty
+            if (!write) {
+                db.close();
+                resolve(null);
+                return;
+            }
+
+            // 🔥 Store missing + write mode → upgrade DB
+            const newVersion = db.version + 1;
+            db.close();
+
+            const upgradeReq = indexedDB.open(C.BIO_DB_NAME, newVersion);
+
+            upgradeReq.onupgradeneeded = (ev) => {
+                const upgradedDB = ev.target.result;
+                if (!upgradedDB.objectStoreNames.contains(C.BIO_STORE)) {
+                    upgradedDB.createObjectStore(C.BIO_STORE);
+                }
+            };
+
+            upgradeReq.onsuccess = (ev) => resolve(ev.target.result);
+            upgradeReq.onerror = (ev) => reject(ev.target.error);
+        };
+    });
+}
+
+async function storePWK(keyId, cryptoKey) {
+    log("BM.storePWK", "called");
+
+    const db = await openDB({ write: true });
+
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(C.BIO_STORE, "readwrite");
+        tx.objectStore(C.BIO_STORE).put(cryptoKey, keyId);
+
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+    });
+}
+
+async function saveBiometricRecord(record) {
+    log("BM.saveBiometricRecord", "called");
+
+    const db = await openDB({ write: true });
+
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(C.BIO_STORE, "readwrite");
+        tx.objectStore(C.BIO_STORE).put(record, bioScopeKey("record"));
+
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+    });
+}
+
+async function loadBiometricRecordFromIndexedDB() {
+    log("BM.loadBiometricRecordFromIndexedDB", "called");
+
+    const db = await openDB({ write: false });
+    if (!db) return null;
+
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(C.BIO_STORE, "readonly");
+        const req = tx.objectStore(C.BIO_STORE).get(bioScopeKey("record"));
+
+        req.onsuccess = () => resolve(req.result || null);
+        req.onerror = () => reject(req.error);
+    });
+}
+
+async function loadPWK(keyId) {
+    log("BM.loadPWK", "called");
+    const db = await openDB({ write: false });
+    if (!db) return null;
+
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(C.BIO_STORE, "readonly");
+        const req = tx.objectStore(C.BIO_STORE).get(keyId);
+        req.onsuccess = () => resolve(req.result || null);
+        req.onerror = () => reject(req.error);
+    });
+}
+
+/**
+ * EXPORTED FUNCTIONS
+ */
 export async function isBiometricRegistered() {
     log("BM.isBiometricRegistered", "called");
     const record = await loadBiometricRecordFromIndexedDB();
@@ -68,10 +167,6 @@ export async function enrollBiometric(password) {
     log("BM.enrollBiometric", "Biometric shortcut securely enrolled");
 }
 
-function bioScopeKey(type) {
-    return `access4.bio::${type}::${G.userEmail}::${ID.getDeviceId()}`;
-}
-
 export async function attemptBiometricUnlock(callback) {
     log("BM.attemptBiometricUnlock", "called");
 
@@ -118,110 +213,11 @@ export async function attemptBiometricUnlock(callback) {
         log("BM.attemptBiometricUnlock", "Password decrypted via biometric, proceeding with implicit unlock");
 
         if (callback)
-            await callback(password);
+        await callback(password);
 
     } catch (err) {
         warn("BM.attemptBiometricUnlock", "Biometric unlock failed:", err.message);
     }
-}
-
-async function openDB({ write = false } = {}) {
-    return new Promise((resolve, reject) => {
-        const req = indexedDB.open(C.BIO_DB_NAME);
-
-        req.onerror = (e) => reject(e.target.error);
-
-        req.onsuccess = async (e) => {
-            const db = e.target.result;
-
-            const hasStore = db.objectStoreNames.contains(C.BIO_STORE);
-
-            // ✅ Store exists → done
-            if (hasStore) {
-                resolve(db);
-                return;
-            }
-
-            // ❌ Store missing + read mode → treat as empty
-            if (!write) {
-                db.close();
-                resolve(null);
-                return;
-            }
-
-            // 🔥 Store missing + write mode → upgrade DB
-            const newVersion = db.version + 1;
-            db.close();
-
-            const upgradeReq = indexedDB.open(C.BIO_DB_NAME, newVersion);
-
-            upgradeReq.onupgradeneeded = (ev) => {
-                const upgradedDB = ev.target.result;
-                if (!upgradedDB.objectStoreNames.contains(C.BIO_STORE)) {
-                    upgradedDB.createObjectStore(C.BIO_STORE);
-                }
-            };
-
-            upgradeReq.onsuccess = (ev) => resolve(ev.target.result);
-            upgradeReq.onerror = (ev) => reject(ev.target.error);
-        };
-    });
-}
-
-export async function saveBiometricRecord(record) {
-    log("BM.saveBiometricRecord", "called");
-
-    const db = await openDB({ write: true });
-
-    return new Promise((resolve, reject) => {
-        const tx = db.transaction(C.BIO_STORE, "readwrite");
-        tx.objectStore(C.BIO_STORE).put(record, bioScopeKey("record"));
-
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
-    });
-}
-
-export async function loadBiometricRecordFromIndexedDB() {
-    log("BM.loadBiometricRecordFromIndexedDB", "called");
-
-    const db = await openDB({ write: false });
-    if (!db) return null;
-
-    return new Promise((resolve, reject) => {
-        const tx = db.transaction(C.BIO_STORE, "readonly");
-        const req = tx.objectStore(C.BIO_STORE).get(bioScopeKey("record"));
-
-        req.onsuccess = () => resolve(req.result || null);
-        req.onerror = () => reject(req.error);
-    });
-}
-
-export async function loadPWK(keyId) {
-    log("BM.loadPWK", "called");
-    const db = await openDB({ write: false });
-    if (!db) return null;
-
-    return new Promise((resolve, reject) => {
-        const tx = db.transaction(C.BIO_STORE, "readonly");
-        const req = tx.objectStore(C.BIO_STORE).get(keyId);
-        req.onsuccess = () => resolve(req.result || null);
-        req.onerror = () => reject(req.error);
-    });
-}
-
-async function storePWK(keyId, cryptoKey) {
-    log("BM.storePWK", "called");
-
-    const db = await openDB({ write: true });
-
-    return new Promise((resolve, reject) => {
-        const tx = db.transaction(C.BIO_STORE, "readwrite");
-        tx.objectStore(C.BIO_STORE).put(cryptoKey, keyId);
-
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
-    });
 }
 
 export async function debugBiometricDB() {

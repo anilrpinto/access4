@@ -1,13 +1,4 @@
-"use strict";
-
-import { C } from './constants.js';
-import { G } from './global.js';
-
-import * as CR from './crypto.js';
-import * as GD from './gdrive.js';
-
-import { log, trace, debug, info, warn, error } from './log.js';
-import { VERIFIER_TEXT } from './identity.js';
+import { C, G, CR, GD, ID, log, trace, debug, info, warn, error } from './exports.js';
 
 function constantTimeEqual(a, b) {
     if (a.length !== b.length) return false;
@@ -32,7 +23,7 @@ export async function unlockRecoveryIdentity(pwd) {
         // 3️⃣ Verify password
         const verifierBytes = new Uint8Array(await CR.decrypt(blob.passwordVerifier, aesKey));
 
-        const expected = new TextEncoder().encode(VERIFIER_TEXT);
+        const expected = new TextEncoder().encode(ID.VERIFIER_TEXT);
 
         if (!constantTimeEqual(verifierBytes, expected)) {
             throw new Error("Invalid recovery password");
