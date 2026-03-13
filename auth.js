@@ -33,7 +33,7 @@ function isSessionAuthenticated() {
 }
 
 async function onAuthReady(email) {
-    log("AU.onAuthReady", "called");
+    log("AU.onAuthReady", `called for [v${C.APP_VERSION}]`);
 
     try {
         const id = await ID.loadIdentity();
@@ -143,14 +143,19 @@ async function attemptSessionRestore() {
 async function ensureAuthorization() {
     log("AU.ensureAuthorization", "called");
 
-    const file = await GD.findDriveFileByName(C.AUTH_FILE_NAME);
+    const existing = await GD.readJsonByName(C.AUTH_FILE_NAME);
 
     let data;
-    if (file?.id) {
-        data = await GD.driveReadJsonFile(file.id);
-    } else {
+
+    if (existing)
+        data = existing.json;
+    else {
         log("AU.ensureAuthorization", `${C.AUTH_FILE_NAME} not found, creating genesis authorization...`);
-        data = await createGenesisAuthorization();
+
+        data = { admins: [G.userEmail], members: [G.userEmail], created: new Date().toISOString(), version: 1 };
+        await GD.upsertJsonFile({ name: C.AUTH_FILE_NAME, parentId: C.ACCESS4_ROOT_ID, json: data });
+
+        log("AU.ensureAuthorization", `Genesis authorization created for ${G.userEmail}`);
     }
 
     // Cache authorization structure for use in the app
@@ -166,18 +171,6 @@ async function ensureAuthorization() {
         throw new Error("Unauthorized user");
 
     log("AU.ensureAuthorization", "Authorized user verified");
-}
-
-async function createGenesisAuthorization() {
-    log("AU.createGenesisAuthorization", "called");
-
-    const file = await GD.createFileOrFolder(C.AUTH_FILE_NAME, C.ACCESS4_ROOT_ID);
-
-    const data = { admins: [G.userEmail], members: [G.userEmail], created: new Date().toISOString(), version: 1 };
-    await GD.drivePatchJsonFile(file.id, data);
-
-    log("AU.createGenesisAuthorization", `Genesis authorization created for ${G.userEmail}`);
-    return data;
 }
 
 /**

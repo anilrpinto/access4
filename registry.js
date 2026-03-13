@@ -104,15 +104,55 @@ function buildSupersedenceIndex(keys) {
     return superseded;
 }
 
+async function loadPublicKeyJsonsFromDrive() {
+
+    log("RG.loadPublicKeyJsonsFromDrive", "called");
+
+    const rawKeys = [];
+
+    const pubKeysRoot = await GD.findOrCreateFolder(C.PUBKEY_FOLDER_NAME, C.ACCESS4_ROOT_ID);
+    const accountFolders = await GD.listFolders(pubKeysRoot);
+
+    for (const folder of accountFolders) {
+        const jsons = await GD.readJsonFilesFromFolder(folder.id);
+        rawKeys.push(...jsons);
+    }
+
+    const recoveryFolder = await GD.findDriveFileByNameInFolder("recovery", C.ACCESS4_ROOT_ID);
+
+    if (recoveryFolder) {
+        const recovery = await GD.readJsonByName(C.RECOVERY_KEY_PUBLIC_FILE, recoveryFolder.id);
+
+        if (recovery)
+            rawKeys.push(recovery.json);
+    }
+
+    // filtering step remains
+    const superseded = new Set();
+
+    for (const key of rawKeys)
+        if (key.supersedes)
+        superseded.add(key.supersedes);
+
+    const publicKeyJsons = rawKeys.filter(k => k.state !== "revoked" && !superseded.has(k.keyId));
+
+    log("RG.loadPublicKeyJsonsFromDrive", `Loaded ${publicKeyJsons.length} active public keys`);
+
+    return publicKeyJsons;
+}
+
 /**
  * EXPORTED FUNCTIONS
  */
-export async function buildKeyRegistryFromDrive(rawPublicKeyJsons) {
+export async function buildKeyRegistryFromDrive() {
     log("RG.buildKeyRegistryFromDrive", "called");
 
     resetKeyRegistry(); // keep global registry mutable
 
-    for (const raw of rawPublicKeyJsons) {
+    // ─── Load key registry from pub-keys on Drive ───
+    const publicKeyJsons = await loadPublicKeyJsonsFromDrive();
+
+    for (const raw of publicKeyJsons) {
         const normalized = E.normalizePublicKey(raw);
         if (!normalized) continue; // skip invalid
         registerPublicKey(normalized);
@@ -139,71 +179,35 @@ export async function buildKeyRegistryFromDrive(rawPublicKeyJsons) {
     return snapshot; // assign to local var if needed, not G.keyRegistry
 }
 
-export async function loadPublicKeyJsonsFromDrive() {
-    log("RG.loadPublicKeyJsonsFromDrive", "called");
-    const publicKeyJsons = [];
+/*async function markPreviousDriveKeyDeprecated(oldFingerprint, newFingerprint) {
+    log("GD.markPreviousDriveKeyDeprecated", "called");
 
-    // 1️⃣ Locate pub-keys folder
-    const pubKeysFolders = await GD.driveList({
-        q: `'${C.ACCESS4_ROOT_ID}' in parents and name='${C.PUBKEY_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder'`,
-        pageSize: 1
-    });
+    const folder = await findOrCreateUserFolder();
+    const filenamePattern = `${G.userEmail}__`; // all device keys for this user
+    const q = `'${folder}' in parents and name contains '${filenamePattern}'`;
+    const res = await _driveFetch(_buildDriveUrl("files", { q, fields:"files(id,name)" }));
 
-    if (pubKeysFolders.length === 0) {
-        warn("RG.loadPublicKeyJsonsFromDrive", "pub-keys folder not found");
-        return publicKeyJsons;
+    if (!res.files.length) {
+        log("GD.markPreviousDriveKeyDeprecated", "no drive files found to mark keys as deprecated");
+        return; // nothing to patch
     }
 
-    const pubKeysRootId = pubKeysFolders[0].id;
+    for (const file of res.files) {
+        const fileData = await _driveFetch(_buildDriveUrl(`files/${file.id}`, { alt:"media" }));
+        if (fileData.keyId !== oldFingerprint) continue; // not the old key
 
-    // 2️⃣ Enumerate email subfolders
-    const accountFolders = await GD.driveList({
-        q: `'${pubKeysRootId}' in parents and mimeType='application/vnd.google-apps.folder'`,
-        pageSize: 100
-    });
+        // --- PATCH only mutable fields ---
+        const patchData = {
+            state:"deprecated",
+            supersededBy: newFingerprint
+        };
 
-    for (const accountFolder of accountFolders) {
-        // 3️⃣ Enumerate device key files
-        const deviceKeyFiles = await GD.driveList({
-            q: `'${accountFolder.id}' in parents and mimeType='application/json'`,
-            pageSize: 100
+        await _driveFetch(_buildDriveUrl(`files/${file.id}`, { uploadType:"media" }), {
+            method:"PATCH",
+            headers: { "Content-Type":"application/json" },
+            body: JSON.stringify(patchData)
         });
 
-        for (const file of deviceKeyFiles) {
-            try {
-                const json = await GD.driveReadJsonFile(file.id);
-                publicKeyJsons.push(json);
-            } catch (err) {
-                error("RG.loadPublicKeyJsonsFromDrive", `Failed to read ${file.name}: ${err.message}`);
-            }
-        }
+        log("GD.markPreviousDriveKeyDeprecated", `Marked keyId (${oldFingerprint}) as deprecated in file:${file.id}`);
     }
-
-    // 4️⃣ Load recovery public key (optional)
-    const recoveryFolders = await GD.driveList({
-        q: `'${C.ACCESS4_ROOT_ID}' in parents and name='recovery' and mimeType='application/vnd.google-apps.folder'`,
-        pageSize: 1
-    });
-
-    if (recoveryFolders.length > 0) {
-        const recoveryFolderId = recoveryFolders[0].id;
-
-        const recoveryPublicFiles = await GD.driveList({
-            q: `'${recoveryFolderId}' in parents and name='recovery.public.json'`,
-            pageSize: 1
-        });
-
-        if (recoveryPublicFiles.length > 0) {
-            try {
-                const recoveryJson = await GD.driveReadJsonFile(recoveryPublicFiles[0].id);
-                publicKeyJsons.push(recoveryJson);
-            } catch (err) {
-                error("RG.loadPublicKeyJsonsFromDrive", "Failed to read recovery.public.json");
-            }
-        }
-    }
-
-    log("RG.loadPublicKeyJsonsFromDrive", `Loaded ${publicKeyJsons.length} public keys`);
-    return publicKeyJsons;
-}
-
+}*/

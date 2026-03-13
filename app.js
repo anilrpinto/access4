@@ -1,13 +1,13 @@
 "use strict";
 
-import { G, clearGlobals, GD, AU, E, UI, log, trace, debug, info, warn, error,
+import { C, G, clearGlobals, GD, AU, E, UI, log, trace, debug, info, warn, error,
     setLogLevel, onlyLogLevels, TRACE, DEBUG, INFO, WARN, ERROR } from './exports.js';
 
 function onLoad() {
 
     //setLogLevel(INFO);
     //onlyLogLevels(INFO, TRACE);
-    log("AP.onLoad", "called");
+    log("AP.onLoad", `called for [v${C.APP_VERSION}]`);
     UI.init();
 
     // Wire handlers
@@ -31,7 +31,7 @@ async function releaseDriveLock() {
         expiresAt: new Date(0).toISOString()
     };
 
-    await GD.writeLockToDrive(
+    await E.writeLockToDrive(
         G.driveLockState.envelopeName,
         cleared,
         G.driveLockState.fileId

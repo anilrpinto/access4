@@ -1,4 +1,4 @@
-import { C, G, CR, GD, ID, log, trace, debug, info, warn, error } from './exports.js';
+import { C, G, CR, E, GD, log, trace, debug, info, warn, error } from './exports.js';
 
 function constantTimeEqual(a, b) {
     if (a.length !== b.length) return false;
@@ -9,77 +9,37 @@ function constantTimeEqual(a, b) {
     return result === 0;
 }
 
-export async function unlockRecoveryIdentity(pwd) {
+/**
+ * Load the recovery.private.json blob from the shared "recovery" folder
+ * on Google Drive.
+ *
+ * @returns {Promise<Object>} Parsed JSON of recovery private key
+ */
+// referenced internally in decryptRecoveryPassword and unlockRecoveryIdentity
+async function loadRecoveryPrivateBlob() {
+    log("R.loadRecoveryPrivateBlob", "called");
 
-    log("R.unlockRecoveryIdentity", "called");
+    const recoveryFolderId = await ensureRecoveryFolder();
 
-    try {
-        // 1️⃣ Load recovery.private.json
-        const blob = await GD.loadRecoveryPrivateBlob();
+    const result = await GD.readJsonByName(C.RECOVERY_KEY_PRIVATE_FILE, recoveryFolderId);
 
-        // 2️⃣ Derive AES key
-        const aesKey = await CR.deriveKey(pwd, blob.kdf);
+    if (!result)
+    throw new Error(`${C.RECOVERY_KEY_PRIVATE_FILE} not found`);
 
-        // 3️⃣ Verify password
-        const verifierBytes = new Uint8Array(await CR.decrypt(blob.passwordVerifier, aesKey));
-
-        const expected = new TextEncoder().encode(ID.VERIFIER_TEXT);
-
-        if (!constantTimeEqual(verifierBytes, expected)) {
-            throw new Error("Invalid recovery password");
-        }
-
-        // 4️⃣ Decrypt PKCS8
-        const pkcs8Bytes = await CR.decrypt(blob.encryptedPrivateKey, aesKey );
-
-        // 5️⃣ Import RSA private key
-        const privateKey = await CR.importRSAPrivateKey(pkcs8Bytes, ["decrypt"]);
-
-        // 6️⃣ Verify fingerprint integrity
-        const publicKeySpki = Uint8Array.from(atob(blob.publicKey), c => c.charCodeAt(0));
-
-        const computedFingerprint = await CR.computePublicKeyFingerprint(publicKeySpki);
-
-        if (computedFingerprint !== blob.fingerprint) {
-            throw new Error("Recovery key integrity check failed");
-        }
-
-        log("R.unlockRecoveryIdentity", "Recovery identity unlocked successfully");
-
-        return {
-            privateKey,
-            fingerprint: blob.fingerprint,
-            type: "recovery"
-        };
-
-    } catch (err) {
-        error("R.unlockRecoveryIdentity", err.message);
-        throw err;
-    }
+    return result.json;
 }
-
-async function unwrapCEKWithRecoveryKey(envelope, recoveryPrivateKey) {
-    const entry = envelope.keys.find(k => k.role === "recovery");
-    if (!entry) {
-        throw new Error("No recovery key entry in envelope.");
-    }
-
-    const wrappedCEKBytes = CR.b64ToBuf(entry.wrappedKey);
-
-    return await CR.unwrapCEKWithPrivateKey(wrappedCEKBytes, recoveryPrivateKey);
-}
-
 
 /**
  * Returns the decrypted private key bytes if the recovery password is correct.
  * Returns null if password is invalid or recovery key is missing/corrupted.
  */
+// referenced internally in [verifyRecoveryPassword, handleRecovery]
 async function decryptRecoveryPassword(pwd) {
-    log("R.verifyRecoveryPassword", "called");
+    log("R.decryptRecoveryPassword", "called");
 
     try {
         // Load encrypted recovery private key
-        const recoveryBlob = await GD.loadRecoveryPrivateBlob();
+        const recoveryBlob = await loadRecoveryPrivateBlob();
         if (!recoveryBlob) return null;
 
         // Derive key
@@ -96,10 +56,21 @@ async function decryptRecoveryPassword(pwd) {
     }
 }
 
+/**
+ * EXPORTED FUNCTIONS
+ */
+
+// Referenced in ui.js AND internally by loadRecoveryPrivateBlob and [hasRecoveryKeyOnDrive]
+export async function ensureRecoveryFolder() {
+    return GD.findOrCreateFolder(C.RECOVERY_FOLDER_NAME, C.ACCESS4_ROOT_ID);
+}
+
+// Only referenced by ui.js
 export async function verifyRecoveryPassword(pwd) {
     return !!(await decryptRecoveryPassword(pwd));
 }
 
+// Only referenced by ui.js
 export async function handleRecovery(pwd, onCEKSuccessCb) {
 
     log("R.handleRecovery", "called");
@@ -114,7 +85,7 @@ export async function handleRecovery(pwd, onCEKSuccessCb) {
     log("R.handleRecovery", "Recovery private key decrypted");
 
     // 4️⃣ Load vault envelope (grab CEK)
-    const envelopeFile = await GD.readEnvelopeFromDrive(C.ENVELOPE_NAME);
+    const envelopeFile = await E.readEnvelopeFromDrive(C.ENVELOPE_NAME);
     if (!envelopeFile) throw new Error("Vault envelope not found");
 
     const envelope = envelopeFile.json;
@@ -138,140 +109,32 @@ export async function handleRecovery(pwd, onCEKSuccessCb) {
         await onCEKSuccessCb();
 }
 
+// Only referenced by ui.js
 export async function hasRecoveryKeyOnDrive() {
     log("R.hasRecoveryKeyOnDrive", "called");
 
     try {
-        const folders = await GD.driveList({
-            q: `'${C.ACCESS4_ROOT_ID}' in parents and name='recovery' and mimeType='application/vnd.google-apps.folder'`,
-            pageSize: 1
-        });
 
-        log("R.hasRecoveryKeyOnDrive", "recovery folders found:", folders?.length);
+        const recoveryFolderId = await ensureRecoveryFolder();
 
-        if (!folders.length) return false;
+        const pub = await GD.findDriveFileByNameInFolder(
+            C.RECOVERY_KEY_PUBLIC_FILE,
+            recoveryFolderId
+        );
 
-        const recoveryFolderId = folders[0].id;
+        const priv = await GD.findDriveFileByNameInFolder(
+            C.RECOVERY_KEY_PRIVATE_FILE,
+            recoveryFolderId
+        );
 
-        const files = await GD.driveList({
-            q: `'${recoveryFolderId}' in parents and (name='${C.RECOVERY_KEY_PUBLIC_FILE}' or name='${C.RECOVERY_KEY_PRIVATE_FILE}')`,
-            pageSize: 2
-        });
+        const exists = !!(pub && priv);
 
-        const names = files.map(f => f.name);
-
-        const exists = names.includes(C.RECOVERY_KEY_PUBLIC_FILE) && names.includes(C.RECOVERY_KEY_PRIVATE_FILE);
-
-        log("R.hasRecoveryKeyOnDrive", "recovery pair exists:", exists);
+        log("R.hasRecoveryKeyOnDrive", `recovery pair exists: ${exists}`);
 
         return exists;
 
     } catch (e) {
-        error("R.hasRecoveryKeyOnDrive", "Recovery key check failed:", e.message);
+        error("R.hasRecoveryKeyOnDrive", `Recovery key check failed: ${e.message}`);
         throw e;
     }
 }
-
-
-// Seems unused
-/* No usages
-async function importRecoveryPrivateKey(pkcs8Bytes) {
-    return await crypto.subtle.importKey(
-        "pkcs8",
-        pkcs8Bytes,
-        {
-            name: "RSA-OAEP",
-            hash: "SHA-256"
-        },
-        false,
-        ["unwrapKey"]
-    );
-}
-*/
-
-/*export async function restoreFromRecovery(password) {
-    log("[restoreFromRecovery] starting");
-
-    // 1️⃣ Unlock recovery private key
-    const pkcs8 = await unlockRecoveryIdentity(password);
-    if (!pkcs8) throw new Error("Recovery password invalid.");
-
-    const recoveryPrivateKey = await importRecoveryPrivateKey(pkcs8);
-
-    // 2️⃣ Load envelope
-    const envelopeFile = await GD.findEnvelopeFile();
-    if (!envelopeFile) throw new Error("Envelope not found.");
-
-    const envelope = await GD.readEnvelope(envelopeFile.id);
-
-    // 3️⃣ Unwrap CEK
-    const cek = await unwrapCEKWithRecoveryKey(envelope, recoveryPrivateKey);
-
-    log("[restoreFromRecovery] CEK unwrapped successfully");
-
-    // 4️⃣ Create new device identity (LOCAL FIRST)
-    const newIdentity = await createIdentity(password);
-    // createIdentity already:
-    // - generates RSA pair
-    // - encrypts private key
-    // - stores in localStorage
-    // - uploads public key to Drive
-
-    log("[restoreFromRecovery] new device identity created");
-
-    // 5️⃣ Import new device public key
-    const devicePublicKey = await crypto.subtle.importKey(
-        "spki",
-        CR.b64ToBuf(newIdentity.publicKey),
-        {
-            name: "RSA-OAEP",
-            hash: "SHA-256"
-        },
-        false,
-        ["wrapKey"]
-    );
-
-    // 6️⃣ Wrap CEK for new device
-    const wrapped = await CR.wrapCEKForPublicKey(cek, devicePublicKey);
-
-    const wrappedB64 = CR.bufToB64(wrapped);
-
-    envelope.keys.push({
-        role: "device",
-        account: newIdentity.account,
-        deviceId: newIdentity.deviceId,
-        keyId: newIdentity.keyId,
-        wrappedKey: wrappedB64,
-        publicKeyCreated: newIdentity.publicKeyCreated
-    });
-
-    log("[restoreFromRecovery] CEK wrapped for new device");
-
-    // 7️⃣ Write envelope
-    await GD.writeEnvelopeWithLock(envelopeFile.id, envelope);
-
-    log("[restoreFromRecovery] envelope updated");
-
-    await UI.unlockIdentityFlow(password);
-
-    G.unlockedIdentity = newIdentity;
-    G.sessionUnlocked = true;
-
-    log("[restoreFromRecovery] complete");
-
-    return true;
-}*/
-
-/* Commented as no longer
-export async function ensureRecoveryKey(setupRecoveryCb) {
-    log("R.ensureRecoveryKey", "called");
-
-    if (await hasRecoveryKeyOnDrive()) {
-        info("R.ensureRecoveryKey", "Recovery key already present");
-        return;
-    }
-
-    log("R.ensureRecoveryKey", "No recovery key found — blocking for recovery setup");
-    if (setupRecoveryCb)
-        await setupRecoveryCb();
-}*/

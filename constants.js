@@ -3,6 +3,7 @@
 import { U } from './exports.js';
 
 export const C = U.deepFreeze({
+    APP_VERSION: "1",
     CLIENT_ID: "738922366916-ppn1c24mp9qamr6pdmjqss3cqjmvqljv.apps.googleusercontent.com",
     SCOPES: "https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/userinfo.email",
     ACCESS4_ROOT_ID: "1zQPiXTCDlPjzgD1YZiVKsRB2s4INUS_g",
@@ -13,6 +14,7 @@ export const C = U.deepFreeze({
     RECOVERY_KEY_PUBLIC_FILE: "recovery.public.json",
     RECOVERY_KEY_PRIVATE_FILE: "recovery.private.json",
     PUBKEY_FOLDER_NAME: "pub-keys",
+    RECOVERY_FOLDER_NAME: "recovery",
 
     HEARTBEAT_INTERVAL: 10_000, // 10 seconds
     LOCK_TTL_MS: 60_000,        // must be > heartbeat
@@ -22,6 +24,7 @@ export const C = U.deepFreeze({
     BIO_STORE: "pwk_store",
 
     PASSWORD_MIN_LEN: 7,
+    PASSWORD_VERIFIER_TEXT: "ACCESS4_VERIFIER",
 
     UNLOCK_ERROR_DEFS: {
         WEAK_PASSWORD: {

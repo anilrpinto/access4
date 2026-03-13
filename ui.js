@@ -37,6 +37,8 @@ const resetTimer = () => {
 
 export async function init() {
 
+    document.getElementById('titleGesture').textContent = `Login [v${C.APP_VERSION}]`;
+
     signinBtn = login.signinBtn;
     logoutBtn = vault.logoutBtn;
 
@@ -377,11 +379,11 @@ async function doRotateRecoveryKeyClick(rotateMode) {
         log("UI.doRotateRecoveryKeyClick", "Private key encrypted with recovery password");
 
         // 4️⃣ Ensure recovery folder
-        const recoveryFolderId = await GD.ensureRecoveryFolder();
+        const recoveryFolderId = await R.ensureRecoveryFolder();
 
         // 5️⃣ Write private recovery file
-        await GD.driveCreateJsonFile({ name:"recovery.private.json", parents: [recoveryFolderId], json: recoveryIdentity, overwrite: true });
-        log("UI.doRotateRecoveryKeyClick", "recovery.private.json written");
+        await GD.upsertJsonFile({ name: C.RECOVERY_KEY_PRIVATE_FILE, parentId: recoveryFolderId, json: recoveryIdentity, overwrite: true });
+        log("UI.doRotateRecoveryKeyClick", `${C.RECOVERY_KEY_PRIVATE_FILE} written`);
 
         // 6️⃣ Write public recovery file (matching device key structure)
         const recoveryPublicJson = {
@@ -403,11 +405,11 @@ async function doRotateRecoveryKeyClick(rotateMode) {
             }
         };
 
-        await GD.driveCreateJsonFile({name:"recovery.public.json", parents: [recoveryFolderId], json: recoveryPublicJson, overwrite: true });
-        log("UI.doRotateRecoveryKeyClick", "recovery.public.json written");
+        await GD.upsertJsonFile({name: C.RECOVERY_KEY_PUBLIC_FILE, parentId: recoveryFolderId, json: recoveryPublicJson, overwrite: true });
+        log("UI.doRotateRecoveryKeyClick", `${C.RECOVERY_KEY_PUBLIC_FILE} written`);
 
         // Refresh registry with newly uploaded recovery public key
-        await RG.buildKeyRegistryFromDrive(await RG.loadPublicKeyJsonsFromDrive());
+        await RG.buildKeyRegistryFromDrive();
 
         // 7️⃣ Add to envelope for CEK housekeeping
         await E.addRecoveryKeyToEnvelope({
@@ -667,7 +669,7 @@ export async function proceedAfterPasswordSuccess() {
     if (!auth.authorized) {
         warn("UI.proceedAfterPasswordSuccess", "Device not authorized to decrypt envelope");
         setupPasswordPrompt("unlock");
-        showUnlockMessage("This device is not authorized to access vault data. Retry after given access", "error");
+        showUnlockMessage("This device is not authorized to access vault. Ask for access", "error");
         return;
     }
 
@@ -733,7 +735,7 @@ async function doRecoverClick() {
     try {
         await R.handleRecovery(pwd, onRecoveryCEKSuccess);
     } catch (err) {
-        alert(err);
+        //alert(err);
         clearSensitiveFields();
         // Extract meaningful info from DOMException or normal Error
         const userMsg = err.message || `${err.name || 'RecoveryError'} — see console`;
