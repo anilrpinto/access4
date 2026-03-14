@@ -9,7 +9,7 @@
 
 /* --- RESET & BASE --- */
 * {
-    box-sizing: border-box; /* Ensures padding doesn't break width */
+    box-sizing: border-box;
 }
 
 body {
@@ -19,6 +19,8 @@ body {
     display: flex;
     flex-direction: column;
     min-height: 100vh;
+    min-height: 100dvh;
+    /* overflow: hidden; */ /* REMOVE THIS LINE to restore pull-to-refresh */
 }
 
 /* --- HEADER --- */
@@ -26,14 +28,12 @@ header {
     width: 100%;
     background-color: var(--header-bg);
     color: var(--text-color);
-    padding: 1.5rem 1rem;
-    text-align: center;
+    padding: 1rem 1.5rem;
     box-shadow: 0 2px 5px rgba(0,0,0,0.2);
     display: flex;
-    flex-direction: column;
     justify-content: center;
     align-items: center;
-    gap: 0.5rem;
+    flex-shrink: 0; /* Header never shrinks */
 }
 
 header h1 {
@@ -42,18 +42,49 @@ header h1 {
     font-weight: bold;
 }
 
+/* --- VAULT HEADER OVERRIDE --- */
+#vaultView header {
+    flex-direction: row;
+    justify-content: space-between;
+    text-align: left;
+}
+
+#vaultTitle {
+    margin: 0;
+    flex-grow: 1;
+}
+
 /* --- MAIN LAYOUT --- */
 main {
-    width: 90%;
-    max-width: 400px;
-    margin: 2rem auto;
+    width: 95%;
+    max-width: 500px;
+    margin: 1rem auto;
     display: flex;
     flex-direction: column;
     gap: 1rem;
+    flex: 1; /* Grow to fill available space */
+    min-height: 0; /* Fix for flex-child scrolling */
+}
+
+/* --- VAULT SPECIFIC FLEX --- */
+#vaultView {
+    display: none; /* Controlled by JS */
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+}
+
+#vault_mainSection {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    /* Allow this section to scroll so we can see the status message */
+    overflow-y: auto;
+    padding-bottom: 20px; /* Give the status message some breathing room at the bottom */
 }
 
 /* --- FORM ELEMENTS --- */
-/* Unified styling for all inputs and buttons ensures equal width */
 input,
 button,
 textarea {
@@ -64,6 +95,15 @@ textarea {
     border: 1px solid #ccc;
     font-family: inherit;
     display: block;
+}
+
+textarea {
+    flex: 1;
+    min-height: 250px; /* Give it a solid starting height */
+    max-height: 85vh;  /* Prevent it from being so tall it hides everything else */
+    resize: none;
+    margin-bottom: 0.5rem;
+    flex-shrink: 0;    /* Don't let it get squashed by the status message */
 }
 
 input:focus,
@@ -80,7 +120,6 @@ label {
     color: #333;
 }
 
-/* Grouping labels and inputs for consistent spacing */
 .input-group {
     margin-bottom: 1rem;
     width: 100%;
@@ -95,65 +134,94 @@ button {
     font-weight: bold;
     transition: background 0.2s, opacity 0.2s;
     margin-bottom: 8px;
+    flex-shrink: 0; /* Buttons don't squish */
 }
 
-button:hover {
-    filter: brightness(1.1);
-}
+button:hover { filter: brightness(1.1); }
+button:active { opacity: 0.8; }
+button:disabled { background-color: #999; cursor: not-allowed; }
 
-button:active {
-    opacity: 0.8;
-}
-
-button:disabled {
-    background-color: #999;
-    cursor: not-allowed;
-}
-
-/* Horizontal button layouts (Rotate/Cancel) */
 .button-group {
     display: flex;
     gap: 10px;
-    margin-top: 5px;
 }
 
-.button-group button {
-    flex: 1; /* Makes buttons share the width equally */
-}
+.button-group button { flex: 1; }
 
-/* Specific styling for the link-style buttons */
 .link-button {
     background: none;
     border: none;
     color: var(--primary-color);
     padding: 0;
     font-weight: normal;
-    width: auto !important; /* Prevents stretching */
+    width: auto !important;
     display: inline-block;
-
-    /* Remove the global button margin and gap impact */
     margin: 0 !important;
-    line-height: 1.2;
 }
 
-.link-button:hover {
-    text-decoration: underline;
+.link-button:hover { text-decoration: underline; }
+
+/* --- 3-DOT MENU --- */
+.menu-container {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000; /* Ensure container is above the main body */
 }
+.icon-button {
+    background: none;
+    font-size: 1.8rem;
+    color: white;
+    padding: 0 10px;
+    margin: 0;
+    width: auto;
+}
+
+.menuDropdown-content {
+    display: none;
+    position: absolute;
+    right: 0;
+    top: 100%; /* Safari needs this to be clear */
+    background-color: white;
+    min-width: 180px;
+    box-shadow: 0px 8px 16px rgba(0,0,0,0.2);
+    z-index: 1001; /* Must be higher than container */
+    border-radius: 8px;
+    padding: 8px 0;
+    margin-top: 5px;
+
+    /* Safari specific: force visibility when shown */
+    pointer-events: auto;
+}
+
+.menuDropdown-content button {
+    text-align: left;
+    background: none;
+    color: #333;
+    padding: 12px 16px;
+    border-radius: 0;
+    margin: 0;
+    font-weight: normal;
+}
+
+.menuDropdown-content button:hover { background-color: #f1f1f1; }
+.menuDropdown-content hr { border: 0; border-top: 1px solid #eee; margin: 4px 0; }
+.menuDropdown-content .danger-text { color: var(--error-color); }
+.show-menu { display: block !important; }
 
 /* --- MESSAGES & LOGS --- */
-.status-message {
-    margin-top: 12px;
-    min-height: 1.2em;
-    font-size: 0.95rem;
+.unlock-message {
+    margin-top: 10px;
+    padding: 10px;
     text-align: center;
+    font-size: 0.9rem;
+    flex-shrink: 0;    /* Ensure the message doesn't collapse */
 }
-
-.status-message.error { color: var(--error-color); }
-.status-message.success { color: var(--success-color); }
 
 #log {
     width: 100%;
-    flex: 1;
+    max-height: 300px; /* Limits log height so it doesn't eat the whole screen */
     overflow-y: auto;
     background: #e0e0e0;
     border-radius: 6px;
@@ -161,15 +229,15 @@ button:disabled {
     font-size: 0.85rem;
     white-space: pre-wrap;
     font-family: monospace;
+    flex-shrink: 0; /* Log takes its space, then stops */
 }
 
 /* --- VISIBILITY CONTROL --- */
 #login_pwdSection,
 #login_confirmPwdSection,
-#vaultView,
 #vaultRecoveryKey_mainSection,
 #vaultRecoveryKey_currentPwdSection {
-    display: none; /* Controlled via JS loadUI.setVisible */
+    display: none;
 }
 
 /* --- LOGIN RECOVERY SECTION --- */
@@ -177,27 +245,34 @@ button:disabled {
     width: 100%;
     display: flex;
     flex-direction: column;
-    align-items: center; /* This centers the "Need recovery?" link */
+    align-items: center; /* This centers the children horizontally */
+    justify-content: center;
     gap: 0.5rem;
-    margin-top: 0.5rem;
+    margin-top: 1rem;
 }
 
-/* Ensure the link-button doesn't inherit 100% width from the global rule */
-.link-button {
+/* Ensure the link-button itself doesn't try to fill the whole width */
+#login_recoveryLnk.link-button {
     width: auto !important;
     text-align: center;
+    display: inline-block;
 }
 
-/* --- TEXTAREA --- */
-textarea {
-    resize: vertical;
-    min-height: 120px;
+#login_pwdSection {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
 }
 
-
-/* --- RESPONSIVE --- */
-@media (min-width: 600px) {
-    main { margin-top: 3rem; }
-    header h1 { font-size: 2rem; }
-    main { max-width: 500px; }
+/* --- MESSAGES & LOGS (Fixed) --- */
+.unlock-message, .status-message {
+    margin-top: 12px;
+    min-height: 1.2em;
+    font-size: 0.95rem;
+    text-align: center; /* Ensures centering */
+    width: 100%;        /* Takes full width to center text properly */
 }
+
+/* Add the color logic back */
+.unlock-message.error, .status-message.error { color: var(--error-color); }
+.unlock-message.success, .status-message.success { color: var(--success-color); }

@@ -44,6 +44,18 @@
 <div id="vaultView">
     <header>
         <h1 id="vaultTitle">Welcome</h1>
+
+        <div class="menu-container">
+            <button id="vault_menuBtn" class="icon-button" aria-label="Options">⋮</button>
+            <div id="vault_menuDropdown" class="menuDropdown-content">
+                <button id="vault_saveMenu">Save</button>
+                <button id="vault_copyLogsMenu">Copy logs</button>
+                <button id="vault_toggleLogsMenu" style="display: none;">Toggle logs</button>
+                <button id="vault_recoveryRotationMenu">Recovery Rotation</button>
+                <hr>
+                <button id="vault_logoutMenu" class="danger-text">Logout</button>
+            </div>
+        </div>
     </header>
 
     <main id="vaultBody">
@@ -71,18 +83,13 @@
 
         <!-- Vault Main Section -->
         <div id="vault_mainSection">
-            <button id="vault_recoveryRotationBtn">Recovery Rotation</button>
-            <button id="vault_logoutBtn">Logout</button>
-            <button id="vault_saveBtn">Save</button>
-
-            <!-- 🔐 Encrypted Note UI -->
             <textarea id="vault_data" rows="5"
                     placeholder="Type text here, encrypt it, then unlock on another device…"></textarea>
             <div id="vault_statusMsg" class="unlock-message"></div>
         </div>
     </main>
 </div>
-<pre id="log"></pre>
+<pre id="log" style="display: none;"></pre>
 <script src="app.js" type="module" defer></script>
 </body>
 </html>

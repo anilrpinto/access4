@@ -24,6 +24,8 @@ export function loadUI(names, prefix = "", scope = document) {
     // Internal helper to attach the method to individual DOM elements
     const attachMethods = (el) => {
         if (!el) return;
+
+        // Default visibility behavior
         el.setVisible = function(show) {
             // Using inline-block as per your layout preference
             this.style.display = show ? "inline-block" : "none";
@@ -31,6 +33,24 @@ export function loadUI(names, prefix = "", scope = document) {
             // This doesn't work as expected
             //this.style.display = show ? "" : "none";
             return this; // Allow chaining
+        };
+
+        // This redefines setVisible for this specific element to use 'flex'
+        el.setFlex = function() {
+            this.setVisible = function(show) {
+                this.style.display = show ? "flex" : "none";
+                return this;
+            };
+            // If it's currently visible, switch it to flex immediately
+            if (this.style.display !== "none") this.style.display = "flex";
+            return this;
+        };
+
+        el.toggleVisibility = function() {
+            const isHidden = this.style.display === "none" || getComputedStyle(this).display === "none";
+            // Use the element's own setVisible to respect whether it's 'flex' or 'inline-block'
+            this.setVisible(isHidden);
+            return this;
         };
 
         el.setText = function(text) {
@@ -89,10 +109,26 @@ export function loadUI(names, prefix = "", scope = document) {
     // --- GROUP HELPERS ---
     // Added safety checks to ensure we only loop over HTMLElements, not the helper functions
 
+    // NEW: Set all elements in this group to use 'flex' for setVisible
+    ui.setFlex = function() {
+        Object.values(ui).forEach(el => {
+            if (el instanceof HTMLElement) el.setFlex?.();
+        });
+        return ui; // Allow chaining
+    };
+
+    ui.toggleVisibility = function() {
+        Object.values(ui).forEach(el => {
+            if (el instanceof HTMLElement) el.toggleVisibility?.();
+        });
+        return ui;
+    };
+
     ui.setVisible = (show) => {
         Object.values(ui).forEach(el => {
-            if (el instanceof HTMLElement) el.setVisible?.(show);
+        if (el instanceof HTMLElement) el.setVisible?.(show);
         });
+        return ui;
     };
 
     ui.setText = (text) => {

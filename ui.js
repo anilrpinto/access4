@@ -3,20 +3,20 @@ import { C, G, AU, BM, CR, ID, R, E, RG, GD, U, log, trace, debug, info, warn, e
 import { logout } from './app.js';
 import { loadUI } from './uihelper.js';
 
-export let logEl = document.getElementById('log');
-
-const main = loadUI(['loginView', 'vaultView', 'vaultTitle']);
+const main = loadUI(['loginView', 'vaultView', 'vaultTitle', 'log']);
 
 const login = loadUI(['signinBtn', 'userEmailSpan', 'authMsg', 'pwdSection', 'confirmPwdSection', 'pwdInput', 'confirmPwdInput',
     'unlockBtn', 'recoverBtn', 'recoveryLnk', 'statusMsg'], 'login_');
 
-const vault = loadUI(['mainSection', 'data', 'recoveryRotationBtn', 'logoutBtn', 'saveBtn', 'statusMsg'], 'vault_', 'vaultBody');
+const vault = loadUI(['mainSection', 'data', 'menuBtn', 'menuDropdown', 'saveMenu', 'copyLogsMenu', 'toggleLogsMenu',
+    'recoveryRotationMenu', 'logoutMenu', 'statusMsg'], 'vault_', 'vaultView');
 
 const vaultRecoveryKey = loadUI(['mainSection', 'currentPwdSection', 'currentPwdInput', 'pwdInput',
     'confirmPwdInput', 'rotateBtn', 'cancelBtn', 'statusMsg'], 'vaultRecoveryKey_', 'vaultBody');
 
+export let logEl = main.log;
 export let signinBtn = login.signinBtn;
-export let logoutBtn = vault.logoutBtn;
+export let logoutBtn = vault.logoutMenu;
 
 let idleTimer;
 let idleCallback = null;
@@ -37,22 +37,41 @@ const resetTimer = () => {
 
 export async function init() {
 
+    main.vaultView.setFlex();
+    vault.mainSection.setFlex();
+
     document.getElementById('titleGesture').textContent = `Login [v${C.APP_VERSION}]`;
 
+    // Toggle menu visibility
+    vault.menuBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        vault.menuDropdown.classList.toggle('show-menu');
+    });
+
+    // Close menu if user clicks anywhere else on the screen
+    window.addEventListener('click', () => {
+        if (vault.menuDropdown.classList.contains('show-menu')) {
+            vault.menuDropdown.classList.remove('show-menu');
+        }
+    });
+
     signinBtn = login.signinBtn;
-    logoutBtn = vault.logoutBtn;
+    logoutBtn = vault.logoutMenu;
 
     // Initial UI state
     login.pwdSection.setVisible(false);
     login.confirmPwdSection.setVisible(false);
     main.vaultView.setVisible(false);
 
+
     setupTitleGesture();
     initLoginUI();
 
     bindClick(login.recoveryLnk, doNeedRecoveryClick);
     bindClick(login.recoverBtn, doRecoverClick);
-    bindClick(vault.saveBtn, doSaveClick);
+    bindClick(vault.saveMenu, doSaveClick);
+    bindClick(vault.copyLogsMenu, copyLogsToClipboard);
+    bindClick(vault.toggleLogsMenu, toggleLogs);
     bindClick(logEl, copyLogsToClipboard);
 
     if (G.settings.clearBioDbOnLoad)
@@ -103,7 +122,7 @@ export function promptUnlockPasword() {
     logEl.textContent = "";
 
     login.signinBtn.setEnabled(false);
-    vault.logoutBtn.setEnabled(true);
+    vault.logoutMenu.setEnabled(true);
     login.pwdSection.setVisible(true);
 }
 
@@ -184,7 +203,7 @@ function initLoginUI() {
     showUnlockMessage("");
 
     // Disable save button initially
-    vault.saveBtn.setEnabled(false);
+    vault.saveMenu.setEnabled(false);
 }
 
 export function resetUnlockUi() {
@@ -271,11 +290,12 @@ export function showVaultUI({ readOnly = false, onIdle = () => { warn('idle time
     main.loginView.setVisible(false);
 
     if (AU.isAdmin()) {
-        vault.recoveryRotationBtn.setVisible(true);
-        vault.recoveryRotationBtn.onClick(showRecoveryRotationUI);
+        vault.recoveryRotationMenu.setVisible(true);
+        vault.recoveryRotationMenu.onClick(showRecoveryRotationUI);
+        vault.toggleLogsMenu.setVisible(true);
     } else {
         warn("UI.showVaultUI", "Recovery option turned off for non-admin user");
-        vault.recoveryRotationBtn.setVisible(false);
+        vault.recoveryRotationMenu.setVisible(false);
     }
 
     // Show main unlocked view
@@ -284,13 +304,11 @@ export function showVaultUI({ readOnly = false, onIdle = () => { warn('idle time
     // Update UI for read-only mode
     if (readOnly) {
         warn("UI.showVaultUI", "Unlocked UI in read-only mode: disabling save button");
-        vault.saveBtn.setEnabled(false);
-        vault.saveBtn.title = "Read-only mode: cannot save";
+        vault.saveMenu.setEnabled(false);
         vault.data.readOnly = true;
         main.vaultTitle.setText("Unlocked (Read-only)");
     } else {
-        vault.saveBtn.setEnabled(true);
-        vault.saveBtn.title = "";
+        vault.saveMenu.setEnabled(true);
         vault.data.readOnly = false;
         main.vaultTitle.setText("Unlocked");
     }
@@ -311,7 +329,7 @@ export function updateLockStatusUI() {
 
     const { expiresAt } = G.driveLockState.lock;
     //trace("updateLockStatusUI", `You hold the envelope lock (expires ${expiresAt})`);
-    showStatusMessage(`Envelope lock expires at ${expiresAt}`, "success")
+    //showStatusMessage(`Vault lock expires at ${expiresAt}`, null)
 }
 
 export function showRecoveryRotationStatusMessage(msg, type = "error") {
@@ -759,6 +777,7 @@ async function onRecoveryCEKSuccess() {
 
 async function doSaveClick() {
     log("UI.doSaveClick", "called");
+    showStatusMessage("Saving...", null);
 
     const text = vault.data.value;
     if (!text) {
@@ -768,11 +787,13 @@ async function doSaveClick() {
 
     try {
         await E.encryptAndPersistPlaintext(text, { onUpdate: updateLockStatusUI });
+        showStatusMessage(`Saved changes at ${U.getCurrentTime()}`, "success");
         //vault.data.value = "";
-    } catch (e) {
-        error("UI.doSaveClick", "Encryption failed:", e.message);
+    } catch (err) {
+        error("UI.doSaveClick", "Encryption failed:" + err);
+        showStatusMessage("Error while saving" + err, "error");
     }
-    alert("Saved!");
+    //alert("Saved!");
 }
 
 export async function updateBiometricIndicator() {
@@ -798,6 +819,10 @@ export async function updateBiometricIndicator() {
     } else {
         el.classList.add("bio-none");
     }
+}
+
+async function toggleLogs() {
+    main.log.toggleVisibility();
 }
 
 async function copyLogsToClipboard() {
