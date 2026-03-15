@@ -1,22 +1,22 @@
 "use strict";
 
-import { C, G, clearGlobals, GD, AU, E, UI, log, trace, debug, info, warn, error,
+import { C, G, clearGlobals, E, log, trace, debug, info, warn, error,
     setLogLevel, onlyLogLevels, TRACE, DEBUG, INFO, WARN, ERROR } from './exports.js';
+
+import { loadUI } from './ui/uihelper.js';
+
+import { loadLogin, enterPreSignInMode }  from './ui/login.js';
 
 function onLoad() {
 
     //setLogLevel(INFO);
     //onlyLogLevels(INFO, TRACE);
-    log("AP.onLoad", `called for [v${C.APP_VERSION}]`);
-    UI.init();
+    log("APP.onLoad", `called for [v${C.APP_VERSION}]`);
+    loadLogin();
 
-    // Wire handlers
-    UI.bindClick(UI.signinBtn, () => AU.initGIS());
-    UI.bindClick(UI.logoutBtn, () => logout());
-
-    log("AP.onLoad", "sessionStorage sv_session_private_key exists:", !!sessionStorage.getItem("sv_session_private_key"));
-    log("AP.onLoad", "G.unlockedIdentity:", !!G.unlockedIdentity);
-    log("AP.onLoad", "G.currentPrivateKey:", !!G.currentPrivateKey);
+    log("APP.onLoad", "sessionStorage sv_session_private_key exists:", !!sessionStorage.getItem("sv_session_private_key"));
+    log("APP.onLoad", "G.unlockedIdentity:", !!G.unlockedIdentity);
+    log("APP.onLoad", "G.currentPrivateKey:", !!G.currentPrivateKey);
 }
 
 async function releaseDriveLock() {
@@ -43,23 +43,16 @@ async function releaseDriveLock() {
 
 window.onload = async () => {
     await onLoad();
-    //await initGIS();
 
-    // Clear any lingering G.driveLockState in memory
-    //G.driveLockState = null;
     clearGlobals();
-    UI.resetUnlockUi();
-
-    // Optional: detect if a user was partially logged in
-    // If you want logout to be final, skip restoring user session
-    // Otherwise, you could try reacquiring the lock here
+    enterPreSignInMode();
 };
 
 /**
  * EXPORTED FUNCTIONS
  */
 export function logout() {
-    log("AP.logout", "Logging out...");
+    log("APP.logout", "Logging out...");
 
     releaseDriveLock();
 
@@ -67,13 +60,11 @@ export function logout() {
     E.handleDriveLockLost(); // stops heartbeat & clears local G.driveLockState
 
     // 2️⃣ Clear user-specific memory
-    //G.accessToken = null;
-    //G.userEmail = null;
     clearGlobals();
     sessionStorage.removeItem("sv_session_private_key");
-    UI.resetUnlockUi();
+    enterPreSignInMode();
 
     G.biometricIntent = false;
 
-    log("AP.logout", "completed");
+    log("APP.logout", "completed");
 }

@@ -1,6 +1,6 @@
 "use strict";
 
-import { logEl } from './ui.js';
+import { logEl } from './ui/loader.js';
 
 export const ERROR = 0;
 export const WARN = 1;
@@ -36,7 +36,9 @@ function _log(level, icon, TAG, msg, ...args) {
 
     const data = args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : arg).join(' ');
 
-    const message = `${ts} ${icon}[${(TAG??"").padStart(30)}] ${msg} ${data}`;
+    //const message = `${ts} ${icon}[${(TAG??"").padStart(30)}] ${msg} ${data}`;
+    const message = `${ts} ${icon}[${(TAG ?? "").slice(0, 30).padStart(30)}] ${msg} ${data}`;
+
     console.log(message);
 
     try {

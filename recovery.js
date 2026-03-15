@@ -60,17 +60,17 @@ async function decryptRecoveryPassword(pwd) {
  * EXPORTED FUNCTIONS
  */
 
-// Referenced in ui.js AND internally by loadRecoveryPrivateBlob and [hasRecoveryKeyOnDrive]
+// Referenced in loader.js AND internally by loadRecoveryPrivateBlob and [hasRecoveryKeyOnDrive]
 export async function ensureRecoveryFolder() {
     return GD.findOrCreateFolder(C.RECOVERY_FOLDER_NAME, C.ACCESS4_ROOT_ID);
 }
 
-// Only referenced by ui.js
+// Only referenced by loader.js
 export async function verifyRecoveryPassword(pwd) {
     return !!(await decryptRecoveryPassword(pwd));
 }
 
-// Only referenced by ui.js
+// Only referenced by loader.js
 export async function handleRecovery(pwd, onCEKSuccessCb) {
 
     log("R.handleRecovery", "called");
@@ -109,7 +109,7 @@ export async function handleRecovery(pwd, onCEKSuccessCb) {
         await onCEKSuccessCb();
 }
 
-// Only referenced by ui.js
+// Only referenced by loader.js
 export async function hasRecoveryKeyOnDrive() {
     log("R.hasRecoveryKeyOnDrive", "called");
 

@@ -1,7 +1,7 @@
 //WARN: MUST be defined before the barrel import from exports or there could be circular dependency crashes
 import { CR_ALG } from './crypto.js';
 
-import { C, G, CR, AU, BM, GD, U, log, trace, debug, info, warn, error } from './exports.js';
+import { C, G, CR, GD, log, trace, debug, info, warn, error } from './exports.js';
 
 function identityKey() {
     return `access4.identity::${G.userEmail}::${getDeviceId()}`;

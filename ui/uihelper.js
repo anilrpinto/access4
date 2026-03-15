@@ -1,4 +1,4 @@
-import { log, trace, debug, info, warn, error } from './log.js';
+import { log, trace, debug, info, warn, error } from '../log.js';
 
 /**
  * @param {string[]} names - Elements to find

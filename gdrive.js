@@ -187,7 +187,7 @@ export async function readJsonByFileId(fileId) {
     return await res.json();
 }
 
-// auth.js, envelope.js, ui.js
+// auth.js, envelope.js, loader.js
 export async function upsertJsonFile({ name, parentId, json, overwrite = false }) {
 
     if (overwrite) {

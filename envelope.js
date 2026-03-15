@@ -1,4 +1,6 @@
-import { C, G, CR, RG, ID, GD, UI, log, trace, debug, info, warn, error } from './exports.js';
+import { C, G, CR, RG, ID, GD, log, trace, debug, info, warn, error } from './exports.js';
+
+import { updateLockStatusUI }  from './ui/vault.js';
 
 async function getDriveLockSelf() {
     log("E.getDriveLockSelf", "called");
@@ -87,7 +89,7 @@ async function writeEnvelopeWithLock(envelopeData) {
         await writeLockToDrive(C.ENVELOPE_NAME, G.driveLockState.lock, G.driveLockState.fileId);
 
         // Update UI to reflect new lock generation
-        UI.updateLockStatusUI();
+        updateLockStatusUI();
 
         log("E.writeEnvelopeWithLock", `Envelope "${C.ENVELOPE_NAME}" written, generation=${newGeneration}`);
         return newEnvelopeContent;
@@ -178,7 +180,7 @@ function startLockHeartbeat({envelopeName, self, readLockFromDrive, writeLockToD
             if (G.driveLockState) {
                 G.driveLockState.lock = extended;   // keep local state authoritative
                 trace("E.startLockHeartbeat.tick", `Heartbeat OK (gen=${extended.generation}, expires ${extended.expiresAt})`);
-                UI.updateLockStatusUI();
+                updateLockStatusUI();
             }
         } catch (err) {
             const errorMessage = err instanceof Error ? err.stack : JSON.stringify(err, Object.getOwnPropertyNames(err));
@@ -714,7 +716,7 @@ export function handleDriveLockLost(info) {
     }
 
     G.driveLockState = null;
-    UI.updateLockStatusUI();
+    updateLockStatusUI();
 }
 
 export async function writeLockToDrive(envelopeName, lockJson, existingFileId = null) {

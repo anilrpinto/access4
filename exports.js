@@ -11,5 +11,4 @@ export * as ID from './identity.js';
 export * as RG from './registry.js';
 export * as R from './recovery.js';
 export * as U from './utils.js';
-export * as UI from './ui.js';
 export * from './log.js';

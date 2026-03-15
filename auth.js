@@ -1,4 +1,9 @@
-import { C, G, ID, GD, UI, log, trace, debug, info, warn, error, isTraceEnabled } from './exports.js';
+import { C, G, ID, GD, log, trace, debug, info, warn, error, isTraceEnabled } from './exports.js';
+
+import { loginUI } from './ui/loader.js';
+
+import { showAuthorizedEmail, showAuthMessage, setupPasswordPrompt, promptUnlockPasword, proceedAfterPasswordSuccess,
+    enterPreSignInMode, showUnlockMessage }  from './ui/login.js';
 
 async function handleAuth(resp) {
     log("AU.handleAuth", "called");
@@ -11,19 +16,19 @@ async function handleAuth(resp) {
         trace("AU.handleAuth", `Acquired access token [${G.accessToken?.slice(0, 20)}...]`);
 
         await GD.fetchUserEmail();
-        UI.showAuthorizedEmail(G.userEmail);
+        showAuthorizedEmail(G.userEmail);
 
         await GD.verifySharedRoot(C.ACCESS4_ROOT_ID);
         await GD.verifyWritable(C.ACCESS4_ROOT_ID);
         await ensureAuthorization();
 
         if (!isSessionAuthenticated())
-            UI.promptUnlockPasword();
+            promptUnlockPasword();
 
         onAuthReady(G.userEmail);
     } catch (err) {
         error("AU.handleAuth", "Error after signin: " + err);
-        UI.showAuthMessage(err);
+        showAuthMessage(err);
         //alert("Error after signin: " + err);
     }
 }
@@ -52,15 +57,15 @@ async function onAuthReady(email) {
             return;
         }
 
-        UI.showUnlockMessage("Checking for active session...", "info");
+        showUnlockMessage("Checking for active session...", "info");
         // Attempt session restore first
         if (await attemptSessionRestore()) {
             log("AU.onAuthReady", "Found an active authenticated browser session — skipping password prompt");
 
             log("AU.onAuthReady", "G.driveLockState after session restore:" + (G.driveLockState ? { mode: G.driveLockState.mode, self: G.driveLockState.self } : null));
-            UI.showUnlockMessage("Authentication succeeded, proceeding to vault", "success");
+            showUnlockMessage("Authentication succeeded, proceeding to vault", "success");
             await ID.ensureDevicePublicKey();
-            await UI.proceedAfterPasswordSuccess();
+            await proceedAfterPasswordSuccess();
             return;
         }
 
@@ -70,8 +75,8 @@ async function onAuthReady(email) {
 
     } catch (e) {
         error("AU.onAuthReady", "Error loading identity:", e.message);
-        UI.showUnlockMessage("Failed to load identity. Try again.");
-        UI.signinBtn.disabled = false;
+        showUnlockMessage("Failed to load identity. Try again.");
+        loginUI.signinBtn.disabled = false;
     }
 }
 
@@ -80,9 +85,9 @@ function setAuthMode(mode, options = {}) {
     G.authMode = mode;
 
     // reset fields
-    UI.resetUnlockUi();
+    enterPreSignInMode();
 
-    UI.setupPasswordPrompt(mode, options);
+    setupPasswordPrompt(mode, options);
 }
 
 async function attemptSessionRestore() {
@@ -194,7 +199,7 @@ export function initGIS() {
         G.tokenClient.requestAccessToken({ prompt:"" });
     }
 
-    UI.signinBtn.disabled = true;
+    loginUI.signinBtn.disabled = true;
 }
 
 export function isAdmin() {

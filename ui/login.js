@@ -1,0 +1,571 @@
+import { C, G, AU, BM, CR, ID, R, E, U, log, trace, debug, info, warn, error } from '../exports.js';
+
+import { loadUI } from './uihelper.js';
+
+import { rootUI, loginUI, vaultUI, enterLoginMode, enterVaultMode } from './loader.js';
+
+import { showVaultUI, stopVaultIdleCheck } from './vault.js';
+
+// attach gesture logic
+function setupTitleGesture() {
+    log("loginUI.setupTitleGesture", "called");
+
+    let tapCount = 0;
+    let tapTimer = null;
+
+    loginUI.title.addEventListener("pointerdown", async () => {
+        if (!G.userEmail || G.sessionUnlocked) return;
+
+        tapCount++;
+
+        if (!tapTimer) {
+            tapTimer = setTimeout(() => {
+                tapCount = 0;
+                tapTimer = null;
+            }, 3000);
+        }
+
+        if (tapCount >= 5) {
+            clearTimeout(tapTimer);
+            tapCount = 0;
+            tapTimer = null;
+
+            await doHiddenGesture();
+        }
+    });
+}
+
+async function doHiddenGesture() {
+    log("loginUI.doHiddenGesture", "called");
+
+    if (!G.userEmail || G.sessionUnlocked) return;
+
+    // ALWAYS activate intent first
+    G.biometricIntent = true;
+    await updateBiometricIndicator();
+
+    const registered = await BM.isBiometricRegistered();
+
+    if (registered) {
+        await BM.attemptBiometricUnlock(async (password) => {
+            await unlockIdentityFlow(password);
+            await proceedAfterPasswordSuccess();
+        });
+
+        // After attempt, clear temporary intent
+        G.biometricIntent = false;
+        await updateBiometricIndicator();
+    }
+}
+
+function initLoginUI() {
+    log("loginUI.initLoginUI", "called");
+
+    enterLoginMode();
+    showUnlockMessage("");
+}
+
+async function unlockIdentityFlow(pwd) {
+
+    log("loginUI.unlockIdentityFlow", "called");
+
+    if (!pwd || pwd.length < C.PASSWORD_MIN_LEN) {
+        const e = new Error(C.UNLOCK_ERROR_DEFS.WEAK_PASSWORD.message);
+        e.code = C.UNLOCK_ERROR_DEFS.WEAK_PASSWORD.code;
+        throw e;
+    }
+
+    log("loginUI.unlockIdentityFlow", "Unlock attempt started for password:", (pwd ? "***" : "(empty)"));
+
+    if (!G.accessToken) {
+        const e = new Error(C.UNLOCK_ERROR_DEFS.NO_ACCESS_TOKEN.message);
+        e.code = C.UNLOCK_ERROR_DEFS.NO_ACCESS_TOKEN.code;
+        throw e;
+    }
+
+    let id = await ID.loadIdentity();
+
+    if (!id) {
+        error("loginUI.unlockIdentityFlow", "No local identity found — cannot unlock");
+        const e = new Error(C.UNLOCK_ERROR_DEFS.NO_IDENTITY.message);
+        e.code = C.UNLOCK_ERROR_DEFS.NO_IDENTITY.code;
+        throw e;
+    }
+    //log("loginUI.unlockIdentityFlow", "Identity loaded:", !!id);
+    log("loginUI.unlockIdentityFlow", "Local identity found");
+
+    if (id && !id.passwordVerifier) {
+        log("loginUI.unlockIdentityFlow", "Identity missing password verifier — attempting auto-migration");
+
+        try {
+            await ID.migrateIdentityWithVerifier(id, pwd);
+            id = await ID.loadIdentity();
+        } catch {
+            const e = new Error(C.UNLOCK_ERROR_DEFS.INCORRECT_PASSWORD.message);
+            e.code = C.UNLOCK_ERROR_DEFS.INCORRECT_PASSWORD.code;
+            throw e;
+        }
+    }
+    log("loginUI.unlockIdentityFlow", "password verifier found, skipped identity migration");
+
+    // ─────────────────────────────
+    // 🔐 AUTHORITATIVE PASSWORD CHECK
+    // ─────────────────────────────
+    let key;
+    try {
+        key = await CR.deriveKey(pwd, id.kdf);
+        await ID.verifyPasswordVerifier(id.passwordVerifier, key);
+    } catch {
+        error("loginUI.unlockIdentityFlow", "passwordVerifier check failed for provided password");
+        const e = new Error(C.UNLOCK_ERROR_DEFS.INCORRECT_PASSWORD.message);
+        e.code = C.UNLOCK_ERROR_DEFS.INCORRECT_PASSWORD.code;
+        throw e;
+    }
+
+    log("loginUI.unlockIdentityFlow", "Password verifier check succeeded");
+
+    // ─────────────────────────────
+    // 🔓 Attempt private key decrypt
+    // ─────────────────────────────
+    let decrypted = false;
+    let decryptedPrivateKeyBytes = null;
+
+    try {
+        decryptedPrivateKeyBytes = await CR.decrypt(id.encryptedPrivateKey, key);
+        decrypted = true;
+        log("loginUI.unlockIdentityFlow", "Identity private key successfully decrypted");
+    } catch {
+        warn("loginUI.unlockIdentityFlow", "Private key decryption failed, will attempt one time key rotation");
+    }
+
+    // ─────────────────────────────
+    // 🔁 Single rotation retry
+    // ─────────────────────────────
+    if (!decrypted) {
+        log("loginUI.unlockIdentityFlow", "Attempting device key rotation");
+
+        await ID.rotateDeviceIdentity(pwd);
+        id = await ID.loadIdentity();
+
+        try {
+            decryptedPrivateKeyBytes = await CR.decrypt(id.encryptedPrivateKey, key);
+            decrypted = true;
+            log("loginUI.unlockIdentityFlow", "Decryption succeeded after rotation");
+        } catch {
+            warn("loginUI.unlockIdentityFlow", "Decryption still failing after rotation");
+        }
+    }
+
+    // ─────────────────────────────
+    // 🧨 Absolute Safari recovery
+    // ─────────────────────────────
+    if (!decrypted) {
+        log("loginUI.unlockIdentityFlow", "Rotation failed (safari behavior?) — recreating identity");
+
+        await ID.createIdentity(pwd);
+        id = await ID.loadIdentity();
+
+        if (!id) {
+            error("loginUI.unlockIdentityFlow", "Faied to load existing identity - ", C.UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.message);
+            const e = new Error(C.UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.message);
+            e.code = C.UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.code;
+            throw e;
+        }
+
+        try {
+            key = await CR.deriveKey(pwd, id.kdf);
+            decryptedPrivateKeyBytes = await CR.decrypt(id.encryptedPrivateKey, key);
+            decrypted = true;
+            log("loginUI.unlockIdentityFlow", "Decryption succeeded after recreation");
+        } catch {
+            error("loginUI.unlockIdentityFlow", "post rotation decryption attempt failed - ", C.UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.message);
+            const e = new Error(C.UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.message);
+            e.code = C.UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.code;
+            throw e;
+        }
+    }
+
+    if (id.supersedes) {
+        log("loginUI.unlockIdentityFlow", "Identity supersedes previous keyId:", id.supersedes);
+    }
+
+    // ─────────────────────────────
+    // Session unlocked
+    // ─────────────────────────────
+
+    // 1️⃣ Cache current private key (imports + sets G.currentPrivateKey)
+    await ID.cacheDecryptedPrivateKey(decryptedPrivateKeyBytes);
+
+    // decrypt rotated identity keys
+    await ID.decryptPreviousKeys(id, pwd);
+
+    // 4️⃣ Attach decrypted key to identity + session globals
+    id._sessionPrivateKey = G.currentPrivateKey;
+    G.unlockedIdentity = id;
+    G.sessionUnlocked = true;
+
+    log("loginUI.unlockIdentityFlow", "G.unlockedIdentity set in memory for session");
+
+    if (G.biometricIntent) {
+        const registered = await BM.isBiometricRegistered();
+
+        if (!registered) {
+            try {
+                log("loginUI.unlockIdentityFlow", "First-time biometric enrollment");
+                await BM.enrollBiometric(pwd);
+                log("loginUI.unlockIdentityFlow", "Biometric enrollment successful");
+            } catch (err) {
+                warn("loginUI.unlockIdentityFlow", "Biometric enrollment skipped or failed:", err);
+            }
+        } else {
+            log("loginUI.unlockIdentityFlow", "Biometric already registered");
+        }
+
+        G.biometricIntent = false;
+    }
+
+    // 3️⃣ Immediately destroy password reference
+    pwd = null;
+
+    await updateBiometricIndicator();
+    return id;
+}
+
+function clearSensitiveFields() {
+    loginUI.pwdInput.clear();
+    loginUI.confirmPwdInput.clear();
+}
+
+async function onRecoveryCEKSuccess() {
+    log("loginUI.onRecoveryCEKSuccess", "called");
+    setupPasswordPrompt("create");
+}
+
+async function updateBiometricIndicator() {
+    log("loginUI.updateBiometricIndicator", "called");
+
+    loginUI.title.classList.remove("bio-none","bio-armed");
+
+    if (!window.PublicKeyCredential) {
+        loginUI.title.classList.add("bio-none");
+        return;
+    }
+
+    if (!G.userEmail) {
+        loginUI.title.classList.add("bio-none");
+        return;
+    }
+
+    if (G.biometricIntent) {
+        loginUI.title.classList.add("bio-armed");
+    } else {
+        loginUI.title.classList.add("bio-none");
+    }
+}
+
+/*
+ * Click handlers
+ */
+async function doUnlockClick() {
+
+    log("loginUI.doUnlockClick", "called");
+
+    const pwd = loginUI.pwdInput.value;
+    showUnlockMessage(""); // clear previous
+
+    if (!pwd) {
+        showUnlockMessage("Password cannot be empty");
+        return;
+    }
+
+    try {
+        await unlockIdentityFlow(pwd);
+        await proceedAfterPasswordSuccess();
+        G.unlockInProgress = false;
+    } catch (e) {
+        G.unlockInProgress = false;
+        const def = Object.values(C.UNLOCK_ERROR_DEFS)
+            .find(d => d.code === e.code);
+
+        showUnlockMessage(def?.message || e.message || "Unlock failed");
+        error("loginUI.doUnlockClick", "Unlock failed:", (def?.message || e.message));
+    }
+}
+
+function doNeedRecoveryClick() {
+    log("loginUI.doNeedRecoveryClick", "called");
+    G.recoveryRequest = true;
+
+    setupPasswordPrompt("recovery-request");
+}
+
+async function doRecoverClick() {
+    log("loginUI.doRecoverClick", "called");
+
+    showUnlockMessage("");
+
+    const pwd = loginUI.pwdInput.value;
+    if (!pwd) {
+        showUnlockMessage("Recovery password required");
+        return;
+    }
+
+    try {
+        await R.handleRecovery(pwd, onRecoveryCEKSuccess);
+    } catch (err) {
+        //alert(err);
+        clearSensitiveFields();
+        // Extract meaningful info from DOMException or normal Error
+        const userMsg = err.message || `${err.name || 'RecoveryError'} — see console`;
+        showUnlockMessage(`Recovery failed: ${userMsg}`);
+
+        // Full error in console for debugging
+        error("loginUI.doRecoverClick", "Recovery error:", err);
+    }
+    // 1. load recovery.private.json from Drive
+    // 2. decrypt with password
+    // 3. unwrap CEK
+    // 4. generate new device identity
+    // 5. wrap CEK, write envelope, unlock session
+}
+
+async function doCreatePasswordClick()  {
+    log("loginUI.doCreatePasswordClick", "called");
+
+    const pwd = loginUI.pwdInput.value;
+    const confirm = loginUI.confirmPwdInput.value;
+
+    if (!pwd || pwd.length < C.PASSWORD_MIN_LEN) {
+        showUnlockMessage("Password too weak");
+        return;
+    }
+
+    if (pwd !== confirm) {
+        showUnlockMessage("Passwords do not match");
+        return;
+    }
+
+    try {
+        //SAFETY: Clear any existing local identity before creating new (could be recovery or normal flow)
+        await ID.removeDeviceIdentity();
+        await ID.createIdentity(pwd);
+        await proceedAfterPasswordSuccess();
+        log("loginUI.doCreatePasswordClick", "New identity created and unlocked");
+    } catch (e) {
+        showUnlockMessage(e.message);
+    }
+}
+
+/*
+ * development helpers
+ */
+async function promptClearBiometricIndexedDB() {
+    const confirmed = window.confirm("Are you sure you want to clear the biometric db? This cannot be undone.");
+
+    if (!confirmed) {
+        log("loginUI.promptClearBiometricIndexedDB] Deleting bio metric db canceled");
+        return false;
+    }
+
+    await BM.clearBiometricIndexedDB();
+    log("loginUI.promptClearBiometricIndexedDB", "db deleted successfully.");
+    return true;
+}
+
+function promptClearLocalStorage() {
+    const confirmed = window.confirm("Are you sure you want to clear all localStorage data for this app? This cannot be undone.");
+
+    if (!confirmed) {
+        log("loginUI.promptClearLocalStorage", "localStorage clear canceled");
+        return false;
+    }
+
+    localStorage.clear();
+    log("loginUI.promptClearLocalStorage", "localStorage cleared successfully.");
+    return true;
+}
+
+/**
+ * EXPORTED FUNCTIONS
+ */
+export async function loadLogin() {
+    log("loginUI.loadLogin", "called");
+
+    loginUI.signinBtn.onClick(() => AU.initGIS());
+    loginUI.title.setText(`Login [v${C.APP_VERSION}]`);
+
+    // Initial UI state
+    rootUI.vaultView.setVisible(false);
+    loginUI.pwdSection.setVisible(false);
+    loginUI.confirmPwdSection.setVisible(false);
+
+    setupTitleGesture();
+    initLoginUI();
+
+    loginUI.recoveryLnk.onClick(doNeedRecoveryClick);
+    loginUI.recoverBtn.onClick(doRecoverClick);
+
+    if (G.settings.clearBioDbOnLoad)
+    await promptClearBiometricIndexedDB();
+
+    if (G.settings.clearLocalStorageOnLoad)
+    promptClearLocalStorage();
+
+    await BM.debugBiometricDB();
+    await updateBiometricIndicator();
+}
+
+export async function proceedAfterPasswordSuccess() {
+    log("loginUI.proceedAfterPasswordSuccess", "called");
+    log("loginUI.proceedAfterPasswordSuccess", `G.unlockedIdentity exists: ${!!G.unlockedIdentity}, G.currentPrivateKey exists: ${!!G.currentPrivateKey}, fingerprint: ${G.unlockedIdentity?.fingerprint}`);
+    log("loginUI.proceedAfterPasswordSuccess", "G.driveLockState:", G.driveLockState ? { mode: G.driveLockState.mode, self: G.driveLockState.self } : null);
+
+    log("loginUI.proceedAfterPasswordSuccess", "Proceeding to device public key exchange");
+    await ID.ensureDevicePublicKey();
+
+    // 1️⃣ Ensure envelope exists (read-only init only)
+    await E.ensureEnvelope();      // 🔐 guarantees CEK + envelope
+
+    log("loginUI.proceedAfterPasswordSuccess", `G.recoverySession: ${G.recoverySession}, G.recoveryCEK exists: ${!!G.recoveryCEK}`);
+
+    // 2️⃣ Explicitly check authorization
+    const auth = await E.checkEnvelopeAuthorization();
+
+    if (!auth.authorized) {
+        warn("loginUI.proceedAfterPasswordSuccess", "Device not authorized to decrypt envelope");
+        setupPasswordPrompt("unlock");
+        showUnlockMessage("This device is not authorized to access vault. Ask for access", "error");
+        return;
+    }
+
+    // 3️⃣ Recovery key only after confirmed authorization
+    // Recovery is now managed from Vault UI security menu
+    //~await R.ensureRecoveryKey(async () => await promptRecoveryPasswordUI());
+
+    // 4️⃣ Attempt write lock escalation (optional upgrade)
+    if (G.driveLockState?.mode === "read") {
+        log("loginUI.proceedAfterPasswordSuccess", "Attempting write lock escalation");
+        await E.tryAcquireEnvelopeWriteLock(); // must NOT throw if fails
+    }
+
+    // 5️⃣ Housekeeping only if we truly have write access
+    if (G.driveLockState?.mode === "write" && G.driveLockState?.self) {
+        log("loginUI.proceedAfterPasswordSuccess", "Performing CEK housekeeping for all valid devices + recovery keys");
+        await E.wrapCEKForRegistryKeys();
+    } else {
+        warn("loginUI.proceedAfterPasswordSuccess", "Skipping CEK housekeeping — G.driveLockState not ready or not writable, running in read-only mode");
+    }
+
+    if (G.recoverySession) {
+        G.recoverySession = false;
+        G.recoveryCEK = null;
+    }
+
+    // 6️⃣ Load vault payload
+    await E.loadEnvelopePayloadToUI(text => vaultUI.data.setText(text));
+
+    // 7️⃣ UI mode strictly derived from lock state
+    const readOnly = G.driveLockState?.mode !== "write";
+
+    if (readOnly) {
+        warn("loginUI.proceedAfterPasswordSuccess", "Showing unlocked UI in read-only mode");
+    }
+
+    showVaultUI({ readOnly });
+
+    log("loginUI.proceedAfterPasswordSuccess", "IndexedDB dbs:", JSON.stringify(await indexedDB.databases()));
+
+    U.dumpLocalStorageForDebug();
+    log("loginUI.proceedAfterPasswordSuccess", "Unlock successful!@");
+}
+
+export async function setupPasswordPrompt(mode, options = {}) {
+    log("loginUI.setupPasswordPrompt", "called - mode:" + mode);
+
+    loginUI.authMsg.setVisible(false);
+
+    clearSensitiveFields();
+    showUnlockMessage("");
+
+    // ✅ Always enable unlockBtn when switching mode
+    loginUI.unlockBtn.setEnabled(true);
+    loginUI.pwdSection.setVisible(true);
+
+    if (mode === "unlock") {
+        loginUI.confirmPwdSection.setVisible(false);
+        loginUI.unlockBtn.setText("Unlock");
+        loginUI.unlockBtn.onClick(doUnlockClick);
+        showUnlockMessage(options.migration ? "Identity missing password verifier — enter your password to upgrade." : "");
+    } else if (mode === "create") {
+        loginUI.confirmPwdSection.setVisible(true);
+        loginUI.unlockBtn.setText("Create Password");
+        loginUI.unlockBtn.onClick(doCreatePasswordClick);
+    } else if (mode === "recovery-request") {
+        loginUI.confirmPwdSection.setVisible(false);
+        loginUI.unlockBtn.setText("Recover");
+        loginUI.unlockBtn.onClick(doRecoverClick);
+    }
+
+    log("loginUI.setupPasswordPrompt", `G.recoveryRequest: ${G.recoveryRequest}, G.recoverySession: ${G.recoverySession}`);
+
+    loginUI.recoveryLnk.style.display = (G.recoveryRequest === true || G.recoverySession === true || !(await R.hasRecoveryKeyOnDrive())) ? "none" : "block";
+}
+
+export function enterPreSignInMode() {
+    log("loginUI.enterPreSignInMode", "called");
+
+    // 3️⃣ Clear UI state
+    rootUI.vaultView.setVisible(false);
+    rootUI.loginView.setVisible(true);
+
+    // Clear password inputs
+    clearSensitiveFields();
+
+    loginUI.pwdSection.setVisible(false);
+    loginUI.confirmPwdSection.setVisible(false);
+
+    // Reset button state
+    loginUI.unlockBtn.setText("Unlock");
+    loginUI.unlockBtn.setEnabled(true);
+
+    updateBiometricIndicator();
+
+    // Clear messages
+    showUnlockMessage("");
+
+    stopVaultIdleCheck();
+
+    log("loginUI.enterPreSignInMode", "G.authMode:", G.authMode)
+
+    if (G.authMode !== "create" && G.authMode !== "unlock") {
+        showAuthorizedEmail(null);
+        loginUI.signinBtn.setEnabled(true);
+    }
+}
+
+export function showAuthorizedEmail(email) {
+    log("loginUI.showAuthorizedEmail", "called - email:", email ? "axxx.gmail.com" : "empty");
+    loginUI.userEmailSpan.textContent = email;
+}
+
+export function promptUnlockPasword() {
+    showUnlockMessage("");
+    loginUI.signinBtn.setEnabled(false);
+    vaultUI.logoutMenu.setEnabled(true);
+    loginUI.pwdSection.setVisible(true);
+}
+
+export function showUnlockMessage(msg, type = "error") {
+    if (!loginUI.statusMsg) return;
+
+    loginUI.statusMsg.textContent = msg;
+    loginUI.statusMsg.className = `status-message ${type}`;
+}
+
+export function showAuthMessage(msg, type = "error") {
+    if (!loginUI.authMsg) return;
+
+    loginUI.authMsg.textContent = msg;
+    loginUI.authMsg.className = `status-message ${type}`;
+    loginUI.signinBtn.setEnabled(true);
+}
