@@ -5,7 +5,7 @@ export const rootUI = loadUI(['loginView', 'vaultView', 'vaultTitle', 'log']);
 export const loginUI = loadUI(['title', 'signinBtn', 'userEmailSpan', 'authMsg', 'pwdSection', 'confirmPwdSection', 'pwdInput', 'confirmPwdInput',
     'unlockBtn', 'recoverBtn', 'recoveryLnk', 'statusMsg'], 'login_');
 
-export const vaultUI = loadUI(['mainSection', 'data', 'menuBtn', 'menuDropdown', 'saveMenu', 'copyLogsMenu', 'toggleLogsMenu',
+export const vaultUI = loadUI(['mainSection', 'data', 'menuBtn', 'menuDropdown', 'saveMenu', 'toggleEditMenu', 'copyLogsMenu', 'toggleLogsMenu',
     'recoveryRotationMenu', 'logoutMenu', 'statusMsg'], 'vault_', 'vaultView');
 
 export const vaultRecoveryKey = loadUI(['mainSection', 'currentPwdSection', 'currentPwdInput', 'pwdInput',

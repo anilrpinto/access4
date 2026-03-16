@@ -49,6 +49,7 @@
             <button id="vault_menuBtn" class="icon-button" aria-label="Options">⋮</button>
             <div id="vault_menuDropdown" class="menuDropdown-content">
                 <button id="vault_saveMenu">Save</button>
+                <button id="vault_toggleEditMenu">Toggle Edit</button>
                 <button id="vault_copyLogsMenu">Copy logs</button>
                 <button id="vault_toggleLogsMenu" style="display: none;">Toggle logs</button>
                 <button id="vault_recoveryRotationMenu">Recovery Rotation</button>
@@ -83,8 +84,15 @@
 
         <!-- Vault Main Section -->
         <div id="vault_mainSection">
-            <textarea id="vault_data" rows="5"
-                    placeholder="Type text here, encrypt it, then unlock on another device…"></textarea>
+
+            <div id="vault_navBar">
+                <nav id="vault_breadcrumbs"></nav>
+            </div>
+
+            <div id="vault_explorer"></div>
+
+            <textarea id="vault_data" rows="5" style="display:none;"></textarea>
+
             <div id="vault_statusMsg" class="unlock-message"></div>
         </div>
     </main>

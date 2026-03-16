@@ -276,3 +276,203 @@ button:disabled { background-color: #999; cursor: not-allowed; }
 /* Add the color logic back */
 .unlock-message.error, .status-message.error { color: var(--error-color); }
 .unlock-message.success, .status-message.success { color: var(--success-color); }
+
+#vault_navBar {
+    padding: 12px 15px;
+    background: #f8f9fa;
+    border-bottom: 1px solid #ddd;
+    margin-bottom: 10px;
+}
+
+.breadcrumb-item.link {
+    color: #007bff;
+    cursor: pointer;
+    text-decoration: none;
+}
+
+.breadcrumb-item.link:hover {
+    text-decoration: underline;
+}
+
+.breadcrumb-item.active {
+    color: #333;
+    font-weight: 600;
+}
+
+.sep {
+    color: #ccc;
+    margin: 0 5px;
+}
+
+.detail-view { padding: 5px; }
+.field-box { margin-bottom: 20px; }
+.field-box label {
+    display: block;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    color: #888;
+    margin-bottom: 5px;
+}
+.input-wrap { display: flex; gap: 8px; }
+.input-wrap input, .field-box textarea {
+    flex: 1;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    background: #f9f9f9;
+    font-family: monospace;
+}
+.icon-btn {
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    padding: 5px 10px;
+    cursor: pointer;
+}
+.audit-footer {
+    margin-top: 40px;
+    padding-top: 15px;
+    border-top: 1px dashed #eee;
+    font-size: 0.7rem;
+    color: #aaa;
+}
+
+.input-wrap {
+    display: flex;
+    gap: 8px;
+    width: 100%; /* Force full width */
+    align-items: stretch;
+}
+
+.input-wrap input {
+    flex: 1;         /* Take up all remaining space */
+    min-width: 0;    /* CRITICAL: Prevents the input from overflowing its parent */
+    width: 100%;     /* Ensure it tries to fill the flex-grow area */
+    padding: 10px;
+    font-size: 1rem;
+}
+
+.icon-btn {
+    flex-shrink: 0;  /* DO NOT allow buttons to get smaller than their content */
+    width: 44px;     /* Fixed width for consistency */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #fff;
+}
+
+/* Add to style.css */
+.field-input:not([readonly]) {
+    background: #ffffff !important;
+    border: 1px solid var(--primary-color, #007bff);
+box-shadow: 0 0 5px rgba(0, 123, 255, 0.2);
+}
+
+.delete-field-btn {
+    color: #dc3545;
+    border-color: #f8d7da;
+}
+
+/* style.css */
+.label-input {
+    border: none;
+    background: transparent;
+    font-weight: bold;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    color: #888;
+    margin-bottom: 5px;
+    width: 100%;
+    outline: none;
+}
+
+.editable .label-input {
+    color: var(--primary-color);
+    border-bottom: 1px dashed #ccc;
+}
+
+.editable .field-input {
+    background: #fff !important;
+    border: 1px solid #007bff;
+}
+
+/* Add to style.css */
+.item-meta-bar {
+    display: flex;
+    justify-content: space-between;
+    padding: 0 5px 15px 5px; /* Bottom padding to separate from fields */
+    margin-bottom: 10px;
+    font-size: 0.65rem;
+    color: #bbb; /* Subtle grey so it doesn't distract */
+    font-family: var(--font-mono, monospace);
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.meta-left {
+    text-align: left;
+}
+
+.meta-right {
+    text-align: right;
+}
+
+.list-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+
+    /* 1. More Padding */
+    padding: 18px 20px;
+    margin-bottom: 10px; /* Space between the "cards" */
+
+    /* 2. Light Shading & Pop */
+    background: #ffffff;
+    border: 1px solid #eaeaea;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.03);
+
+    /* 3. Pointer for PC */
+    cursor: pointer;
+
+    transition: all 0.2s ease;
+}
+
+.list-row .count {
+    padding: 2px 8px;
+    font-size: 0.85rem;
+    font-weight: 600;      /* Bold by default so it's readable */
+    color: #999;           /* Neutral when not hovered */
+    font-family: var(--font-mono, monospace);
+    transition: color 0.2s ease;
+}
+
+.list-row:hover {
+    background: #fdfdfd;
+    border-color: #007bff;
+    transform: translateY(-1px); /* Subtle "lift" effect */
+    box-shadow: 0 4px 8px rgba(0,0,0,0.08);
+}
+
+.list-row:hover .arrow {
+    color: #007bff;
+    transform: translateX(3px);
+    transition: transform 0.2s;
+}
+
+.list-row:hover .count {
+    background: transparent; /* Ensure no background appears */
+    color: #007bff;          /* Primary action color on hover */
+}
+
+/* Make the icons/text inside pop slightly more */
+.list-row span:first-child {
+    font-weight: 500;
+    color: #333;
+}
+
+#vault_explorer {
+    padding: 15px;
+    background-color: #fcfcfc; /* Very light grey */
+    min-height: 400px;
+    border-radius: 0 0 12px 12px;
+}

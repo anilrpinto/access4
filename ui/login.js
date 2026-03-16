@@ -4,7 +4,7 @@ import { loadUI } from './uihelper.js';
 
 import { rootUI, loginUI, vaultUI, enterLoginMode, enterVaultMode } from './loader.js';
 
-import { showVaultUI, stopVaultIdleCheck } from './vault.js';
+import { renderVault, showVaultUI, stopVaultIdleCheck } from './vault.js';
 
 // attach gesture logic
 function setupTitleGesture() {
@@ -462,7 +462,7 @@ export async function proceedAfterPasswordSuccess() {
     }
 
     // 6️⃣ Load vault payload
-    await E.loadEnvelopePayloadToUI(text => vaultUI.data.setText(text));
+    await E.loadEnvelopePayloadToUI(async data => await renderVault(data) /*vaultUI.data.setText(data)*/);
 
     // 7️⃣ UI mode strictly derived from lock state
     const readOnly = G.driveLockState?.mode !== "write";
