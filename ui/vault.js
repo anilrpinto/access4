@@ -1,10 +1,11 @@
 import { C, G, AU, E, U, log, trace, debug, info, warn, error } from '../exports.js';
 
 import { logout } from '../app.js';
-import { loadUI } from './uihelper.js';
+import { loadUI, swapVisibility } from './uihelper.js';
 
-import { rootUI, vaultUI, copyLogsToClipboard } from './loader.js';
+import { rootUI, vaultUI, vaultRawDataUI, copyLogsToClipboard } from './loader.js';
 import { showRecoveryRotationUI } from './recovery-rotation.js';
+import { showAddNewUI, showDeleteUI } from './add-delete.js';
 
 let idleTimer;
 let idleCallback = null;
@@ -31,29 +32,94 @@ let sessionState = {
     showSecure: false     // Global toggle for Requirement 1
 };
 
-async function loadVault() {
-    log("vaultUI.loadVault", "called");
+async function showVaultUI({ readOnly = false, onIdle = () => { logout() } } = {}) {
 
-    vaultUI.logoutMenu.onClick(() => logout());
+    log("vaultUI.showVaultUI", "called");
 
-    // Toggle menu visibility
-    vaultUI.menuBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        vaultUI.menuDropdown.classList.toggle('show-menu');
+    // Hide login section
+    rootUI.loginView.setVisible(false);
+
+    if (AU.isAdmin()) {
+        vaultUI.recoveryRotationMenu.setVisible(true);
+        vaultUI.recoveryRotationMenu.onClick(showRecoveryRotationUI);
+        vaultUI.toggleLogsMenu.setVisible(true);
+    } else {
+        warn("vaultUI.showVaultUI", "Recovery option turned off for non-admin user");
+        vaultUI.recoveryRotationMenu.setVisible(false);
+    }
+
+    // Show main unlocked view
+    rootUI.vaultView.setVisible(true);
+
+    // Update UI for read-only mode
+    if (readOnly) {
+        warn("vaultUI.showVaultUI", "Unlocked UI in read-only mode: disabling save button");
+        vaultUI.saveMenu.setEnabled(false);
+        vaultRawDataUI.content.readOnly = true;
+        //vaultUI.title.setText("Unlocked (Read-only)");
+    } else {
+        vaultUI.saveMenu.setEnabled(true);
+        vaultRawDataUI.content.readOnly = false;
+        //vaultUI.title.setText("Unlocked");
+    }
+
+    // Events that "wake up" the timer
+    // Clean up old listeners to prevent memory leaks/duplicate triggers
+    idleEvents.forEach(evt => {
+        document.removeEventListener(evt, resetTimer);
+        document.addEventListener(evt, resetTimer, { passive: true });
     });
 
-    // Close menu if user clicks anywhere else on the screen
-    window.addEventListener('click', () => {
-        if (vaultUI.menuDropdown.classList.contains('show-menu')) {
-            vaultUI.menuDropdown.classList.remove('show-menu');
-        }
+    idleCallback = onIdle;
+    resetTimer();
+}
+
+function doShowRawDataClick() {
+    refreshRawDisplay();
+    swapVisibility(vaultUI.mainSection, vaultRawDataUI.mainSection);
+    vaultRawDataUI.closeBtn.onClick(() => swapVisibility(vaultRawDataUI.mainSection, vaultUI.mainSection));
+}
+
+async function doAddClick() {
+    const depth = sessionState.path.length;
+    log("vaultUI.doSaveClick", "called - depth:", depth);
+
+    if (depth < 3) {
+        vaultUI.mainSection.setVisible(false);
+        showAddNewUI(depth, sessionState.path[depth-1], vaultData, {
+            onAdd: (name) => {
+                vaultUI.mainSection.setVisible(true);
+                if (depth === 1) executeAddGroup(name);
+                else if (depth === 2) executeAddItem(name);
+            },
+            onCancel: () => vaultUI.mainSection.setVisible(true)
+        });
+    } else {
+        // Adding a field inside an item can still be "instant"
+        // because the user is already in an editable view
+        createNewField();
+    }
+}
+
+async function doDeleteClick() {
+    const depth = sessionState.path.length;
+
+    log("vaultUI.doDeleteClick", "called - depth:", depth);
+
+    if (depth < 2) {
+        warn("vaultUI.doDeleteClick", "Nothing selected to delete, ignoring delete");
+        return; // Can't delete the root vault
+    }
+
+    vaultUI.mainSection.setVisible(false);
+
+    showDeleteUI(depth, sessionState.path[1], sessionState.path[2], vaultData, {
+        onConfirm: () => {
+            executeDeletion();
+            vaultUI.mainSection.setVisible(true);
+        },
+        onCancel: () => vaultUI.mainSection.setVisible(true)
     });
-
-    vaultUI.saveMenu.onClick(doSaveClick);
-    vaultUI.copyLogsMenu.onClick(copyLogsToClipboard);
-    vaultUI.toggleLogsMenu.onClick(toggleLogs);
-
-    vaultUI.toggleEditMenu.onClick(doToggleEditClick);
 }
 
 async function doToggleEditClick() {
@@ -62,33 +128,97 @@ async function doToggleEditClick() {
         // Update the timestamp now.
         const item = getCurrentItem();
         if (item) item.modified = new Date().toISOString();
-        syncToTextarea();
     }
 
     sessionState.isEditable = !sessionState.isEditable;
     vaultUI.toggleEditMenu.setText(sessionState.isEditable ? "Exit Edit Mode" : "Edit Item");
-    renderVault();
+    renderVaultExplorer();
 }
 
 async function doSaveClick() {
-    log("vaultUI.doSaveClick", "called");
-    showStatusMessage("Saving...", null);
+    log("vaultUI.doSaveClick", "Starting save process...");
 
-    const text = vaultUI.data.value;
-    if (!text) {
-        warn("vaultUIdoSaveClick] Nothing to encrypt");
+    // Clear previous status and show 'Working' state
+    showStatusMessage("Encrypting and saving...", null);
+
+    if (!vaultData || Object.keys(vaultData).length === 0) {
+        warn("vaultUI.doSaveClick", "Vault data is empty or missing.");
+        showStatusMessage("Nothing to save.", "error");
         return;
     }
 
     try {
-        await E.encryptAndPersistPlaintext(text, { onUpdate: updateLockStatusUI });
+        await E.encryptAndPersistPlaintext(JSON.stringify(vaultData), { onUpdate: updateLockStatusUI });
+        log("vaultUI.doSaveClick", "Save successful.");
         showStatusMessage(`Saved changes at ${U.getCurrentTime()}`, "success");
-        //vaultUI.data.value = "";
     } catch (err) {
-        error("vaultUI.doSaveClick", "Encryption failed:" + err);
-        showStatusMessage("Error while saving" + err, "error");
+        error("vaultUI.doSaveClick", "Encryption/Persistence failed:", err);
+        showStatusMessage(`Save failed: ${err.message || err}`, "error");
     }
     //alert("Saved!");
+}
+
+export function executeAddGroup(name) {
+    log("vaultUI.executeAddGroup", "called - name:", name);
+
+    const newId = 'g-' + Date.now();
+    const newGroup = { id: newId, name: name, items: [] };
+    vaultData.groups.push(newGroup);
+
+    // Auto-navigate into the new group
+    sessionState.path.push(newId);
+    renderVaultExplorer();
+}
+
+export function executeAddItem(name) {
+    log("vaultUI.executeAddItem", "called - name:", name);
+
+    const groupId = sessionState.path[1];
+    const group = vaultData.groups.find(g => g.id === groupId);
+    const now = new Date().toISOString();
+    const newItem = {
+        id: 'i-' + Date.now(),
+        label: name,
+        created: now, modified: now,
+        fields: [{ type: 'text', key: 'Username', val: '' }, { type: 'secure', key: 'Password', val: '' }, { type: 'note', key: 'Notes', val: '' }]
+    };
+    group.items.push(newItem);
+    renderVaultExplorer();
+}
+
+export function executeDeletion() {
+    log("vaultUI.executeDeletion", "called");
+
+    const depth = sessionState.path.length;
+
+    if (depth === 2) {
+        // --- DELETE GROUP ---
+        const groupId = sessionState.path[1];
+        const index = vaultData.groups.findIndex(g => g.id === groupId);
+
+        if (index > -1) {
+            vaultData.groups.splice(index, 1);
+            // After deleting a group, we must go back to the root
+            sessionState.path = ['root'];
+        }
+    }
+    else if (depth === 3) {
+        // --- DELETE ITEM ---
+        const groupId = sessionState.path[1];
+        const itemId = sessionState.path[2];
+        const group = vaultData.groups.find(g => g.id === groupId);
+
+        if (group) {
+            const index = group.items.findIndex(i => i.id === itemId);
+            if (index > -1) {
+                group.items.splice(index, 1);
+                // After deleting an item, go back to the group list
+                sessionState.path.pop();
+            }
+        }
+    }
+
+    renderVaultExplorer();
 }
 
 async function toggleLogs() {
@@ -132,7 +262,7 @@ function renderBreadcrumbs() {
         if (!isLast) {
             span.onclick = () => {
                 sessionState.path = sessionState.path.slice(0, index + 1);
-                renderVault(); // We will build this next
+                renderVaultExplorer(); // We will build this next
             };
         }
 
@@ -163,7 +293,7 @@ function renderGroupList(container) {
         `;
         div.onclick = () => {
             sessionState.path.push(group.id);
-            renderVault();
+            renderVaultExplorer();
         };
         container.appendChild(div);
     });
@@ -184,7 +314,7 @@ function renderItemList(container, groupId) {
         div.innerHTML = `<span>📄 ${item.label}</span><span class="arrow">›</span>`;
         div.onclick = () => {
             sessionState.path.push(item.id);
-            renderVault(vaultData);
+            renderVaultExplorer(vaultData);
         };
         container.appendChild(div);
     });
@@ -277,11 +407,12 @@ function attachDetailListeners(container) {
     const item = getCurrentItem();
     if (!item) return;
 
-    // 1. Toggle Password Visibility (Global)
+    // 1. Toggle Password Visibility
+    // Redraws the UI to switch between dots (••••) and plain text
     container.querySelectorAll('.toggle-btn').forEach(btn => {
         btn.onclick = () => {
             sessionState.showSecure = !sessionState.showSecure;
-            renderVault();
+            renderVaultExplorer();
         };
     });
 
@@ -289,17 +420,18 @@ function attachDetailListeners(container) {
     container.querySelectorAll('.copy-btn').forEach(btn => {
         btn.onclick = () => {
             navigator.clipboard.writeText(btn.dataset.val);
+            const original = btn.innerText;
             btn.innerText = "✅";
-            setTimeout(() => btn.innerText = "📋", 1500);
+            setTimeout(() => btn.innerText = original, 1500);
         };
     });
 
     // 3. Update Field Values (Text/Password/Notes)
+    // Updates the JavaScript object only. No UI refresh to avoid cursor jumping.
     container.querySelectorAll('.field-input').forEach(input => {
         input.oninput = (e) => {
             const index = e.target.dataset.index;
             item.fields[index].val = e.target.value;
-            syncToTextarea();
         };
     });
 
@@ -308,39 +440,50 @@ function attachDetailListeners(container) {
         input.oninput = (e) => {
             const index = e.target.dataset.index;
             item.fields[index].key = e.target.value;
-            syncToTextarea();
         };
     });
 
     // 5. Delete Field Logic
+    // Structural change: requires a full re-render to remove the row.
     container.querySelectorAll('.delete-field-btn').forEach(btn => {
         btn.onclick = () => {
             const index = parseInt(btn.dataset.index);
-            if (confirm(`Delete the "${item.fields[index].key}" field?`)) {
+            const fieldName = item.fields[index].key || "unnamed";
+
+            if (confirm(`Delete the "${fieldName}" field?`)) {
                 item.fields.splice(index, 1);
-                syncToTextarea();
-                renderVault();
+                renderVaultExplorer();
             }
         };
     });
 }
 
-// --- Main Render Entry Point ---
+/**
+ * Finds the currently active item based on the sessionState.path
+ */
+function getCurrentItem() {
+    const groupId = sessionState.path[1];
+    const itemId = sessionState.path[2];
+    if (!groupId || !itemId) return null;
 
-export function renderVault(data) {
-    // 1. If data is passed as a string, parse it.
-    // Otherwise, try to fallback to the textarea.
-    if (data && typeof data === 'string') {
-        vaultData = JSON.parse(data);
-        vaultUI.data.setText(data);
-    } else if (!vaultData) {
-        const raw = vaultUI.data.value;
-        if (raw) vaultData = JSON.parse(raw);
+    const group = vaultData.groups.find(g => g.id === groupId);
+    return group?.items.find(i => i.id === itemId) || null;
+}
+
+function refreshRawDisplay() {
+    log("vaultUI.refreshRawDisplay", "called");
+    if (vaultRawDataUI.content && vaultData) {
+        vaultRawDataUI.content.setText(U.format(vaultData));
     }
+}
+
+// --- Main Render Entry Point ---
+async function renderVaultExplorer() {
+    log("vaultUI.renderVaultExplorer", "called");
 
     // Safety check: if we still don't have data, stop here.
     if (!vaultData) {
-        console.warn("renderVault: No data available to render.");
+        warn("vaultUI.renderVaultExplorer", "No data available to render.");
         return;
     }
 
@@ -363,75 +506,42 @@ export function renderVault(data) {
     }
 }
 
-/**
- * Finds the currently active item based on the sessionState.path
- */
-function getCurrentItem() {
-    const groupId = sessionState.path[1];
-    const itemId = sessionState.path[2];
-    if (!groupId || !itemId) return null;
-
-    const group = vaultData.groups.find(g => g.id === groupId);
-    return group?.items.find(i => i.id === itemId) || null;
-}
-
-/**
- * Syncs the in-memory vaultData object to the hidden textarea
- * so the global Save/Encrypt process can see the changes.
- */
-function syncToTextarea() {
-    const textarea = document.getElementById('vault_data');
-    if (textarea && vaultData) {
-        // null, 2 adds pretty-printing which makes the JSON readable
-        textarea.value = JSON.stringify(vaultData, null, 2);
-    }
-}
 
 /**
  * EXPORTED FUNCTIONS
  */
-export function showVaultUI({ readOnly = false, onIdle = () => { logout() } } = {}) {
+export async function loadVault(data, options) {
+    log("vaultUI.loadVault", "called");
 
-    log("vaultUI.showVaultUI", "called");
+    vaultUI.logoutMenu.onClick(() => logout());
 
-    loadVault();
-
-    // Hide login section
-    rootUI.loginView.setVisible(false);
-
-    if (AU.isAdmin()) {
-        vaultUI.recoveryRotationMenu.setVisible(true);
-        vaultUI.recoveryRotationMenu.onClick(showRecoveryRotationUI);
-        vaultUI.toggleLogsMenu.setVisible(true);
-    } else {
-        warn("vaultUI.showVaultUI", "Recovery option turned off for non-admin user");
-        vaultUI.recoveryRotationMenu.setVisible(false);
-    }
-
-    // Show main unlocked view
-    rootUI.vaultView.setVisible(true);
-
-    // Update UI for read-only mode
-    if (readOnly) {
-        warn("vaultUI.showVaultUI", "Unlocked UI in read-only mode: disabling save button");
-        vaultUI.saveMenu.setEnabled(false);
-        vaultUI.data.readOnly = true;
-        rootUI.vaultTitle.setText("Unlocked (Read-only)");
-    } else {
-        vaultUI.saveMenu.setEnabled(true);
-        vaultUI.data.readOnly = false;
-        rootUI.vaultTitle.setText("Unlocked");
-    }
-
-    // Events that "wake up" the timer
-    // Clean up old listeners to prevent memory leaks/duplicate triggers
-    idleEvents.forEach(evt => {
-        document.removeEventListener(evt, resetTimer);
-        document.addEventListener(evt, resetTimer, { passive: true });
+    // Toggle menu visibility
+    vaultUI.menuBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        vaultUI.menuDropdown.classList.toggle('show-menu');
     });
 
-    idleCallback = onIdle;
-    resetTimer();
+    // Close menu if user clicks anywhere else on the screen
+    window.addEventListener('click', () => {
+        if (vaultUI.menuDropdown.classList.contains('show-menu')) {
+            vaultUI.menuDropdown.classList.remove('show-menu');
+        }
+    });
+
+    vaultUI.saveMenu.onClick(doSaveClick);
+    vaultUI.toggleEditMenu.onClick(doToggleEditClick);
+    vaultUI.rawDataMenu.onClick(doShowRawDataClick);
+
+    vaultUI.addBtn.onClick(doAddClick);
+    vaultUI.deleteBtn.onClick(doDeleteClick);
+
+    // temporary menu
+    vaultUI.copyLogsMenu.onClick(copyLogsToClipboard);
+    vaultUI.toggleLogsMenu.onClick(toggleLogs);
+
+    vaultData = data;
+    await renderVaultExplorer();
+    await showVaultUI(options);
 }
 
 export function stopVaultIdleCheck() {

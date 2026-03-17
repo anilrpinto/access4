@@ -165,13 +165,21 @@ export function loadUI(names, prefix = "", scope = document) {
     return ui;
 }
 
+export function swapVisibility(hide, show) {
+    if (hide)
+        hide.setVisible(false);
+
+    if (show)
+        show.setVisible(true);
+}
+
 /*
     //Pro-Tip on setVisible
     //If you find that your div containers (like mainSection) look weird with inline-block, you can always override just that one after loading:
-    const vaultRecoveryKey = loadUI([...], 'vaultRecoveryKey_', 'vaultBody');
+    const vaultRecoveryKeyUI = loadUI([...], 'vaultRecoveryKeyUI_', 'vaultBody');
 
     // Force the main container to use standard block layout
-    vaultRecoveryKey.mainSection.setVisible = function(show) {
+    vaultRecoveryKeyUI.mainSection.setVisible = function(show) {
         this.style.display = show ? "block" : "none";
     };
 */

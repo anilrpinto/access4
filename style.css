@@ -23,6 +23,15 @@ body {
     /* overflow: hidden; */ /* REMOVE THIS LINE to restore pull-to-refresh */
 }
 
+html, body {
+    height: 100vh;
+    height: 100dvh;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden; /* Prevents double scrollbars */
+}
+
 /* --- HEADER --- */
 header {
     width: 100%;
@@ -42,16 +51,45 @@ header h1 {
     font-weight: bold;
 }
 
-/* --- VAULT HEADER OVERRIDE --- */
+/* --- Optimized Vault Header --- */
 #vaultView header {
+    display: flex;
     flex-direction: row;
-    justify-content: space-between;
-    text-align: left;
+    justify-content: space-between; /* Keeps Left - Center - Right balanced */
+    align-items: center;
+    padding: 0 12px;
+    background: #eeeeee;
+    border-bottom: 1px solid #ddd;
+    min-height: 56px;
 }
 
-#vaultTitle {
+#vault_title {
     margin: 0;
-    flex-grow: 1;
+    flex: 1;
+    text-align: center;
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: #222;
+    /* This ensures the title doesn't push the right side too far */
+    padding: 0 5px;
+}
+
+.header-side-left,
+.header-side-right {
+    display: flex;
+    align-items: center;
+    /* We keep these equal to ensure the title stays DEAD center */
+    width: 100px;
+    flex-shrink: 0;
+}
+
+.header-side-left {
+    justify-content: flex-start;
+}
+
+.header-side-right {
+    justify-content: flex-end;
+    gap: 0; /* We will use padding on buttons for spacing instead of gap */
 }
 
 /* --- MAIN LAYOUT --- */
@@ -71,7 +109,7 @@ main {
     display: none; /* Controlled by JS */
     flex-direction: column;
     flex: 1;
-    min-height: 0;
+    height: 100%; /* Force it to take the full body height */
 }
 
 #vault_mainSection {
@@ -82,6 +120,40 @@ main {
     /* Allow this section to scroll so we can see the status message */
     overflow-y: auto;
     padding-bottom: 20px; /* Give the status message some breathing room at the bottom */
+}
+
+/* 2. Target the Raw Data section specifically */
+#vaultRawData_mainSection {
+    display: none; /* Controlled by JS */
+    flex-direction: column;
+    width: 100%;
+    padding: 10px 0;
+}
+
+/* 3. The Textarea itself */
+/* The Textarea - Overriding all other constraints */
+main #vaultRawData_content {
+/* Force the height to exactly 85% of the screen height */
+    height: 82vh !important;
+    height: 82dvh !important; /* Support for mobile browser address bars */
+
+    width: 100%;
+    background: #f4f4f4;
+    color: #5a5a59;
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    padding: 15px;
+    margin-bottom: 15px;
+
+    /* Code formatting rules */
+    white-space: pre !important;
+    overflow: auto !important;
+    word-wrap: normal !important;
+}
+
+#vaultRawData_closeBtn {
+/* This will now naturally sit below the 85vh box */
+    width: 100%;
+    background-color: var(--primary-color);
 }
 
 /* --- FORM ELEMENTS --- */
@@ -98,12 +170,16 @@ textarea {
 }
 
 textarea {
-    flex: 1;
-    min-height: 250px; /* Give it a solid starting height */
-    max-height: 85vh;  /* Prevent it from being so tall it hides everything else */
-    resize: none;
-    margin-bottom: 0.5rem;
-    flex-shrink: 0;    /* Don't let it get squashed by the status message */
+    width: 100%;
+    padding: 0.75rem 1rem;
+    font-size: 1rem;
+    border-radius: 6px;
+    border: 1px solid #ccc;
+    font-family: inherit;
+    display: block;
+    flex: 1;           /* Let it grow */
+    min-height: 0 !important; /* Remove that 250px block */
+    max-height: none !important; /* Remove that 85vh limit */
 }
 
 input:focus,
@@ -163,19 +239,50 @@ button:disabled { background-color: #999; cursor: not-allowed; }
 
 /* --- 3-DOT MENU --- */
 .menu-container {
-    position: relative;
+    position: relative;       /* Confirmed */
+    z-index: 1000;            /* Confirmed */
+    display: flex;
+    align-items: center;
+}
+
+/* Base Icon Button Style */
+.icon-button {
+    background: transparent;
+    border: none;
+    font-size: 1.2rem;
+    cursor: pointer;
+    /* Narrower padding keeps them clustered */
+    padding: 8px 6px;
+    width: 34px;
+    height: 40px;
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 1000; /* Ensure container is above the main body */
+    color: #444;
 }
-.icon-button {
-    background: none;
-    font-size: 1.8rem;
-    color: white;
-    padding: 0 10px;
-    margin: 0;
-    width: auto;
+
+#vault_deleteBtn {
+    color: #dc3545;
+    /* If the icon is wider than the button, allow it to show */
+    overflow: visible;
+}
+
+#vault_addBtn {
+    color: #007bff;
+}
+
+/* The Menu Button ⋮ */
+#vault_menuBtn {
+    margin-left: 2px;
+}
+
+.icon-button:active {
+    transform: scale(0.9);
+}
+
+/* Hover/Active states for better feedback */
+.icon-button:hover {
+    color: #007bff; /* Turns blue when hovered/tapped */
 }
 
 .menuDropdown-content {
@@ -475,4 +582,24 @@ box-shadow: 0 0 5px rgba(0, 123, 255, 0.2);
     background-color: #fcfcfc; /* Very light grey */
     min-height: 400px;
     border-radius: 0 0 12px 12px;
+}
+
+#vault_explorer {
+    flex: 1; /* This forces the white area to expand to the bottom of the screen */
+    background-color: #fcfcfc;
+    padding: 15px;
+}
+
+#vaultDelete_confirmBtn:hover {
+    background-color: #dc3545 !important;
+    color: #fff !important;
+}
+
+#vaultDelete_mainSection h3,
+#vaultAddNew_mainSection h3 {
+    width: 100%;
+    padding-bottom: 15px;
+    margin-bottom: 20px;
+    border-bottom: 1px solid #ddd;
+    box-shadow: 0 1px 0 0 #fff; /* A tiny white highlight below the line */
 }

@@ -1021,11 +1021,11 @@ export async function loadEnvelopePayloadToUI(uiCallback) {
         // 2️⃣ Decrypt payload using openEnvelope()
         const plaintext = await openEnvelope(envelope);
 
-        log("E.loadEnvelopePayloadToUI", `plaintext: |${plaintext}|`);
+        //trace("E.loadEnvelopePayloadToUI", `plaintext: |${plaintext}|`);
 
         // 3️⃣ Populate plaintext area in UI
         if (uiCallback)
-        uiCallback(plaintext);
+            uiCallback(plaintext);
 
         log("E.loadEnvelopePayloadToUI", "Payload loaded into plaintext UI");
     } catch (err) {

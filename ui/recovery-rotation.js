@@ -1,17 +1,17 @@
 import { C, AU, CR, ID, R, E, RG, GD, log, trace, debug, info, warn, error } from '../exports.js';
 
-import { vaultRecoveryKey, vaultUI } from './loader.js';
+import { vaultRecoveryKeyUI, vaultUI } from './loader.js';
 
 function showRecoveryRotationStatusMessage(msg, type = "error") {
-    if (!vaultRecoveryKey.statusMsg) return;
+    if (!vaultRecoveryKeyUI.statusMsg) return;
 
-    vaultRecoveryKey.statusMsg.textContent = msg;
-    vaultRecoveryKey.statusMsg.className = `status-message ${type}`;
+    vaultRecoveryKeyUI.statusMsg.textContent = msg;
+    vaultRecoveryKeyUI.statusMsg.className = `status-message ${type}`;
 }
 
 function doCancelRecoveryRotationClick() {
     log("vaultUI.doCancelRecoveryRotationClick", "called");
-    vaultRecoveryKey.mainSection.setVisible(false);
+    vaultRecoveryKeyUI.mainSection.setVisible(false);
     vaultUI.mainSection.setVisible(true);
 }
 
@@ -23,14 +23,14 @@ async function doRotateRecoveryKeyClick(rotateMode) {
         AU.requireAdmin();
 
         if (rotateMode) {
-            const currPwd = vaultRecoveryKey.currentPwdInput.value;
+            const currPwd = vaultRecoveryKeyUI.currentPwdInput.value;
             if (!currPwd || currPwd.length < C.PASSWORD_MIN_LEN || !(await R.verifyRecoveryPassword(currPwd))) {
                 throw new Error("Incorrect current password");
             }
         }
 
-        const pwd = vaultRecoveryKey.pwdInput.value;
-        const confirm = vaultRecoveryKey.confirmPwdInput.value;
+        const pwd = vaultRecoveryKeyUI.pwdInput.value;
+        const confirm = vaultRecoveryKeyUI.confirmPwdInput.value;
 
         if (!pwd || pwd.length < C.PASSWORD_MIN_LEN) {
             throw new Error("Recovery password must be at least 7 characters.");
@@ -39,11 +39,11 @@ async function doRotateRecoveryKeyClick(rotateMode) {
             throw new Error("Recovery passwords do not match.");
         }
 
-        vaultRecoveryKey.currentPwdInput.clear();
-        vaultRecoveryKey.pwdInput.clear();
-        vaultRecoveryKey.confirmPwdInput.clear();
+        vaultRecoveryKeyUI.currentPwdInput.clear();
+        vaultRecoveryKeyUI.pwdInput.clear();
+        vaultRecoveryKeyUI.confirmPwdInput.clear();
 
-        vaultRecoveryKey.rotateBtn.setEnabled(false);
+        vaultRecoveryKeyUI.rotateBtn.setEnabled(false);
         showRecoveryRotationStatusMessage("Creating recovery key please wait...");
 
         const recoveryIdentity = await ID.createRecoveryIdentity(pwd);
@@ -92,12 +92,12 @@ async function doRotateRecoveryKeyClick(rotateMode) {
         log("vaultUI.doRotateRecoveryKeyClick", "Recovery key successfully established");
         //showRecoveryRotationStatusMessage("Recovery key created!", "status-message success");
 
-        vaultRecoveryKey.rotateBtn.setEnabled(true);
+        vaultRecoveryKeyUI.rotateBtn.setEnabled(true);
         doCancelRecoveryRotationClick();
         showStatusMessage("Recovery key created!", "status-message success");
 
     } catch (err) {
-        vaultRecoveryKey.rotateBtn.setEnabled(true);
+        vaultRecoveryKeyUI.rotateBtn.setEnabled(true);
         showRecoveryRotationStatusMessage(err.message || "Recovery setup failed", "status-message error");
     }
 }
@@ -110,13 +110,13 @@ export async function showRecoveryRotationUI() {
 
     const rotateMode = await R.hasRecoveryKeyOnDrive();
 
-    vaultRecoveryKey.currentPwdSection.setVisible(rotateMode);
-    vaultRecoveryKey.rotateBtn.setText(rotateMode ? "Rotate recovery" : "Create recovery");
-    vaultRecoveryKey.mainSection.setVisible(true);
+    vaultRecoveryKeyUI.currentPwdSection.setVisible(rotateMode);
+    vaultRecoveryKeyUI.rotateBtn.setText(rotateMode ? "Rotate recovery" : "Create recovery");
+    vaultRecoveryKeyUI.mainSection.setVisible(true);
     vaultUI.mainSection.setVisible(false);
 
-    vaultRecoveryKey.rotateBtn.onClick((e) => doRotateRecoveryKeyClick(rotateMode));
-    vaultRecoveryKey.cancelBtn.onClick((e) => doCancelRecoveryRotationClick());
+    vaultRecoveryKeyUI.rotateBtn.onClick((e) => doRotateRecoveryKeyClick(rotateMode));
+    vaultRecoveryKeyUI.cancelBtn.onClick((e) => doCancelRecoveryRotationClick());
 
     showRecoveryRotationStatusMessage("Create a recovery password. This allows account recovery if all devices are lost.", "status-message");
 }

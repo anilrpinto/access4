@@ -1,15 +1,23 @@
 import { loadUI } from './uihelper.js';
 
-export const rootUI = loadUI(['loginView', 'vaultView', 'vaultTitle', 'log']);
+export const rootUI = loadUI(['loginView', 'vaultView', 'log']);
 
-export const loginUI = loadUI(['title', 'signinBtn', 'userEmailSpan', 'authMsg', 'pwdSection', 'confirmPwdSection', 'pwdInput', 'confirmPwdInput',
+export const loginUI = loadUI(['title', 'signinBtn', 'userEmailSpan', 'authMsg', 'pwdSection', 'confirmPwdSection',
+    'pwdInput', 'confirmPwdInput',
     'unlockBtn', 'recoverBtn', 'recoveryLnk', 'statusMsg'], 'login_');
 
-export const vaultUI = loadUI(['mainSection', 'data', 'menuBtn', 'menuDropdown', 'saveMenu', 'toggleEditMenu', 'copyLogsMenu', 'toggleLogsMenu',
+export const vaultUI = loadUI(['title', 'mainSection', 'addBtn', 'deleteBtn', 'menuBtn', 'menuDropdown', 'saveMenu',
+    'toggleEditMenu', 'rawDataMenu', 'copyLogsMenu', 'toggleLogsMenu',
     'recoveryRotationMenu', 'logoutMenu', 'statusMsg'], 'vault_', 'vaultView');
 
-export const vaultRecoveryKey = loadUI(['mainSection', 'currentPwdSection', 'currentPwdInput', 'pwdInput',
+export const vaultRawDataUI = loadUI(['mainSection', 'content', 'closeBtn'], 'vaultRawData_', 'vaultBody');
+
+export const vaultRecoveryKeyUI = loadUI(['mainSection', 'currentPwdSection', 'currentPwdInput', 'pwdInput',
     'confirmPwdInput', 'rotateBtn', 'cancelBtn', 'statusMsg'], 'vaultRecoveryKey_', 'vaultBody');
+
+export const vaultAddNewUI = loadUI(['mainSection', 'title', 'label', 'input', 'cancelBtn', 'addBtn'], 'vaultAddNew_', 'vaultBody');
+
+export const vaultDeleteUI = loadUI(['mainSection', 'title', 'message', 'cancelBtn', 'confirmBtn'], 'vaultDelete_', 'vaultBody');
 
 export let logEl = rootUI.log;
 
