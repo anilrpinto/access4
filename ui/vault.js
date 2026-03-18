@@ -32,6 +32,38 @@ let sessionState = {
     showSecure: false     // Global toggle for Requirement 1
 };
 
+async function init() {
+    log("vaultUI.init", "called");
+
+    vaultUI.logoutMenu.onClick(() => logout());
+
+    // Toggle menu visibility
+    vaultUI.menuBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        vaultUI.menuDropdown.classList.toggle('show-menu');
+    });
+
+    // Close menu if user clicks anywhere else on the screen
+    window.addEventListener('click', () => {
+        if (vaultUI.menuDropdown.classList.contains('show-menu')) {
+            vaultUI.menuDropdown.classList.remove('show-menu');
+        }
+    });
+
+    vaultUI.saveMenu.onClick(doSaveClick);
+    vaultUI.toggleEditMenu.onClick(doToggleEditClick);
+    vaultUI.rawDataMenu.onClick(doShowRawDataClick);
+
+    vaultUI.title.onClick(doToggleSecureClick);
+    vaultUI.toggleSecureBtn.onClick(doToggleSecureClick);
+    vaultUI.addBtn.onClick(doAddClick);
+    vaultUI.deleteBtn.onClick(doDeleteClick);
+
+    // temporary menu
+    vaultUI.copyLogsMenu.onClick(copyLogsToClipboard);
+    vaultUI.toggleLogsMenu.onClick(toggleLogs);
+}
+
 async function showVaultUI({ readOnly = false, onIdle = () => { logout() } } = {}) {
 
     log("vaultUI.showVaultUI", "called");
@@ -74,7 +106,23 @@ async function showVaultUI({ readOnly = false, onIdle = () => { logout() } } = {
     resetTimer();
 }
 
+function doToggleSecureClick() {
+    log("vaultUI.doToggleSecureClick", "called");
+
+    // 1. Toggle the state
+    sessionState.showSecure = !sessionState.showSecure;
+
+    vaultUI.toggleSecureBtn.setText(sessionState.showSecure ? '🔓' : '🔒');
+
+    // 3. Add a subtle color change to the title to bring further attention
+    vaultUI.title.style.color = sessionState.showSecure ? '#dd0000' : '#000';
+
+    // 4. Re-render the explorer to apply state to all secure type fields
+    renderVaultExplorer();
+}
+
 function doShowRawDataClick() {
+    log("vaultUI.doShowRawDataClick", "called");
     refreshRawDisplay();
     swapVisibility(vaultUI.mainSection, vaultRawDataUI.mainSection);
     vaultRawDataUI.closeBtn.onClick(() => swapVisibility(vaultRawDataUI.mainSection, vaultUI.mainSection));
@@ -229,7 +277,7 @@ async function toggleLogs() {
  * Resolves an ID to a human-readable name for the breadcrumb
  */
 function getNameFromId(id, index) {
-    if (id === 'root') return "Vault";
+    if (id === 'root') return "🏠";
     if (index === 1) { // It's a Group ID
         const group = vaultData.groups.find(g => g.id === id);
         return group ? group.name : "Unknown Group";
@@ -270,7 +318,7 @@ function renderBreadcrumbs() {
         if (!isLast) {
             const sep = document.createElement('span');
             sep.className = 'sep';
-            sep.innerText = ' > ';
+            sep.innerText = ' › ';
             nav.appendChild(sep);
         }
     });
@@ -357,14 +405,19 @@ function renderItemDetails(container, groupId, itemId) {
     item.fields.forEach((field, index) => {
         const fieldBox = document.createElement('div');
         fieldBox.className = `field-box ${sessionState.isEditable ? 'editable' : ''}`;
-
         const readonlyAttr = sessionState.isEditable ? "" : "readonly";
-        const fieldId = `field_input_${index}`;
 
-        // Common Header: Label is now editable too!
-        let html = `<div class="field-header">
+        // Header now contains: [Label Input] + [Action Buttons (Copy or Trash)]
+        let html = `
+        <div class="field-header">
             <input type="text" class="label-input" data-index="${index}"
                    value="${field.key}" ${readonlyAttr} placeholder="Label">
+            <div class="field-actions">
+                ${sessionState.isEditable ?
+                    `<button class="icon-btn delete-field-btn" data-index="${index}">🗑️</button>` :
+                    `<button class="icon-btn copy-btn" data-val="${field.val}">📋</button>`
+                }
+            </div>
         </div>`;
 
         if (field.type === 'secure') {
@@ -373,23 +426,13 @@ function renderItemDetails(container, groupId, itemId) {
                 <input type="${sessionState.showSecure ? 'text' : 'password'}"
                        class="field-input" data-index="${index}"
                        value="${field.val}" ${readonlyAttr} spellcheck="false">
-                <button class="icon-btn toggle-btn">${sessionState.showSecure ? '🔒' : '👁️'}</button>
-                ${sessionState.isEditable ?
-                    `<button class="icon-btn delete-field-btn" data-index="${index}">🗑️</button>` :
-                    `<button class="icon-btn copy-btn" data-val="${field.val}">📋</button>`}
             </div>`;
         } else if (field.type === 'note') {
-            html += `
-            <textarea class="field-input" data-index="${index}"
-                      ${readonlyAttr} rows="4">${field.val}</textarea>`;
+            html += `<textarea class="field-input" data-index="${index}" ${readonlyAttr} rows="4">${field.val}</textarea>`;
         } else {
             html += `
             <div class="input-wrap">
-                <input type="text" class="field-input" data-index="${index}"
-                       value="${field.val}" ${readonlyAttr}>
-                ${sessionState.isEditable ?
-                    `<button class="icon-btn delete-field-btn" data-index="${index}">🗑️</button>` :
-                    `<button class="icon-btn copy-btn" data-val="${field.val}">📋</button>`}
+                <input type="text" class="field-input" data-index="${index}" value="${field.val}" ${readonlyAttr}>
             </div>`;
         }
 
@@ -511,33 +554,8 @@ async function renderVaultExplorer() {
  * EXPORTED FUNCTIONS
  */
 export async function loadVault(data, options) {
-    log("vaultUI.loadVault", "called");
 
-    vaultUI.logoutMenu.onClick(() => logout());
-
-    // Toggle menu visibility
-    vaultUI.menuBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        vaultUI.menuDropdown.classList.toggle('show-menu');
-    });
-
-    // Close menu if user clicks anywhere else on the screen
-    window.addEventListener('click', () => {
-        if (vaultUI.menuDropdown.classList.contains('show-menu')) {
-            vaultUI.menuDropdown.classList.remove('show-menu');
-        }
-    });
-
-    vaultUI.saveMenu.onClick(doSaveClick);
-    vaultUI.toggleEditMenu.onClick(doToggleEditClick);
-    vaultUI.rawDataMenu.onClick(doShowRawDataClick);
-
-    vaultUI.addBtn.onClick(doAddClick);
-    vaultUI.deleteBtn.onClick(doDeleteClick);
-
-    // temporary menu
-    vaultUI.copyLogsMenu.onClick(copyLogsToClipboard);
-    vaultUI.toggleLogsMenu.onClick(toggleLogs);
+    init();
 
     vaultData = data;
     await renderVaultExplorer();

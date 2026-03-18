@@ -18,7 +18,11 @@
     <main id="loginBody">
         <!-- Sign-in button -->
         <button id="login_signinBtn">Sign in with Google</button>
-        Signed in as: <b><span id="login_userEmailSpan">Not signed in</span></b>
+
+        <div class="login-user-line">
+            Signed in as: <b><span id="login_userEmailSpan">Not signed in</span></b>
+        </div>
+
         <div id="login_authMsg"></div>
         <!-- Password input appears after sign-in -->
         <div id="login_pwdSection">
@@ -43,10 +47,10 @@
 <!-- VAULT VIEW -->
 <div id="vaultView">
     <header>
-        <div class="header-side-left">
-            <button id="vault_toggleSecuredBtn" class="icon-button">🔒</button>
+        <div class="header-side-left" style="display: flex; align-items: center; flex: 1;">
+            <button id="vault_toggleSecureBtn" class="icon-button" style="margin-right: 10px;">🔒</button>
+            <h1 id="vault_title" style="font-size: 1.1rem; margin: 0;">Vault</h1>
         </div>
-        <h1 id="vault_title">Vault</h1>
 
         <div class="header-side-right">
             <button id="vault_addBtn" class="icon-button" title="Add">➕</button>
@@ -68,6 +72,11 @@
         </div>
     </header>
 
+    <div id="vaultRawData_mainSection" style="display:none;">
+        <div id="vaultRawData_content" class="code-block"></div>
+        <button id="vaultRawData_closeBtn">Close</button>
+    </div>
+
     <main id="vaultBody">
 
         <!-- Vault Main Section -->
@@ -79,11 +88,6 @@
 
             <div id="vault_explorer"></div>
             <div id="vault_statusMsg" class="unlock-message"></div>
-        </div>
-
-        <div id="vaultRawData_mainSection" style="display:none;">
-            <textarea id="vaultRawData_content" readonly="readonly"></textarea>
-            <button id="vaultRawData_closeBtn">Close</button>
         </div>
 
         <!-- Vault Add new section (group, item etc.)-->
@@ -105,12 +109,12 @@
         <!-- Vault Delete section (group, item etc.)-->
         <div id="vaultDelete_mainSection" style="display:none;">
             <div>
-                <h3 id="vaultDelete_title">Confirm Deletion</h3>
+                <h3 id="vaultDelete_title" class="data-title">Confirm Deletion</h3>
                 <p id="vaultDelete_message" style="margin-bottom: 20px;">Are you sure you want to delete this?</p>
 
                 <div class="button-group">
                     <button id="vaultDelete_cancelBtn" class="secondary-btn">No, Keep it</button>
-                    <button id="vaultDelete_confirmBtn" class="danger-text" style="background-color: #f8d7da; border: 1px solid #f5c6cb;">Yes, Delete</button>
+                    <button id="vaultDelete_confirmBtn" class="danger-text">Yes, Delete</button>
                 </div>
             </div>
         </div>

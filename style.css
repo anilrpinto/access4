@@ -1,605 +1,747 @@
+/* --- 1. THE FOUNDATION --- */
 :root {
     --header-bg: #4A6572;
+    --vault-header-bg: #eeeeee;
     --primary-color: #1E90FF;
-    --text-color: #ffffff;
     --bg-color: #f5f7fa;
-    --error-color: #b3261e;
-    --success-color: #0f6d3c;
+    --text-main: #333333;
+    --danger: #dc3545;
 }
 
-/* --- RESET & BASE --- */
 * {
     box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
 }
 
-body {
-    margin: 0;
-    font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-    background-color: var(--bg-color);
-    display: flex;
-    flex-direction: column;
-    min-height: 100vh;
-    min-height: 100dvh;
-    /* overflow: hidden; */ /* REMOVE THIS LINE to restore pull-to-refresh */
-}
-
+/* THE FIX: Remove all height/overflow constraints from html/body */
 html, body {
-    height: 100vh;
-    height: 100dvh;
     margin: 0;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden; /* Prevents double scrollbars */
-}
+    padding: 0;
+    background-color: var(--bg-color);
+    font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+    color: var(--text-main);
 
-/* --- HEADER --- */
-header {
-    width: 100%;
-    background-color: var(--header-bg);
-    color: var(--text-color);
-    padding: 1rem 1.5rem;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    flex-shrink: 0; /* Header never shrinks */
-}
-
-header h1 {
-    margin: 0;
-    font-size: 1.8rem;
-    font-weight: bold;
-}
-
-/* --- Optimized Vault Header --- */
-#vaultView header {
-    display: flex;
-    flex-direction: row;
-    justify-content: space-between; /* Keeps Left - Center - Right balanced */
-    align-items: center;
-    padding: 0 12px;
-    background: #eeeeee;
-    border-bottom: 1px solid #ddd;
-    min-height: 56px;
-}
-
-#vault_title {
-    margin: 0;
-    flex: 1;
-    text-align: center;
-    font-size: 1.05rem;
-    font-weight: 600;
-    color: #222;
-    /* This ensures the title doesn't push the right side too far */
-    padding: 0 5px;
-}
-
-.header-side-left,
-.header-side-right {
-    display: flex;
-    align-items: center;
-    /* We keep these equal to ensure the title stays DEAD center */
-    width: 100px;
-    flex-shrink: 0;
-}
-
-.header-side-left {
-    justify-content: flex-start;
-}
-
-.header-side-right {
-    justify-content: flex-end;
-    gap: 0; /* We will use padding on buttons for spacing instead of gap */
-}
-
-/* --- MAIN LAYOUT --- */
-main {
-    width: 95%;
-    max-width: 500px;
-    margin: 1rem auto;
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-    flex: 1; /* Grow to fill available space */
-    min-height: 0; /* Fix for flex-child scrolling */
-}
-
-/* --- VAULT SPECIFIC FLEX --- */
-#vaultView {
-    display: none; /* Controlled by JS */
-    flex-direction: column;
-    flex: 1;
-    height: 100%; /* Force it to take the full body height */
-}
-
-#vault_mainSection {
-    display: flex;
-    flex-direction: column;
-    flex: 1;
-    min-height: 0;
-    /* Allow this section to scroll so we can see the status message */
-    overflow-y: auto;
-    padding-bottom: 20px; /* Give the status message some breathing room at the bottom */
-}
-
-/* 2. Target the Raw Data section specifically */
-#vaultRawData_mainSection {
-    display: none; /* Controlled by JS */
-    flex-direction: column;
-    width: 100%;
-    padding: 10px 0;
-}
-
-/* 3. The Textarea itself */
-/* The Textarea - Overriding all other constraints */
-main #vaultRawData_content {
-/* Force the height to exactly 85% of the screen height */
-    height: 82vh !important;
-    height: 82dvh !important; /* Support for mobile browser address bars */
-
-    width: 100%;
-    background: #f4f4f4;
-    color: #5a5a59;
-    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-    padding: 15px;
-    margin-bottom: 15px;
-
-    /* Code formatting rules */
-    white-space: pre !important;
-    overflow: auto !important;
-    word-wrap: normal !important;
-}
-
-#vaultRawData_closeBtn {
-/* This will now naturally sit below the 85vh box */
-    width: 100%;
-    background-color: var(--primary-color);
-}
-
-/* --- FORM ELEMENTS --- */
-input,
-button,
-textarea {
-    width: 100%;
-    padding: 0.75rem 1rem;
-    font-size: 1rem;
-    border-radius: 6px;
-    border: 1px solid #ccc;
-    font-family: inherit;
-    display: block;
-}
-
-textarea {
-    width: 100%;
-    padding: 0.75rem 1rem;
-    font-size: 1rem;
-    border-radius: 6px;
-    border: 1px solid #ccc;
-    font-family: inherit;
-    display: block;
-    flex: 1;           /* Let it grow */
-    min-height: 0 !important; /* Remove that 250px block */
-    max-height: none !important; /* Remove that 85vh limit */
+    /* Allow the page to be a natural scrolling document */
+    min-height: 100%;
+    overflow-x: hidden;
+    overflow-y: visible;
+    overscroll-behavior-y: auto;
 }
 
 input:focus,
 textarea:focus {
-    outline: 2px solid var(--primary-color);
-    border-color: transparent;
+    outline: none; /* Removes the heavy black default border */
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 1px rgba(12, 109, 202, 0.40); /* Soft blue glow */
+    transition: border-color 0.2s, box-shadow 0.2s;
 }
 
-label {
-    font-weight: 600;
-    margin-bottom: 0.4rem;
-    display: block;
-    font-size: 1rem;
-    color: #333;
-}
-
-.input-group {
-    margin-bottom: 1rem;
+/* --- 2. VIEW CONTAINERS --- */
+#loginView, #vaultView {
+    display: none; /* Controlled by JS */
     width: 100%;
+    min-height: 100vh;
+    flex-direction: column;
 }
 
-/* --- BUTTONS --- */
-button {
-    background-color: var(--primary-color);
-    color: #fff;
-    border: none;
-    cursor: pointer;
-    font-weight: bold;
-    transition: background 0.2s, opacity 0.2s;
-    margin-bottom: 8px;
-    flex-shrink: 0; /* Buttons don't squish */
-}
-
-button:hover { filter: brightness(1.1); }
-button:active { opacity: 0.8; }
-button:disabled { background-color: #999; cursor: not-allowed; }
-
-.button-group {
-    display: flex;
-    gap: 10px;
-}
-
-.button-group button { flex: 1; }
-
-.link-button {
-    background: none;
-    border: none;
-    color: var(--primary-color);
-    padding: 0;
-    font-weight: normal;
-    width: auto !important;
-    display: inline-block;
-    margin: 0 !important;
-}
-
-.link-button:hover { text-decoration: underline; }
-
-/* --- 3-DOT MENU --- */
-.menu-container {
-    position: relative;       /* Confirmed */
-    z-index: 1000;            /* Confirmed */
+/* --- 3. THE HEADERS (Sticky & Professional) --- */
+header {
+    width: 100%;
+    height: 60px;
     display: flex;
     align-items: center;
+    padding: 0 16px;
+    position: sticky; /* Keep navigation available */
+    top: 0;
+    z-index: 1000;
+    background-color: var(--header-bg);
+    color: #ffffff;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
 }
 
-/* Base Icon Button Style */
-.icon-button {
-    background: transparent;
-    border: none;
-    font-size: 1.2rem;
-    cursor: pointer;
-    /* Narrower padding keeps them clustered */
-    padding: 8px 6px;
-    width: 34px;
+#loginView header {
+    justify-content: center;
+}
+
+/* --- 4. MAIN CONTENT (The Sizing Box) --- */
+main {
+    width: 100%;
+    max-width: 500px;
+    margin: 0 auto;
+    padding: 20px 15px;
+    flex: 1; /* Pushes footer content down if needed */
+}
+
+/* --- VAULT HEADER ALIGNMENT --- */
+#vaultView header {
+    background-color: var(--vault-header-bg);
+    color: #222;
+    border-bottom: 1px solid #ddd;
+    height: 60px; /* Fixed height helps with centering */
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 12px; /* Slightly tighter side padding */
+}
+
+/* --- 5. VAULT SPECIFIC UI --- */
+.header-side-left,
+.header-side-right {
+    display: flex;
+    align-items: center; /* This is the vertical center anchor */
+    height: 100%;       /* Match header height for perfect centering */
+}
+
+/* Ensuring the Lock, Plus, Trash, and Menu are identical in size */
+#vaultView .icon-button {
+    width: 40px;
     height: 40px;
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #444;
-}
-
-#vault_deleteBtn {
-    color: #dc3545;
-    /* If the icon is wider than the button, allow it to show */
-    overflow: visible;
-}
-
-#vault_addBtn {
-    color: #007bff;
-}
-
-/* The Menu Button ⋮ */
-#vault_menuBtn {
-    margin-left: 2px;
-}
-
-.icon-button:active {
-    transform: scale(0.9);
-}
-
-/* Hover/Active states for better feedback */
-.icon-button:hover {
-    color: #007bff; /* Turns blue when hovered/tapped */
-}
-
-.menuDropdown-content {
-    display: none;
-    position: absolute;
-    right: 0;
-    top: 100%; /* Safari needs this to be clear */
-    background-color: white;
-    min-width: 180px;
-    box-shadow: 0px 8px 16px rgba(0,0,0,0.2);
-    z-index: 1001; /* Must be higher than container */
-    border-radius: 8px;
-    padding: 8px 0;
-    margin-top: 5px;
-
-    /* Safari specific: force visibility when shown */
-    pointer-events: auto;
-}
-
-.menuDropdown-content button {
-    text-align: left;
-    background: none;
-    color: #333;
-    padding: 12px 16px;
-    border-radius: 0;
+    font-size: 1.2rem;
+    padding: 0;
     margin: 0;
-    font-weight: normal;
+    background: transparent;
+    border: none;
+    cursor: pointer;
 }
 
-.menuDropdown-content button:hover { background-color: #f1f1f1; }
-.menuDropdown-content hr { border: 0; border-top: 1px solid #eee; margin: 4px 0; }
-.menuDropdown-content .danger-text { color: var(--error-color); }
-.show-menu { display: block !important; }
+/* --- VAULT TITLE PRECISION ALIGNMENT --- */
+#vault_title {
+    font-size: 1.1rem;
+    margin: 0;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
 
-/* --- MESSAGES & LOGS --- */
-.unlock-message {
-    margin-top: 10px;
-    padding: 10px;
-    text-align: center;
-    font-size: 0.9rem;
-    flex-shrink: 0;    /* Ensure the message doesn't collapse */
+    /* THE FIX: Nudge the text down by 1-2 pixels to match the icon baseline */
+    transform: translateY(2px);
+
+    /* Ensure the font doesn't add its own weird vertical padding */
+    line-height: 1.2;
+    height: 100%;
 }
 
-#log {
+/* Ensure the lock icon isn't also being nudged */
+#vault_toggleSecuredBtn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transform: none; /* Keep the icon on the true center */
+    margin-top: 2px;
+}
+
+
+/* --- 6. THE SKIN (Buttons & Inputs) --- */
+button {
     width: 100%;
-    max-height: 300px; /* Limits log height so it doesn't eat the whole screen */
-    overflow-y: auto;
-    background: #e0e0e0;
-    border-radius: 6px;
-    padding: 0.5rem;
-    font-size: 0.85rem;
-    white-space: pre-wrap;
+    padding: 14px;
+    border-radius: 8px;
+    border: none;
+    background-color: var(--primary-color);
+    color: white;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    margin-bottom: 12px;
+}
+
+input[type="text"],
+input[type="password"] {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    font-size: 1rem;
+    margin-bottom: 15px;
+}
+
+.icon-button {
+    background: transparent;
+    border: none;
+    font-size: 1.3rem;
+    padding: 8px;
+    width: auto;
+    height: auto;
+    cursor: pointer;
+    color: inherit;
+    display: flex;
+    align-items: center;
+}
+
+/* --- 7. RAW DATA TEXTAREA (The only height exception) --- */
+#vaultRawData_content {
+    width: 100%;
+    height: 70vh; /* Fixed height for the code view */
     font-family: monospace;
-    flex-shrink: 0; /* Log takes its space, then stops */
+    padding: 10px;
+    background: #f8f9fa;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    margin-bottom: 15px;
 }
 
-/* --- VISIBILITY CONTROL --- */
-#login_pwdSection,
-#login_confirmPwdSection,
-#vaultRecoveryKey_mainSection,
-#vaultRecoveryKey_currentPwdSection {
-    display: none;
-}
-
-/* --- LOGIN RECOVERY SECTION --- */
-#login_recoverySection {
-    width: 100%;
+/* --- LOGIN SPECIFIC REFINEMENT --- */
+#loginBody {
     display: flex;
     flex-direction: column;
-    align-items: center; /* This centers the children horizontally */
-    justify-content: center;
-    gap: 0.5rem;
-    margin-top: 1rem;
+    align-items: center; /* Centers items horizontally */
+    text-align: center;
+    color: #555;
+    font-size: 0.95rem;
 }
 
-/* Ensure the link-button itself doesn't try to fill the whole width */
-#login_recoveryLnk.link-button {
-    width: auto !important;
-    text-align: center;
-    display: inline-block;
+/* Force all input groups inside the login body to match width */
+#loginBody .input-group {
+    width: 100%;
+    max-width: 100%;
+    display: flex;
+    flex-direction: column;
+    /* This ensures the LABEL stays on the left */
+    align-items: flex-start;
+    text-align: left;
+}
+
+/* This ensures the INPUT inside the group fills the 100% width */
+#loginBody .input-group input {
+    width: 100%;
+    display: block;
+}
+
+/* Ensure the label has its own line and stays left */
+#loginBody .input-group label {
+    width: 100%;
+    text-align: left;
+    margin-bottom: 5px;
+}
+
+.login-user-line {
+    display: block; /* Acts as one single row in the vertical flex stack */
+    margin: 10px 0;
+    font-size: 0.95rem;
+    color: #555;
+}
+
+.login-user-line b {
+    color: var(--primary-color);
 }
 
 #login_pwdSection {
+    width: 100%;
     display: flex;
     flex-direction: column;
+    align-items: center;
+}
+
+/* --- LINK BUTTON RESTORE --- */
+button.link-button {
+    background: none !important;
+    color: var(--primary-color) !important;
+    border: none !important;
+    padding: 0 !important;
+    margin-top: 20px !important;
+    width: auto !important; /* Don't span full width */
+    font-size: 0.95rem;
+    font-weight: normal;
+    text-decoration: underline;
+    box-shadow: none !important;
+    cursor: pointer;
+
+    text-decoration: none !important; /* Removes the underline */
+    font-weight: 600 !important;      /* Makes it slightly punchier to look like a link */
+}
+
+button.link-button:hover {
+    opacity: 0.8;
+}
+
+button.link-button:active {
+    transform: none;
+    opacity: 0.7;
+}
+
+#login_recoverySection {
+    display: flex;
+    justify-content: center;
     width: 100%;
 }
 
-/* --- MESSAGES & LOGS (Fixed) --- */
+/* --- 10. STATUS & ERROR MESSAGES --- */
 .unlock-message, .status-message {
-    margin-top: 12px;
+    margin-top: 15px;
+    font-size: 0.9rem;
     min-height: 1.2em;
-    font-size: 0.95rem;
-    text-align: center; /* Ensures centering */
-    width: 100%;        /* Takes full width to center text properly */
+    width: 100%;
+    text-align: center;
+    transition: color 0.2s;
 }
 
-/* Add the color logic back */
-.unlock-message.error, .status-message.error { color: var(--error-color); }
-.unlock-message.success, .status-message.success { color: var(--success-color); }
+/* The "Skin" for the messages */
+.unlock-message.error, .status-message.error {
+    color: var(--danger);
+    font-weight: 600;
+}
+
+.unlock-message.success, .status-message.success {
+    color: #0f6d3c;
+    font-weight: 600;
+}
+
+/* Dropdown Menu styling */
+/* --- 12. CONSOLIDATED MENU DROPDOWN --- */
+.menu-container {
+    position: relative;
+}
+
+.menuDropdown-content {
+    display: none; /* Hidden by default */
+    position: absolute;
+    right: 0;
+    top: 50px;
+    background-color: #ffffff;
+    min-width: 200px;
+    padding: 8px 0;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    box-shadow: 0px 8px 16px rgba(0,0,0,0.15);
+    z-index: 1001;
+}
+
+/* Logic for JS to toggle visibility */
+.show-menu {
+    display: block !important;
+}
+
+/* Resetting the global 'fat button' styles for menu items */
+.menuDropdown-content button {
+    width: 100%;
+    background: none !important;
+    color: #333 !important;
+    padding: 12px 16px !important;
+    text-align: left !important;
+    border: none !important;
+    border-radius: 0 !important;
+    margin: 0 !important;
+    font-size: 0.95rem;
+    font-weight: 500 !important;
+    box-shadow: none !important;
+    cursor: pointer;
+}
+
+.menuDropdown-content button:hover {
+    background-color: #f5f5f5 !important;
+    color: var(--primary-color) !important;
+}
+
+.menuDropdown-content button.danger-text {
+    color: var(--danger) !important;
+}
+
+.menuDropdown-content hr {
+    border: 0;
+    border-top: 1px solid #eee;
+    margin: 4px 0;
+}
+
+
+
+/* --- VAULT NAV BAR (BREADCRUMBS) --- */
+#vault_mainSection {
+    display: flex;
+    flex-direction: column; /* FORCES TOP-TO-BOTTOM STACKING */
+    width: 100%;
+}
 
 #vault_navBar {
-    padding: 12px 15px;
-    background: #f8f9fa;
-    border-bottom: 1px solid #ddd;
-    margin-bottom: 10px;
+    width: 100%; /* Ensures it takes the full width of the screen */
+    display: flex;
+    align-items: center;
+    background-color: #ffffff;
+    padding: 0 16px;
+    height: 44px;
+    border-bottom: 1px solid #e0e0e0;
+    margin-bottom: 8px;
+}
+
+#vault_breadcrumbs {
+    display: flex;
+    align-items: center;
+    font-size: 0.85rem;
+    color: #777;
+    gap: 2px;
+    height: 100%; /* Ensure it uses the full height of the navBar */
+}
+
+.breadcrumb-item {
+    color: var(--primary-color);
+    font-weight: 500;
+    padding: 10px 4px;
+    cursor: pointer;
+    text-decoration: none !important;
+
+    /* THE ALIGNMENT FIX */
+    display: inline-flex;
+    align-items: center;
+    transform: translateY(2px); /* Nudges the text down to match the House base */
+}
+
+/* We must EXEMPT the House icon from the nudge so it doesn't sink */
+.breadcrumb-item:first-child {
+    transform: none !important;
+}
+
+.breadcrumb-item:hover {
+    text-decoration: underline;
+}
+
+/*
+.breadcrumb-sep {
+    margin: 0 2px;
+    color: #999;
+    font-weight: 300;
+}
+*/
+
+.sep {
+    color: #999;
+    font-weight: 600;
+    font-size: 0.9rem;
+    margin: 0 6px;
+    user-select: none;
+    transform: translateY(1px); /* Slight nudge for the chevron */
 }
 
 .breadcrumb-item.link {
-    color: #007bff;
+    color: var(--primary-color);
+    text-decoration: none !important; /* Remove the line */
     cursor: pointer;
-    text-decoration: none;
+    font-weight: 500;
 }
 
 .breadcrumb-item.link:hover {
-    text-decoration: underline;
+    text-decoration: none; /* Keep it clean even on hover */
+    opacity: 0.8;
+}
+
+.breadcrumb-item.link:active {
+    opacity: 0.5;
 }
 
 .breadcrumb-item.active {
     color: #333;
     font-weight: 600;
+    text-decoration: none !important;
+    cursor: default; /* No pointer for the current page */
 }
 
-.sep {
-    color: #ccc;
-    margin: 0 5px;
+/* --- 13. EXPLORER LIST ROWS --- */
+#vault_explorer {
+    width: 100%; /* Ensures the tiles take the full width */
+    display: block; /* Standard block behavior to prevent flex-squashing */
 }
 
-.detail-view { padding: 5px; }
-.field-box { margin-bottom: 20px; }
-.field-box label {
-    display: block;
-    font-size: 0.75rem;
-    text-transform: uppercase;
-    color: #888;
-    margin-bottom: 5px;
-}
-.input-wrap { display: flex; gap: 8px; }
-.input-wrap input, .field-box textarea {
-    flex: 1;
-    padding: 10px;
-    border: 1px solid #ddd;
-    border-radius: 6px;
-    background: #f9f9f9;
-    font-family: monospace;
-}
-.icon-btn {
-    background: white;
-    border: 1px solid #ddd;
-    border-radius: 6px;
-    padding: 5px 10px;
-    cursor: pointer;
-}
-.audit-footer {
-    margin-top: 40px;
-    padding-top: 15px;
-    border-top: 1px dashed #eee;
-    font-size: 0.7rem;
-    color: #aaa;
-}
-
-.input-wrap {
+/* Ensure the tiles (list-rows) fill their container */
+.list-row {
+    width: 100%;
     display: flex;
-    gap: 8px;
-    width: 100%; /* Force full width */
-    align-items: stretch;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 16px;
+    background: #ffffff;
+    border: 1px solid #eef0f2;
+    border-radius: 10px;
+    margin-bottom: 8px;
+    cursor: pointer; /* The 'hand' gesture for PC */
+    transition: background-color 0.2s, transform 0.1s, box-shadow 0.2s;
 }
 
-.input-wrap input {
-    flex: 1;         /* Take up all remaining space */
-    min-width: 0;    /* CRITICAL: Prevents the input from overflowing its parent */
-    width: 100%;     /* Ensure it tries to fill the flex-grow area */
-    padding: 10px;
+/* Mouse-over effect for PC */
+@media (hover: hover) {
+    .list-row:hover {
+        background-color: #fcfcfc;
+        border-color: var(--primary-color);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        transform: translateY(-1px); /* Subtle lift */
+    }
+}
+
+.list-row:active {
+    transform: scale(0.98);
+    background-color: #f0f0f0;
+}
+
+.list-row .row-title {
+    font-weight: 500;
+    color: #333;
     font-size: 1rem;
 }
 
-.icon-btn {
-    flex-shrink: 0;  /* DO NOT allow buttons to get smaller than their content */
-    width: 44px;     /* Fixed width for consistency */
+.list-row .row-meta {
+    color: #aaa;
+    font-size: 0.85rem;
     display: flex;
     align-items: center;
-    justify-content: center;
-    background: #fff;
+    gap: 8px;
 }
 
-/* Add to style.css */
-.field-input:not([readonly]) {
-    background: #ffffff !important;
-    border: 1px solid var(--primary-color, #007bff);
-box-shadow: 0 0 5px rgba(0, 123, 255, 0.2);
+/* If the row is a folder, give it a tiny 'count' badge */
+.list-row .count {
+    background: #f0f2f5;
+    padding: 2px 8px;
+    border-radius: 12px;
+    color: #666;
+    font-family: monospace;
 }
 
-.delete-field-btn {
-    color: #dc3545;
-    border-color: #f8d7da;
-}
-
-/* style.css */
-.label-input {
-    border: none;
-    background: transparent;
-    font-weight: bold;
-    font-size: 0.75rem;
-    text-transform: uppercase;
-    color: #888;
-    margin-bottom: 5px;
+/* --- DEPTH 3: FIELD BOX REFINEMENT --- */
+.field-box {
+    margin-bottom: 8px;
     width: 100%;
-    outline: none;
 }
 
-.editable .label-input {
-    color: var(--primary-color);
-    border-bottom: 1px dashed #ccc;
-}
-
-.editable .field-input {
-    background: #fff !important;
-    border: 1px solid #007bff;
-}
-
-/* Add to style.css */
 .item-meta-bar {
     display: flex;
     justify-content: space-between;
-    padding: 0 5px 15px 5px; /* Bottom padding to separate from fields */
-    margin-bottom: 10px;
+    padding: 0 4px 6px 4px;
+    padding-bottom: 6px;
+    margin-bottom: 8px;
     font-size: 0.65rem;
-    color: #bbb; /* Subtle grey so it doesn't distract */
-    font-family: var(--font-mono, monospace);
-    border-bottom: 1px solid #f0f0f0;
+    color: #999; /* Even more subtle */
+    border-bottom: 1px solid #eee;
 }
 
 .meta-left {
     text-align: left;
+    flex: 1;
 }
 
 .meta-right {
     text-align: right;
+    flex: 1;
 }
 
-.list-row {
+/* Header: Spans full width, Label on left, Buttons on right */
+.field-header {
     display: flex;
     justify-content: space-between;
+    align-items: flex-end; /* Aligns label and icon to the bottom of their row */
+    margin-bottom: 2px;
+}
+
+/* The Label (now an input) */
+.label-input {
+    border: none !important;
+    background: transparent !important;
+    font-weight: 700 !important;
+    font-size: 0.7rem !important;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: #777 !important;
+    width: auto !important; /* Don't let it push the buttons away */
+    padding: 0 !important;
+    margin: 0 !important;
+}
+
+/* The Container for Copy/Trash */
+.field-actions {
+    display: flex;
+    gap: 4px;
+}
+
+/* RESET: Turn the big blue buttons into small grey icons */
+.field-actions .icon-btn {
+    width: 28px !important;
+    height: 28px !important;
+    min-width: 28px !important;
+    background: transparent !important; /* Remove the blue */
+    color: #666 !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    font-size: 0.9rem !important;
+    box-shadow: none !important;
+    display: flex;
     align-items: center;
+    justify-content: center;
+}
 
-    /* 1. More Padding */
-    padding: 18px 20px;
-    margin-bottom: 10px; /* Space between the "cards" */
+.field-actions .icon-btn:hover {
+    background-color: #eee !important;
+    color: var(--primary-color) !important;
+    border-radius: 4px;
+}
 
-    /* 2. Light Shading & Pop */
-    background: #ffffff;
-    border: 1px solid #eaeaea;
+.field-actions .delete-field-btn:hover {
+    color: var(--error-color) !important;
+    background-color: #ffebee !important;
+}
+
+/* The Main Data Input */
+.field-input {
+    width: 100% !important;
+    background: #ffffff !important;
+    border: 1px solid #ddd !important;
+    border-radius: 8px !important;
+    padding: 12px !important;
+    font-family: monospace !important;
+    font-size: 1rem !important;
+    color: #333 !important;
+}
+
+/* Editable state highlight */
+.editable .label-input {
+    color: var(--primary-color) !important;
+    border-bottom: 1px dashed #ccc !important;
+}
+
+/* --- VAULT RAW DATA VIEW --- */
+#vaultRawData_content {
+    width: 100%;
+    /* Fill most of the screen minus the button and header */
+    height: 82vh;
+    height: 82dvh;
+
+    background-color: #e6e6e6; /* Dark theme looks better for raw data */
+    color: #494747;
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-size: 0.8rem;
+    line-height: 1.5;
+    padding: 16px;
     border-radius: 8px;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.03);
+    margin-top: 5px;
+    margin-bottom: 10px;
 
-    /* 3. Pointer for PC */
+    /* THE CRITICAL FIXES */
+    white-space: pre;           /* Keeps the JSON structure/indentation */
+    overflow: auto;             /* Allows both horizontal and vertical scrolling inside the box */
+    word-wrap: normal;          /* Stops the ugly mid-word breaking */
+    border: 1px solid #333;
+    box-sizing: border-box;     /* Forces the padding to stay inside the 100% width */
+}
+
+/* Make sure the main section doesn't have weird constraints */
+#vaultRawData_mainSection {
+    display: none;
+    width: 100%;
+    max-width: none !important; /* Allow it to hit the edges */
+    padding: 0 15px;
+    box-sizing: border-box;
+}
+
+/* Subtle hover effect for the 'Tap to Copy' hint */
+#vaultRawData_content:active {
+    background-color: #f0f0f0;
+}
+
+#vaultRawData_closeBtn {
+/* Uses the global primary button style, just ensures it's full width */
+    width: 100%;
+    margin-top: 5px;
+}
+
+#vaultRawData_closeBtn {
+    background-color: var(--primary-color);
+    color: white;
+    border: none;
+    padding: 14px;
+    border-radius: 8px;
+    font-weight: 600;
     cursor: pointer;
-
-    transition: all 0.2s ease;
+    transition: opacity 0.2s;
 }
 
-.list-row .count {
-    padding: 2px 8px;
-    font-size: 0.85rem;
-    font-weight: 600;      /* Bold by default so it's readable */
-    color: #999;           /* Neutral when not hovered */
-    font-family: var(--font-mono, monospace);
-    transition: color 0.2s ease;
+#vaultRawData_closeBtn:active {
+    opacity: 0.8;
 }
 
-.list-row:hover {
-    background: #fdfdfd;
-    border-color: #007bff;
-    transform: translateY(-1px); /* Subtle "lift" effect */
-    box-shadow: 0 4px 8px rgba(0,0,0,0.08);
+/* --- BUTTON GROUP UNIFICATION --- */
+.button-group {
+    display: flex;
+    gap: 10px;
+    margin-top: 15px;
 }
 
-.list-row:hover .arrow {
-    color: #007bff;
-    transform: translateX(3px);
-    transition: transform 0.2s;
+.button-group button {
+    flex: 1;
+    margin-bottom: 0 !important; /* Overwrite global bottom margin */
+    padding: 12px !important;
 }
 
-.list-row:hover .count {
-    background: transparent; /* Ensure no background appears */
-    color: #007bff;          /* Primary action color on hover */
+/* Secondary/Cancel Style */
+#vaultAddNew_cancelBtn,
+#vaultDelete_cancelBtn,
+#vaultRecoveryKey_cancelBtn,
+.secondary-btn {
+    background-color: #f0f2f5 !important;
+    color: #444 !important;
+    border: 1px solid #ddd !important;
+    box-shadow: none !important;
 }
 
-/* Make the icons/text inside pop slightly more */
-.list-row span:first-child {
-    font-weight: 500;
-    color: #333;
+/* Danger/Delete Style */
+#vaultDelete_confirmBtn {
+    background-color: #ffebee !important; /* Soft Red Background */
+    color: #c62828 !important;          /* Strong Red Text */
+    border: 1px solid #f5c6cb !important;
+    font-weight: 600;
 }
 
-#vault_explorer {
-    padding: 15px;
-    background-color: #fcfcfc; /* Very light grey */
-    min-height: 400px;
-    border-radius: 0 0 12px 12px;
-}
-
-#vault_explorer {
-    flex: 1; /* This forces the white area to expand to the bottom of the screen */
-    background-color: #fcfcfc;
-    padding: 15px;
+#vaultDelete_confirmBtn:active {
+    background-color: #f8d7da !important;
 }
 
 #vaultDelete_confirmBtn:hover {
-    background-color: #dc3545 !important;
-    color: #fff !important;
+    background-color: #c62828 !important;
+    color: white !important;
 }
 
-#vaultDelete_mainSection h3,
-#vaultAddNew_mainSection h3 {
+/* --- UNIVERSAL MANAGEMENT LAYOUT (Add/Delete/Recovery) --- */
+
+/* 1. Ensure the container fills the screen width */
+#vaultAddNew_mainSection,
+#vaultDelete_mainSection,
+#vaultRecoveryKey_mainSection {
+    width: 100% !important;
+    max-width: none !important;
+    padding: 0px 15px;
+}
+
+/* 2. Fix the "Current Password" and other inputs */
+#vaultRecoveryKey_mainSection .input-group,
+#vaultAddNew_mainSection .input-group {
+    width: 100% !important;
+    margin-bottom: 15px;
+}
+
+/* 3. The Button Row: This forces the 'flex: 1' buttons to sit side-by-side */
+.button-group {
+    display: flex !important;
+    flex-direction: row !important; /* Forces horizontal */
     width: 100%;
-    padding-bottom: 15px;
-    margin-bottom: 20px;
-    border-bottom: 1px solid #ddd;
-    box-shadow: 0 1px 0 0 #fff; /* A tiny white highlight below the line */
+    gap: 12px;
+    margin-top: 10px;
+}
+
+.button-group button {
+    flex: 1 !important; /* Each button takes exactly 50% */
+    width: auto !important; /* Overrides the global 100% width */
+    margin-bottom: 0 !important; /* Removes the bottom gap */
+}
+
+/* --- MANAGEMENT TITLES (Add/Delete) --- */
+
+#vaultAddNew_title,
+#vaultDelete_title {
+    font-size: 1.1rem;
+    font-weight: 700;
+    margin: 0 0 15px 0;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #ccc; /* The horizontal line */
+    color: #444; /* Standard generic color */
+}
+
+/* Specific Blue for data-driven titles */
+.data-title {
+    color: var(--primary-color) !important;
 }

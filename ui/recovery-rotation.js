@@ -10,13 +10,13 @@ function showRecoveryRotationStatusMessage(msg, type = "error") {
 }
 
 function doCancelRecoveryRotationClick() {
-    log("vaultUI.doCancelRecoveryRotationClick", "called");
+    log("recKeyRotUI.doCancelRecoveryRotationClick", "called");
     vaultRecoveryKeyUI.mainSection.setVisible(false);
     vaultUI.mainSection.setVisible(true);
 }
 
 async function doRotateRecoveryKeyClick(rotateMode) {
-    log("vaultUI.doRotateRecoveryKeyClick", "called - Starting recovery key creation in rotateMode:", rotateMode);
+    log("recKeyRotUI.doRotateRecoveryKeyClick", "called - Starting recovery key creation in rotateMode:", rotateMode);
 
     try {
 
@@ -48,14 +48,14 @@ async function doRotateRecoveryKeyClick(rotateMode) {
 
         const recoveryIdentity = await ID.createRecoveryIdentity(pwd);
 
-        log("vaultUI.doRotateRecoveryKeyClick", "Private key encrypted with recovery password");
+        log("recKeyRotUI.doRotateRecoveryKeyClick", "Private key encrypted with recovery password");
 
         // 4️⃣ Ensure recovery folder
         const recoveryFolderId = await R.ensureRecoveryFolder();
 
         // 5️⃣ Write private recovery file
         await GD.upsertJsonFile({ name: C.RECOVERY_KEY_PRIVATE_FILE, parentId: recoveryFolderId, json: recoveryIdentity, overwrite: true });
-        log("vaultUI.doRotateRecoveryKeyClick", `${C.RECOVERY_KEY_PRIVATE_FILE} written`);
+        log("recKeyRotUI.doRotateRecoveryKeyClick", `${C.RECOVERY_KEY_PRIVATE_FILE} written`);
 
         // 6️⃣ Write public recovery file (matching device key structure)
         const recoveryPublicJson = {
@@ -78,7 +78,7 @@ async function doRotateRecoveryKeyClick(rotateMode) {
         };
 
         await GD.upsertJsonFile({name: C.RECOVERY_KEY_PUBLIC_FILE, parentId: recoveryFolderId, json: recoveryPublicJson, overwrite: true });
-        log("vaultUI.doRotateRecoveryKeyClick", `${C.RECOVERY_KEY_PUBLIC_FILE} written`);
+        log("recKeyRotUI.doRotateRecoveryKeyClick", `${C.RECOVERY_KEY_PUBLIC_FILE} written`);
 
         // Refresh registry with newly uploaded recovery public key
         await RG.buildKeyRegistryFromDrive();
@@ -89,7 +89,7 @@ async function doRotateRecoveryKeyClick(rotateMode) {
             keyId: recoveryIdentity.fingerprint
         });
 
-        log("vaultUI.doRotateRecoveryKeyClick", "Recovery key successfully established");
+        log("recKeyRotUI.doRotateRecoveryKeyClick", "Recovery key successfully established");
         //showRecoveryRotationStatusMessage("Recovery key created!", "status-message success");
 
         vaultRecoveryKeyUI.rotateBtn.setEnabled(true);
@@ -106,7 +106,7 @@ async function doRotateRecoveryKeyClick(rotateMode) {
  * EXPORTED FUNCTIONS
  */
 export async function showRecoveryRotationUI() {
-    log("vaultUI.showRecoveryRotationUI", "called");
+    log("recKeyRotUI.showRecoveryRotationUI", "called");
 
     const rotateMode = await R.hasRecoveryKeyOnDrive();
 

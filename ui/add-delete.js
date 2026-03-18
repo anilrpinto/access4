@@ -15,13 +15,18 @@ export function showAddNewUI(depth, toParentId, vaultData, {onAdd = () => {},  o
     vaultAddNewUI.mainSection.setVisible(true);
     input.focus();
 
+    vaultAddNewUI.addBtn.setText("Add");
     let hdr = "Add Group";
-    if (depth === 2) {
+    if (depth === 1) {
+        vaultAddNewUI.title.classList.remove('data-title'); // Standard grey
+    } else if (depth === 2) {
         const group = vaultData.groups.find(g => g.id === toParentId);
         hdr = group ? group.name : "Add Item";
 
         if (group)
             vaultAddNewUI.addBtn.setText("Add Item");
+
+        vaultAddNewUI.title.classList.add('data-title'); // Turns Blue
     }
     title.setText(hdr);
 
@@ -56,15 +61,17 @@ export function showDeleteUI(depth, groupId, itemId, vaultData, {onConfirm = () 
 
     let msg;
     if (depth === 2) {
-        msg = `This will delete <b>${groupName}</b> and all its child items. Continue?`;
-        vaultDeleteUI.title.setText("Group Deletion");
+        msg = `This will delete selected group and all its child items. Continue?`;
+        vaultDeleteUI.title.setText(groupName);
         vaultDeleteUI.confirmBtn.setText("Delete Group");
+        //vaultDeleteUI.title.classList.add('data-title'); // Turns Blue
     } else {
         const item = group?.items.find(i => i.id === itemId);
         const itemName = item ? item.label : "this item";
-        msg = `Delete <b>${itemName}</b> from group <b>${groupName}</b> permanently?`;
-        vaultDeleteUI.title.setText("Item deletion");
+        msg = `Delete selected itew from group <b>${groupName}</b> permanently?`;
+        vaultDeleteUI.title.setText(itemName);
         vaultDeleteUI.confirmBtn.setText("Delete Item");
+        //vaultDeleteUI.title.classList.add('data-title'); // Turns Blue
     }
 
     vaultDeleteUI.message.innerHTML = msg;
