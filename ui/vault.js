@@ -26,10 +26,17 @@ const resetTimer = () => {
 
 let vaultData = null;
 
+let vaultClipboard = {
+    mode: null,      // 'cut' (we can add 'copy' later if needed)
+    items: [],       // We will store just the IDs here for simplicity
+    sourceParentId: null
+};
+
 let sessionState = {
     path: ['root'],       // The navigation stack
     isEditable: false,    // Global toggle for Phase 5
-    showSecure: false     // Global toggle for Requirement 1
+    showSecure: false,     // Global toggle for Requirement 1
+    isSelectionMode: false
 };
 
 async function init() {
@@ -45,8 +52,6 @@ async function init() {
     vaultRawDataUI.mainSection.setVisible(false);
     hideRecoveryRotation();
     hideAddDelete();
-
-    vaultUI.logoutMenu.onClick(() => doLogout());
 
     vaultUI.menuBtn.onClick((e) => {
         // 1. Prevent the 'window' or 'body' from seeing this click
@@ -83,6 +88,12 @@ async function init() {
     vaultUI.renameBtn.onClick(doRenameClick);
     vaultUI.deleteBtn.onClick(doDeleteClick);
 
+    vaultUI.selectMenu.onClick(doSelectClick);
+    vaultUI.cutMenu.onClick(doCutClick);
+    vaultUI.pasteMenu.onClick(doPasteClick);
+
+    vaultUI.logoutMenu.onClick(doLogout);
+
     // temporary menu
     vaultUI.copyLogsMenu.onClick(copyLogsToClipboard);
     vaultUI.toggleLogsMenu.onClick(toggleLogs);
@@ -90,6 +101,102 @@ async function init() {
     // Ensure these containers always use flex when shown
     //vaultRawDataUI.mainSection.setFlex();
     //vaultUI.mainSection.setFlex();
+}
+
+function doSelectClick() {
+    log("vaultUI.doSelectClick", "called");
+
+    // If we were in Cut mode OR Selection mode, clicking this should RESET everything
+    if (vaultClipboard.mode === 'cut' || sessionState.isSelectionMode) {
+        sessionState.isSelectionMode = false;
+        vaultClipboard.mode = null;
+        vaultClipboard.items = []; // This clears the array, so the CSS class will drop
+        vaultClipboard.sourceParentId = null;
+        showStatusMessage("Move cancelled", "info");
+    } else {
+        // Otherwise, just start selection mode normally
+        sessionState.isSelectionMode = true;
+    }
+
+    refreshMenuUI();
+    renderVaultExplorer();
+}
+
+function doCutClick() {
+    log("vaultUI.doCutClick", "called");
+
+    if (vaultClipboard.items.length === 0) return;
+
+    vaultClipboard.mode = 'cut';
+    // Remove the single sourceParentId line — it's now in the items array
+    //vaultClipboard.sourceParentId = sessionState.path[1];
+
+    // Turn off selection mode
+    sessionState.isSelectionMode = false;
+
+    // Auto-navigate to root
+    sessionState.path = ['root'];
+
+    refreshMenuUI();
+    showStatusMessage(`${vaultClipboard.items.length} items cut. Select a group to paste.`, "info");
+
+    // Re-render so we see the Group List now
+    renderVaultExplorer();
+}
+
+async function doPasteClick() {
+    log("vaultUI.doPasteClick", "called");
+
+    const targetGroupId = sessionState.path[1];
+
+    // 1. Validation: Must be in a group to paste
+    if (!targetGroupId || targetGroupId === 'root') {
+        showStatusMessage("Open a group to paste items", "error");
+        return;
+    }
+
+    const targetGroup = vaultData.groups.find(g => g.id === targetGroupId);
+    if (!targetGroup) {
+        error("Paste failed: Target group not found");
+        return;
+    }
+
+    let movedCount = 0;
+
+    // 2. Loop through every item in the clipboard
+    vaultClipboard.items.forEach(clipboardEntry => {
+        // Find the source group for THIS specific item
+        const sourceGroup = vaultData.groups.find(g => g.id === clipboardEntry.parentId);
+
+        // Safety: Don't move if source is the same as target
+        if (sourceGroup && sourceGroup.id !== targetGroupId) {
+            const itemIndex = sourceGroup.items.findIndex(i => i.id === clipboardEntry.id);
+
+            if (itemIndex > -1) {
+                // Perform the move
+                const [movedItem] = sourceGroup.items.splice(itemIndex, 1);
+                targetGroup.items.push(movedItem);
+
+                movedItem.modified = new Date().toISOString();
+                movedCount++;
+            }
+        }
+    });
+
+    // 3. Cleanup
+    vaultClipboard.items = [];
+    vaultClipboard.mode = null;
+    vaultClipboard.sourceParentId = null; // No longer needed, but good to clear
+
+    // 4. Final UI Refresh
+    if (movedCount > 0) {
+        showStatusMessage(`Successfully moved ${movedCount} items`, "success");
+    } else {
+        showStatusMessage("No items were moved (already in target group)", "info");
+    }
+
+    refreshMenuUI();
+    renderVaultExplorer();
 }
 
 function doLogout() {
@@ -112,7 +219,12 @@ function doSecure() {
     // 2. Wipe the Session State (Crucial!)
     sessionState.isEditable = false;
     sessionState.showSecure = false;
+    sessionState.isSelectionMode = false;
     sessionState.path = ['root']; // Reset breadcrumbs to root
+
+    vaultClipboard.mode = null;
+    vaultClipboard.sourceParentId = null;
+    vaultClipboard.items = [];
 
     // 3. Clear the DOM (Prevents seeing old data for a split second on re-login)
     vaultUI.breadcrumbs.clear();
@@ -293,7 +405,7 @@ async function doSaveClick() {
     //alert("Saved!");
 }
 
-export function executeAddGroup(name) {
+function executeAddGroup(name) {
     log("vaultUI.executeAddGroup", "called - name:", name);
 
     const newId = 'g-' + Date.now();
@@ -305,7 +417,7 @@ export function executeAddGroup(name) {
     renderVaultExplorer();
 }
 
-export function executeAddItem(name) {
+function executeAddItem(name) {
     log("vaultUI.executeAddItem", "called - name:", name);
 
     const groupId = sessionState.path[1];
@@ -343,7 +455,7 @@ function executeRename(newName) {
     renderVaultExplorer();
 }
 
-export function executeDeletion() {
+function executeDeletion() {
     log("vaultUI.executeDeletion", "called");
 
     const depth = sessionState.path.length;
@@ -378,6 +490,49 @@ export function executeDeletion() {
     renderVaultExplorer();
 }
 
+function refreshMenuUI() {
+    log("vaultUI.refreshMenuUI", "called");
+
+    const count = vaultClipboard.items.length;
+    const isCutting = vaultClipboard.mode === 'cut';
+    const isSelecting = sessionState.isSelectionMode;
+
+    // --- SECTION 1: APP TITLE (vaultUI.title) ---
+    if (isCutting) {
+        vaultUI.title.setText(`${count} Ready to Move`);
+        vaultUI.title.style.color = "#FF9800"; // Orange
+    } else if (isSelecting) {
+        vaultUI.title.setText(count > 0 ? `${count} Selected` : "Select Items...");
+        vaultUI.title.style.color = "var(--primary-color)"; // Blue
+    } else {
+        // RESET: Bring the title back to its default state
+        vaultUI.title.setText("Vault");
+        vaultUI.title.style.color = "";
+    }
+
+    // --- SECTION 2: BREADCRUMBS ---
+    // Always render breadcrumbs so the user knows where they are
+    // globally, regardless of selection/move status.
+    renderBreadcrumbs();
+
+    // --- SECTION 3: MENU VISIBILITY (Updated for UX) ---
+
+    // 1. Only show 'Cut' if we are selecting AND not already in 'Cut' mode
+    vaultUI.cutMenu.setVisible(isSelecting && count > 0 && !isCutting);
+
+    const inGroup = sessionState.path.length === 2;
+    vaultUI.pasteMenu.setVisible(isCutting && inGroup);
+
+    // 2. Update the "Select Multiple" toggle text to handle 'Cancel Move'
+    if (isSelecting || isCutting) {
+        vaultUI.selectMenu.setText(isCutting ? "Cancel Move" : "Cancel Selection");
+        vaultUI.selectMenu.classList.add('active-mode-text');
+    } else {
+        vaultUI.selectMenu.setText("Select Multiple");
+        vaultUI.selectMenu.classList.remove('active-mode-text');
+    }
+}
+
 async function toggleLogs() {
     rootUI.log.toggleVisibility();
 }
@@ -404,7 +559,7 @@ function getNameFromId(id, index) {
  * Renders the Breadcrumb interface
  */
 function renderBreadcrumbs() {
-    const nav = document.getElementById('vault_breadcrumbs');
+    const nav = vaultUI.breadcrumbs;
     if (!nav) return;
 
     nav.innerHTML = "";
@@ -446,10 +601,15 @@ function renderGroupList(container) {
     }
 
     vaultData.groups.forEach(group => {
+        // Check if any item in the clipboard is from THIS group
+        const hasCutItems = vaultClipboard.items.some(i => i.parentId === group.id);
+
         const div = document.createElement('div');
-        div.className = 'list-row';
+        // Add 'source-group' class if items are being cut from here
+        div.className = `list-row ${hasCutItems ? 'source-group-active' : ''}`;
+
         div.innerHTML = `
-            <span>📁 ${group.name}</span>
+            <span>📁 ${group.name} ${hasCutItems ? '<small>(moving items...)</small>' : ''}</span>
             <span class="count">${group.items.length}</span>
         `;
         div.onclick = () => {
@@ -475,14 +635,54 @@ function renderItemList(container, groupId) {
 
     group.items.forEach(item => {
         const div = document.createElement('div');
-        div.className = 'list-row';
+
+        // 1. Check if item is in the clipboard (works for both Selection and Cut modes)
+        const isSelected = vaultClipboard.items.some(i => i.id === item.id);
+
+        div.className = `list-row ${isSelected ? 'to-be-moved' : ''}`;
         div.innerHTML = `<span>📄 ${item.label}</span><span class="arrow">›</span>`;
+
         div.onclick = () => {
-            sessionState.path.push(item.id);
-            renderVaultExplorer(vaultData);
+            // 2. If we are selecting OR if the item is already "Cut",
+            // clicking should only toggle selection/do nothing, not navigate.
+            if (sessionState.isSelectionMode || vaultClipboard.mode === 'cut') {
+                toggleItemSelection(item.id, div);
+            } else {
+                // Normal navigation
+                sessionState.path.push(item.id);
+                renderVaultExplorer();
+            }
         };
         container.appendChild(div);
     });
+}
+
+function toggleItemSelection(id, element) {
+    const index = vaultClipboard.items.findIndex(i => i.id === id);
+
+    if (index > -1) {
+        vaultClipboard.items.splice(index, 1);
+        element.classList.remove('to-be-moved');
+    } else {
+        // WE MUST STORE THE PARENT ID HERE
+        vaultClipboard.items.push({ id: id, parentId: sessionState.path[1] });
+        element.classList.add('to-be-moved');
+    }
+    refreshMenuUI();
+}
+
+function updateMoveToolbar() {
+    const count = vaultClipboard.items.length;
+
+    if (sessionState.isSelectionMode && count > 0) {
+        // Change the "Vault" title to show the count
+        vaultUI.title.setText(`${count} selected`);
+    } else {
+        vaultUI.title.setText("Vault");
+
+        // Put the normal Breadcrumbs back if nothing is selected
+        renderBreadcrumbs();
+    }
 }
 
 function renderItemDetails(container, groupId, itemId) {
@@ -705,9 +905,11 @@ async function renderVaultExplorer() {
         return;
     }
 
-    renderBreadcrumbs();
+    // IMPORTANT: Let refreshMenuUI handle the title/breadcrumbs logic
+    // instead of calling renderBreadcrumbs() directly here.
+    refreshMenuUI();
 
-    const explorer = document.getElementById('vault_explorer');
+    const explorer = vaultUI.explorer;
     if (!explorer) return;
     explorer.innerHTML = "";
 

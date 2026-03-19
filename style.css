@@ -916,3 +916,41 @@ body.vault-frozen {
 body.vault-frozen .list-row:active {
     background-color: transparent; /* Disable the "click" feedback look */
 }
+
+/* Highlight for items marked for moving */
+.list-row.to-be-moved {
+    opacity: 0.5;
+    border-left: 4px dashed var(--primary-color);
+    background-color: #f9f9f9;
+}
+
+/* Visual cue when selection mode is active */
+.selecting .list-row {
+    cursor: cell;
+}
+
+/* Highlight the menu text when Selection Mode is on */
+.active-mode-text {
+    color: #2196F3 !important; /* Professional Blue */
+    font-weight: bold;
+}
+
+/* Optional: Pulse effect on the title when selecting */
+.selecting-active {
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.7; }
+    100% { opacity: 1; }
+}
+
+.source-group-active {
+    border-left: 4px solid #FF9800 !important; /* Orange match for Cut Mode */
+    background-color: rgba(255, 152, 0, 0.05);
+}
+.source-group-active span {
+    font-weight: bold;
+    color: #e68a00;
+}
