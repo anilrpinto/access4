@@ -4,8 +4,8 @@ import { logout } from '../app.js';
 import { loadUI, swapVisibility } from './uihelper.js';
 
 import { rootUI, vaultUI, vaultRawDataUI, copyLogsToClipboard } from './loader.js';
-import { showRecoveryRotationUI } from './recovery-rotation.js';
-import { showAddNewUI, showDeleteUI } from './add-delete.js';
+import { showRecoveryRotationUI, hideRecoveryRotation } from './recovery-rotation.js';
+import { showAddNewUI, showDeleteUI, hideAddDelete } from './add-delete.js';
 
 let idleTimer;
 let idleCallback = null;
@@ -35,17 +35,39 @@ let sessionState = {
 async function init() {
     log("vaultUI.init", "called");
 
-    vaultUI.logoutMenu.onClick(() => logout());
+    sessionState.path = ['root'];
 
-    // Toggle menu visibility
-    vaultUI.menuBtn.addEventListener('click', (e) => {
+    swapVisibility(rootUI.loginView, vaultUI.mainSection);
+
+    // Don't need this IF swapVisibility uses vaultUI.mainSection instead of rootUI.vaultView
+    //vaultUI.mainSection.setVisible(true);
+
+    vaultRawDataUI.mainSection.setVisible(false);
+    hideRecoveryRotation();
+    hideAddDelete();
+
+    vaultUI.logoutMenu.onClick(() => doLogout());
+
+    vaultUI.menuBtn.onClick((e) => {
+        // 1. Prevent the 'window' or 'body' from seeing this click
         e.stopPropagation();
-        vaultUI.menuDropdown.classList.toggle('show-menu');
+
+        const menu = vaultUI.menuDropdown;
+        const isVisible = menu.classList.contains('show-menu');
+
+        console.log(`[Menu Debug] Clicked. Currently visible: ${isVisible}`);
+
+        // 2. Toggle the class
+        menu.classList.toggle('show-menu');
+
+        // 3. Final check
+        console.log(`[Menu Debug] New classList:`, menu.classList.value);
     });
 
-    // Close menu if user clicks anywhere else on the screen
-    window.addEventListener('click', () => {
+    // Add this to your global window listener to see what's CLOSING it
+    window.addEventListener('click', (e) => {
         if (vaultUI.menuDropdown.classList.contains('show-menu')) {
+            console.log(`[Menu Debug] Window click detected on:`, e.target);
             vaultUI.menuDropdown.classList.remove('show-menu');
         }
     });
@@ -62,9 +84,43 @@ async function init() {
     // temporary menu
     vaultUI.copyLogsMenu.onClick(copyLogsToClipboard);
     vaultUI.toggleLogsMenu.onClick(toggleLogs);
+
+    // Ensure these containers always use flex when shown
+    //vaultRawDataUI.mainSection.setFlex();
+    //vaultUI.mainSection.setFlex();
 }
 
-async function showVaultUI({ readOnly = false, onIdle = () => { logout() } } = {}) {
+function doLogout() {
+
+    log("vaultUI.doLogout", "called");
+
+    showStatusMessage("");
+    doSecure();
+    logout();
+}
+
+function doSecure() {
+
+    log("vaultUI.doSecure", "called");
+
+    // 1. Wipe the Data
+    vaultData = null;
+    vaultRawDataUI.content.clear();
+
+    // 2. Wipe the Session State (Crucial!)
+    sessionState.isEditable = false;
+    sessionState.showSecure = false;
+    sessionState.path = ['root']; // Reset breadcrumbs to root
+
+    // 3. Clear the DOM (Prevents seeing old data for a split second on re-login)
+    vaultUI.breadcrumbs.clear();
+    vaultUI.explorer.clear();
+
+    // Use vaultUI.mainSection and not rootUI.vaultView as there's rendering issues in certain cases after log in
+    swapVisibility(vaultUI.mainSection, rootUI.loginView);
+}
+
+async function showVaultUI({ readOnly = false, onIdle = () => { doLogout() } } = {}) {
 
     log("vaultUI.showVaultUI", "called");
 
@@ -91,7 +147,7 @@ async function showVaultUI({ readOnly = false, onIdle = () => { logout() } } = {
         //vaultUI.title.setText("Unlocked (Read-only)");
     } else {
         vaultUI.saveMenu.setEnabled(true);
-        vaultRawDataUI.content.readOnly = false;
+        //vaultRawDataUI.content.readOnly = false;
         //vaultUI.title.setText("Unlocked");
     }
 
@@ -117,6 +173,11 @@ function doToggleSecureClick() {
     // 3. Add a subtle color change to the title to bring further attention
     vaultUI.title.style.color = sessionState.showSecure ? '#dd0000' : '#000';
 
+    // Ensure we start at home if the path got corrupted
+    if (!sessionState.path || sessionState.path.length === 0) {
+        sessionState.path = ['root'];
+    }
+
     // 4. Re-render the explorer to apply state to all secure type fields
     renderVaultExplorer();
 }
@@ -139,13 +200,14 @@ async function doAddClick() {
                 vaultUI.mainSection.setVisible(true);
                 if (depth === 1) executeAddGroup(name);
                 else if (depth === 2) executeAddItem(name);
+
+                refreshAddDeleteBtnVisibility();
             },
-            onCancel: () => vaultUI.mainSection.setVisible(true)
+            onCancel: () => {
+                vaultUI.mainSection.setVisible(true);
+                refreshAddDeleteBtnVisibility();
+            }
         });
-    } else {
-        // Adding a field inside an item can still be "instant"
-        // because the user is already in an editable view
-        createNewField();
     }
 }
 
@@ -165,9 +227,26 @@ async function doDeleteClick() {
         onConfirm: () => {
             executeDeletion();
             vaultUI.mainSection.setVisible(true);
+            refreshAddDeleteBtnVisibility();
         },
-        onCancel: () => vaultUI.mainSection.setVisible(true)
+        onCancel: () => {
+            vaultUI.mainSection.setVisible(true);
+            refreshAddDeleteBtnVisibility();
+        }
     });
+}
+
+function refreshAddDeleteBtnVisibility() {
+    const depth = sessionState.path.length;
+    let a = true, b = true;
+    if (depth === 1) b = false;
+    else if (depth === 3) a = false;
+
+    vaultUI.addBtn.setVisible(a);
+    vaultUI.deleteBtn.setVisible(b);
+
+
+    log("vaultUI.refreshAddDeleteBtnVisibility", `depth:${depth} a:${a} b:${b}`);
 }
 
 async function doToggleEditClick() {
@@ -327,6 +406,10 @@ function renderBreadcrumbs() {
 // --- Phase 3: UI Renderers ---
 
 function renderGroupList(container) {
+    log("vaultUI.renderGroupList", "called");
+
+    refreshAddDeleteBtnVisibility();
+
     if (!vaultData.groups || vaultData.groups.length === 0) {
         container.innerHTML = `<div class="empty-state">No groups found.</div>`;
         return;
@@ -348,6 +431,10 @@ function renderGroupList(container) {
 }
 
 function renderItemList(container, groupId) {
+    log("vaultUI.renderItemList", "called");
+
+    refreshAddDeleteBtnVisibility();
+
     const group = vaultData.groups.find(g => g.id === groupId);
     if (!group) return;
 
@@ -369,6 +456,11 @@ function renderItemList(container, groupId) {
 }
 
 function renderItemDetails(container, groupId, itemId) {
+
+    log("vaultUI.renderItemDetails", "called");
+
+    refreshAddDeleteBtnVisibility();
+
     const group = vaultData.groups.find(g => g.id === groupId);
     const item = group?.items.find(i => i.id === itemId);
 
@@ -440,10 +532,56 @@ function renderItemDetails(container, groupId, itemId) {
         detailEl.appendChild(fieldBox);
     });
 
+    // Pass the 'item' object directly to the template function
+    if (sessionState.isEditable) {
+        addNewFieldTemplate(detailEl, item);
+    }
+
     container.appendChild(detailEl);
 
     // Attach Event Listeners for Copy/Toggle
     attachDetailListeners(container);
+}
+
+function addNewFieldTemplate(targetElement, itemObject) {
+    const addTemplate = document.createElement('div');
+    addTemplate.className = 'field-box add-template';
+
+    addTemplate.innerHTML = `
+        <div class="add-field-row">
+            <input type="text" id="newField_label" placeholder="Label (e.g. Pin)" class="add-label-input">
+            <select id="newField_type" class="add-type-select">
+                <option value="text">Text</option>
+                <option value="secure">Secure</option>
+                <option value="note">Note</option>
+            </select>
+            <button id="newField_confirmBtn" class="add-icon-btn">➕</button>
+        </div>
+    `;
+
+    addTemplate.querySelector('#newField_confirmBtn').onclick = () => {
+        const labelInput = document.getElementById('newField_label');
+        const typeSelect = document.getElementById('newField_type');
+
+        const label = labelInput.value.trim();
+        const type = typeSelect.value;
+
+        if (!label) {
+            alert("Label is mandatory!");
+            return;
+        }
+
+        // FIX: Use the passed itemObject instead of the undefined 'currentItem'
+        itemObject.fields.push({ key: label, val: "", type: type });
+
+        // Update the modified timestamp since the data changed
+        itemObject.modified = new Date().toISOString();
+
+        // Refresh UI
+        renderVaultExplorer();
+    };
+
+    targetElement.appendChild(addTemplate);
 }
 
 function attachDetailListeners(container) {
@@ -489,12 +627,19 @@ function attachDetailListeners(container) {
     // 5. Delete Field Logic
     // Structural change: requires a full re-render to remove the row.
     container.querySelectorAll('.delete-field-btn').forEach(btn => {
-        btn.onclick = () => {
+        btn.onclick = (e) => {
+            // SAFEGUARD 1: Stop the click from bleeding into the background
+            e.stopPropagation();
+
             const index = parseInt(btn.dataset.index);
             const fieldName = item.fields[index].key || "unnamed";
 
             if (confirm(`Delete the "${fieldName}" field?`)) {
                 item.fields.splice(index, 1);
+
+                // SAFEGUARD 2: Flag the item as changed for the sync logic
+                item.modified = new Date().toISOString();
+
                 renderVaultExplorer();
             }
         };
@@ -549,7 +694,6 @@ async function renderVaultExplorer() {
     }
 }
 
-
 /**
  * EXPORTED FUNCTIONS
  */
@@ -563,7 +707,6 @@ export async function loadVault(data, options) {
 }
 
 export function stopVaultIdleCheck() {
-
     log("vaultUI.stopVaultIdleCheck", "called");
 
     idleEvents.forEach(evt => {

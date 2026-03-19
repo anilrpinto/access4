@@ -4,6 +4,7 @@ const _G = {
     gisPrompt: false,
     tokenClient: null,
     accessToken: null,
+    authorizedName: null,
     userEmail: null,
     needsIdentitySetup: false,
     biometricIntent: false,

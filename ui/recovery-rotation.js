@@ -120,3 +120,7 @@ export async function showRecoveryRotationUI() {
 
     showRecoveryRotationStatusMessage("Create a recovery password. This allows account recovery if all devices are lost.", "status-message");
 }
+
+export function hideRecoveryRotation() {
+    vaultRecoveryKeyUI.mainSection.setVisible(false);
+}

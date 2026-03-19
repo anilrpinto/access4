@@ -1,11 +1,13 @@
 import { log, trace, debug, info, warn, error } from '../exports.js';
 
-import { vaultAddNewUI, vaultDeleteUI } from './loader.js';
+import { vaultUI, vaultAddNewUI, vaultDeleteUI } from './loader.js';
 
 // Function to handle the Add Button click in the header
 export function showAddNewUI(depth, toParentId, vaultData, {onAdd = () => {},  onCancel = () => {}} = {}) {
-
     log("vaultAddDelete.showAddNewUI", "called - depth:", depth);
+
+    vaultUI.addBtn.setVisible(false);
+    vaultUI.deleteBtn.setVisible(false);
 
     const title = vaultAddNewUI.title;
     const input = vaultAddNewUI.input;
@@ -56,6 +58,9 @@ export function showAddNewUI(depth, toParentId, vaultData, {onAdd = () => {},  o
 export function showDeleteUI(depth, groupId, itemId, vaultData, {onConfirm = () => {}, onCancel = () => {}} = {}) {
     log("vaultAddDelete.showDeleteUI", "called - depth:", depth);
 
+    vaultUI.addBtn.setVisible(false);
+    vaultUI.deleteBtn.setVisible(false);
+
     const group = vaultData.groups.find(g => g.id === groupId);
     const groupName = group ? group.name : "this group";
 
@@ -68,7 +73,7 @@ export function showDeleteUI(depth, groupId, itemId, vaultData, {onConfirm = () 
     } else {
         const item = group?.items.find(i => i.id === itemId);
         const itemName = item ? item.label : "this item";
-        msg = `Delete selected itew from group <b>${groupName}</b> permanently?`;
+        msg = `Delete selected item from group <b>${groupName}</b> permanently?`;
         vaultDeleteUI.title.setText(itemName);
         vaultDeleteUI.confirmBtn.setText("Delete Item");
         //vaultDeleteUI.title.classList.add('data-title'); // Turns Blue
@@ -88,5 +93,8 @@ export function showDeleteUI(depth, groupId, itemId, vaultData, {onConfirm = () 
     });
 }
 
-
+export function hideAddDelete() {
+    vaultAddNewUI.mainSection.setVisible(false);
+    vaultDeleteUI.mainSection.setVisible(false);
+}
 

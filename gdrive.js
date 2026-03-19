@@ -238,8 +238,9 @@ export async function fetchUserEmail() {
     });
     const data = await res.json();
     G.userEmail = data.email;
+    G.authorizedName = data.name;
 
-    log("GD.fetchUserEmail", "Signed in as xxx@gmail.com"); //+ G.userEmail);
+    log("GD.fetchUserEmail", "Signed in as " + G?.userEmail?.slice(-10));
 }
 
 // auth.js

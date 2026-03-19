@@ -126,7 +126,7 @@ export function loadUI(names, prefix = "", scope = document) {
 
     ui.setVisible = (show) => {
         Object.values(ui).forEach(el => {
-        if (el instanceof HTMLElement) el.setVisible?.(show);
+         if (el instanceof HTMLElement) el.setVisible?.(show);
         });
         return ui;
     };

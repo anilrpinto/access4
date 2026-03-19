@@ -74,6 +74,7 @@ main {
 
 /* --- VAULT HEADER ALIGNMENT --- */
 #vaultView header {
+    isolation: isolate; /* Added safety */
     background-color: var(--vault-header-bg);
     color: #222;
     border-bottom: 1px solid #ddd;
@@ -216,17 +217,65 @@ input[type="password"] {
     margin-bottom: 5px;
 }
 
+/* The container for the entire user status row */
 .login-user-line {
-    display: block; /* Acts as one single row in the vertical flex stack */
-    margin: 10px 0;
-    font-size: 0.95rem;
-    color: #555;
+    display: flex;
+    align-items: center;
+    justify-content: center; /* Default: Center "Not signed in" */
+
+    width: 100%;             /* Occupy full container width */
+    max-width: none;         /* Remove the 400px limit so it matches the input */
+
+    margin-top: 10px;        /* Space from header */
+    margin-bottom: 25px;     /* THE FIX: More space before the Password field */
+
+    padding: 8px 0;          /* A bit more vertical height for the row */
+    font-size: 1rem;
+    border-bottom: 1px solid #eee;
 }
 
-.login-user-line b {
-    color: var(--primary-color);
+/* Ensure the label for the password field doesn't have a huge top margin now */
+#loginBody .input-group label {
+    margin-top: 0;
+    margin-bottom: 8px;
 }
 
+/* When signed in, flip to space-between */
+.login-user-line.signed-in {
+    justify-content: space-between;
+}
+
+/* The Left Side wrapper */
+.user-info-left {
+    display: flex;
+    gap: 4px;
+    align-items: baseline; /* Aligns text by the bottom of the letters */
+    text-align: center;
+}
+
+/* Specific styling for the "Not signed in" state */
+#login_welcomeSpan.not-signed-in {
+    color: var(--danger);
+    font-weight: 600;
+}
+
+#login_authorizedNameSpan {
+    color: var(--text-main);
+    font-weight: 700;
+}
+
+/* Ensure the signout button doesn't have weird margins */
+#login_signoutLnk {
+/* Remove any default padding/margins that might push it inward */
+    padding: 0 !important;
+    margin: 0 !important;
+    height: auto !important;
+    width: auto !important;
+
+    /* Align text to the right inside its own tiny box */
+    text-align: right;
+    font-size: 1rem;
+}
 #login_pwdSection {
     width: 100%;
     display: flex;
@@ -297,8 +346,8 @@ button.link-button:active {
 .menuDropdown-content {
     display: none; /* Hidden by default */
     position: absolute;
-    right: 0;
-    top: 50px;
+    right: 10px;
+    top: 55px;
     background-color: #ffffff;
     min-width: 200px;
     padding: 8px 0;
@@ -577,6 +626,21 @@ button.link-button:active {
     background-color: #ffebee !important;
 }
 
+/* --- TRASH ICON HOVER STATE --- */
+.delete-field-btn {
+    transition: color 0.2s, background-color 0.2s;
+}
+
+.delete-field-btn:hover {
+    color: #dc3545 !important; /* var(--danger) */
+    background-color: #fff5f5 !important; /* Very light red hint */
+    border-radius: 4px;
+}
+
+.delete-field-btn:active {
+    transform: scale(0.9);
+}
+
 /* The Main Data Input */
 .field-input {
     width: 100% !important;
@@ -744,4 +808,81 @@ button.link-button:active {
 /* Specific Blue for data-driven titles */
 .data-title {
     color: var(--primary-color) !important;
+}
+
+/* --- ADD FIELD TEMPLATE (SLIMMED) --- */
+.add-template {
+    margin-top: 15px;
+    padding: 6px 12px !important; /* Reduced vertical padding */
+    background: #fcfcfc;
+    border: 1px dashed #ccc;
+    border-radius: 8px;
+}
+
+.add-field-row {
+    display: flex;
+    flex-direction: row !important;
+    align-items: center; /* Changed from stretch to center for better icon alignment */
+    gap: 8px;
+    width: 100%;
+    min-height: 36px; /* Sets a slim baseline */
+}
+
+.add-label-input {
+    flex: 2;
+    border: none !important;
+    background: transparent !important;
+    font-size: 0.9rem !important;
+    /* Reset height and padding to slim the box */
+    height: 36px !important;
+    padding: 0 8px !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+}
+
+.add-type-select {
+    flex: 1;
+    height: 32px !important; /* Slightly shorter than the input for visual balance */
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    padding: 0 4px !important;
+    font-size: 0.85rem;
+    color: #666;
+    background: white;
+}
+
+/* --- ADD FIELD BUTTON (ICON STYLE) --- */
+.add-field-row .add-icon-btn {
+/* 1. Remove the solid blue block */
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+
+    /* 2. Style the plus sign itself */
+    color: var(--primary-color) !important;
+    font-size: 1.4rem !important;
+    font-weight: bold;
+
+    /* 3. Reset dimensions to be a slim square */
+    width: 36px !important;
+    min-width: 36px !important;
+    height: 36px !important;
+    padding: 0 !important;
+    margin: 0 !important;
+
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0; /* Prevents button from squishing */
+}
+
+/* Subtle hover effect */
+.add-field-row .add-icon-btn:hover {
+    background-color: #f0f4ff !important;
+    border-radius: 50%;
+}
+
+.add-field-row .add-icon-btn:active {
+    transform: scale(0.9);
 }

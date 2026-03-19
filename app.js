@@ -5,7 +5,7 @@ import { C, G, clearGlobals, E, log, trace, debug, info, warn, error,
 
 import { loadUI } from './ui/uihelper.js';
 
-import { loadLogin, enterPreSignInMode }  from './ui/login.js';
+import { loadLogin }  from './ui/login.js';
 
 function onLoad() {
 
@@ -14,9 +14,9 @@ function onLoad() {
     log("APP.onLoad", `called for [v${C.APP_VERSION}]`);
     loadLogin();
 
-    log("APP.onLoad", "sessionStorage sv_session_private_key exists:", !!sessionStorage.getItem("sv_session_private_key"));
-    log("APP.onLoad", "G.unlockedIdentity:", !!G.unlockedIdentity);
-    log("APP.onLoad", "G.currentPrivateKey:", !!G.currentPrivateKey);
+    //log("APP.onLoad", "sessionStorage sv_session_private_key exists:", !!sessionStorage.getItem("sv_session_private_key"));
+    //log("APP.onLoad", "G.unlockedIdentity:", !!G.unlockedIdentity);
+    //log("APP.onLoad", "G.currentPrivateKey:", !!G.currentPrivateKey);
 }
 
 async function releaseDriveLock() {
@@ -43,9 +43,7 @@ async function releaseDriveLock() {
 
 window.onload = async () => {
     await onLoad();
-
     clearGlobals();
-    enterPreSignInMode();
 };
 
 /**
@@ -56,15 +54,14 @@ export function logout() {
 
     releaseDriveLock();
 
-    // 1️⃣ Release Drive lock if held
+    // Release Drive lock if held
     E.handleDriveLockLost(); // stops heartbeat & clears local G.driveLockState
 
-    // 2️⃣ Clear user-specific memory
+    // Clear user-specific memory
     clearGlobals();
     sessionStorage.removeItem("sv_session_private_key");
-    enterPreSignInMode();
+    loadLogin();
 
     G.biometricIntent = false;
-
     log("APP.logout", "completed");
 }

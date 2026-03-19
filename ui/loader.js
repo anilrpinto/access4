@@ -1,14 +1,16 @@
+import { log, trace, debug, info, warn, error } from '../log.js';
+
 import { loadUI } from './uihelper.js';
 
 export const rootUI = loadUI(['loginView', 'vaultView', 'log']);
 
-export const loginUI = loadUI(['title', 'signinBtn', 'userEmailSpan', 'authMsg', 'pwdSection', 'confirmPwdSection',
-    'pwdInput', 'confirmPwdInput',
-    'unlockBtn', 'recoverBtn', 'recoveryLnk', 'statusMsg'], 'login_');
+export const loginUI = loadUI(['title', 'signinBtn', 'signinStatus', 'welcomeSpan', 'authorizedNameSpan', 'signoutLnk',
+    'authMsg', 'pwdSection', 'confirmPwdSection', 'pwdInput', 'confirmPwdInput',
+    'unlockBtn', 'recoverBtn', 'recoveryLnk', 'statusMsg'], 'login_', 'loginView');
 
-export const vaultUI = loadUI(['title', 'mainSection', 'toggleSecureBtn','addBtn', 'deleteBtn', 'menuBtn', 'menuDropdown', 'saveMenu',
-    'toggleEditMenu', 'rawDataMenu', 'copyLogsMenu', 'toggleLogsMenu',
-    'recoveryRotationMenu', 'logoutMenu', 'statusMsg'], 'vault_', 'vaultView');
+export const vaultUI = loadUI(['title', 'toggleSecureBtn', 'mainSection', 'addBtn', 'deleteBtn', 'menuBtn',
+    'menuDropdown', 'saveMenu', 'toggleEditMenu', 'rawDataMenu', 'copyLogsMenu', 'toggleLogsMenu',
+    'recoveryRotationMenu', 'logoutMenu', 'breadcrumbs', 'explorer', 'statusMsg'], 'vault_', 'vaultView');
 
 export const vaultRawDataUI = loadUI(['mainSection', 'content', 'closeBtn'], 'vaultRawData_', 'vaultView');
 
@@ -32,19 +34,6 @@ export async function copyLogsToClipboard() {
     }
 }
 
-export function enterLoginMode() {
-    rootUI.loginView.setVisible(true);
-    rootUI.vaultView.setVisible(false);
-
-    // Hide password input sections until needed
-    loginUI.pwdSection.setVisible(false);
-    loginUI.confirmPwdSection.setVisible(false);
-
-    loginUI.signinBtn.setEnabled(true);
-
-    // Disable save button initially
-    vaultUI.saveMenu.setEnabled(false);
-}
 
 export function enterVaultMode() {
     rootUI.loginView.setVisible(false);

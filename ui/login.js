@@ -1,8 +1,8 @@
-import { C, G, AU, BM, CR, ID, R, E, U, log, trace, debug, info, warn, error } from '../exports.js';
+import { C, G, clearGlobals, AU, BM, CR, ID, R, E, U, log, trace, debug, info, warn, error } from '../exports.js';
 
-import { loadUI } from './uihelper.js';
+import { loadUI, swapVisibility } from './uihelper.js';
 
-import { rootUI, loginUI, vaultUI, enterLoginMode, enterVaultMode } from './loader.js';
+import { rootUI, loginUI, vaultUI } from './loader.js';
 
 import { loadVault, stopVaultIdleCheck } from './vault.js';
 
@@ -56,13 +56,6 @@ async function doHiddenGesture() {
         G.biometricIntent = false;
         await updateBiometricIndicator();
     }
-}
-
-function initLoginUI() {
-    log("loginUI.initLoginUI", "called");
-
-    enterLoginMode();
-    showUnlockMessage("");
 }
 
 async function unlockIdentityFlow(pwd) {
@@ -385,31 +378,64 @@ function promptClearLocalStorage() {
     return true;
 }
 
+function init() {
+    log("loginUI.init", "called");
+
+    //swapVisibility(rootUI.vaultView, rootUI.loginView);
+
+    rootUI.loginView.setVisible(true).setFlex();
+    rootUI.vaultView.setVisible(false).setFlex();
+
+    loginUI.title.setText(`Login [v${C.APP_VERSION}]`);
+
+    loginUI.signinBtn.setVisible(true);
+    //showAuthorizedName();
+    handleSignOut();
+
+    // Clear password inputs
+    clearSensitiveFields();
+
+    // Hide password input sections until needed
+    loginUI.pwdSection.setVisible(false);
+    loginUI.confirmPwdSection.setVisible(false);
+
+    showUnlockMessage("");
+
+    // Reset button state
+    loginUI.unlockBtn.setText("Unlock");
+    loginUI.unlockBtn.setEnabled(true);
+
+    log("loginUI.init", "G.authMode:", G.authMode)
+
+    //TODO: Figure out the purpose of this check - temporarily removed - 03/18/2026
+/*    if (G.authMode !== "create" && G.authMode !== "unlock") {
+        showAuthorizedName();
+        //loginUI.signinBtn.setEnabled(true);
+    }*/
+}
+
 /**
  * EXPORTED FUNCTIONS
  */
 export async function loadLogin() {
     log("loginUI.loadLogin", "called");
 
-    loginUI.signinBtn.onClick(() => AU.initGIS());
-    loginUI.title.setText(`Login [v${C.APP_VERSION}]`);
+    init();
 
-    // Initial UI state
-    rootUI.vaultView.setVisible(false);
-    loginUI.pwdSection.setVisible(false);
-    loginUI.confirmPwdSection.setVisible(false);
-
+    updateBiometricIndicator();
+    stopVaultIdleCheck();
     setupTitleGesture();
-    initLoginUI();
 
+    loginUI.signinBtn.onClick(() => AU.initGIS());
+    loginUI.signoutLnk.onClick(() => handleSignOut());
     loginUI.recoveryLnk.onClick(doNeedRecoveryClick);
     loginUI.recoverBtn.onClick(doRecoverClick);
 
     if (G.settings.clearBioDbOnLoad)
-    await promptClearBiometricIndexedDB();
+        await promptClearBiometricIndexedDB();
 
     if (G.settings.clearLocalStorageOnLoad)
-    promptClearLocalStorage();
+        promptClearLocalStorage();
 
     await BM.debugBiometricDB();
     await updateBiometricIndicator();
@@ -481,7 +507,7 @@ export async function proceedAfterPasswordSuccess() {
 }
 
 export async function setupPasswordPrompt(mode, options = {}) {
-    log("loginUI.setupPasswordPrompt", "called - mode:" + mode);
+    log("loginUI.setupPasswordPrompt", "called - mode:", mode);
 
     loginUI.authMsg.setVisible(false);
 
@@ -512,48 +538,44 @@ export async function setupPasswordPrompt(mode, options = {}) {
     loginUI.recoveryLnk.style.display = (G.recoveryRequest === true || G.recoverySession === true || !(await R.hasRecoveryKeyOnDrive())) ? "none" : "block";
 }
 
-export function enterPreSignInMode() {
-    log("loginUI.enterPreSignInMode", "called");
+// On Sign In Success
+export function handleSignInSuccessStatus() {
 
-    // 3️⃣ Clear UI state
-    rootUI.vaultView.setVisible(false);
-    rootUI.loginView.setVisible(true);
+    log("loginUI.handleSignInSuccessStatus", "called - name:", G.authorizedName ? G.authorizedName?.slice(-2) : G.userEmail?.slice(-10));
 
-    // Clear password inputs
-    clearSensitiveFields();
+    const name = G.authorizedName ? G.authorizedName : G.userEmail;
 
-    loginUI.pwdSection.setVisible(false);
-    loginUI.confirmPwdSection.setVisible(false);
+    if (name) {
+        // 1. Add the layout class
+        loginUI.signinStatus.classList.add('signed-in');
 
-    // Reset button state
-    loginUI.unlockBtn.setText("Unlock");
-    loginUI.unlockBtn.setEnabled(true);
-
-    updateBiometricIndicator();
-
-    // Clear messages
-    showUnlockMessage("");
-
-    stopVaultIdleCheck();
-
-    log("loginUI.enterPreSignInMode", "G.authMode:", G.authMode)
-
-    if (G.authMode !== "create" && G.authMode !== "unlock") {
-        showAuthorizedEmail(null);
-        loginUI.signinBtn.setEnabled(true);
+        loginUI.welcomeSpan.setText("Hi,");
+        loginUI.welcomeSpan.classList.remove('not-signed-in');
+        loginUI.authorizedNameSpan.setText(name);
+        loginUI.signoutLnk.setVisible(true);
+    } else {
+        handleSignOut();
     }
+
 }
 
-export function showAuthorizedEmail(email) {
-    log("loginUI.showAuthorizedEmail", "called - email:", email ? "axxx.gmail.com" : "empty");
-    loginUI.userEmailSpan.textContent = email;
-}
+// On Sign Out
+export function handleSignOut() {
+    log("loginUI.handleSignOut", "called");
 
-export function promptUnlockPasword() {
-    showUnlockMessage("");
-    loginUI.signinBtn.setEnabled(false);
-    vaultUI.logoutMenu.setEnabled(true);
-    loginUI.pwdSection.setVisible(true);
+    clearGlobals();
+
+    // 1. Remove the layout class (returns to center)
+    loginUI.signinStatus.classList.remove('signed-in');
+
+    // 2. Reset the UI
+    loginUI.welcomeSpan.setText("Not signed in");
+    loginUI.welcomeSpan.classList.add('not-signed-in');
+    loginUI.authorizedNameSpan.setText("");
+    loginUI.signoutLnk.setVisible(false);
+
+    loginUI.signinBtn.setVisible(true);
+    loginUI.pwdSection.setVisible(false);
 }
 
 export function showUnlockMessage(msg, type = "error") {
@@ -568,5 +590,4 @@ export function showAuthMessage(msg, type = "error") {
 
     loginUI.authMsg.textContent = msg;
     loginUI.authMsg.className = `status-message ${type}`;
-    loginUI.signinBtn.setEnabled(true);
 }

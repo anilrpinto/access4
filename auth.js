@@ -2,43 +2,43 @@ import { C, G, ID, GD, log, trace, debug, info, warn, error, isTraceEnabled } fr
 
 import { loginUI } from './ui/loader.js';
 
-import { showAuthorizedEmail, showAuthMessage, setupPasswordPrompt, promptUnlockPasword, proceedAfterPasswordSuccess,
-    enterPreSignInMode, showUnlockMessage }  from './ui/login.js';
+import { handleSignInSuccessStatus, showAuthMessage, setupPasswordPrompt, proceedAfterPasswordSuccess, showUnlockMessage
+/*, promptUnlockPasword*/ }  from './ui/login.js';
 
 async function handleAuth(resp) {
     log("AU.handleAuth", "called");
 
     try {
+        //log("AU.handleAuth", "resp: " + JSON.stringify(resp));
 
-        if (resp.error) return;
+        if (resp.error) {
+            loginUI.signinBtn.setVisible(true);
+            return;
+        }
+
+        loginUI.signinBtn.setVisible(false);
 
         G.accessToken = resp.access_token;
         trace("AU.handleAuth", `Acquired access token [${G.accessToken?.slice(0, 20)}...]`);
 
         await GD.fetchUserEmail();
-        showAuthorizedEmail(G.userEmail);
+        handleSignInSuccessStatus();
 
         await GD.verifySharedRoot(C.ACCESS4_ROOT_ID);
         await GD.verifyWritable(C.ACCESS4_ROOT_ID);
         await ensureAuthorization();
 
-        if (!isSessionAuthenticated())
-            promptUnlockPasword();
-
         onAuthReady(G.userEmail);
     } catch (err) {
         error("AU.handleAuth", "Error after signin: " + err);
         showAuthMessage(err);
+        loginUI.signinBtn.setVisible(true);
         //alert("Error after signin: " + err);
     }
 }
 
-function isSessionAuthenticated() {
-    return !!sessionStorage.getItem("sv_session_private_key");
-}
-
 async function onAuthReady(email) {
-    log("AU.onAuthReady", `called for [v${C.APP_VERSION}]`);
+    log("AU.onAuthReady", "called");
 
     try {
         const id = await ID.loadIdentity();
@@ -58,6 +58,11 @@ async function onAuthReady(email) {
         }
 
         showUnlockMessage("Checking for active session...", "info");
+
+        // Temporarily commented as not sure it is needed because of the below check anyways - 03/18/2026
+/*        if (!isSessionAuthenticated())
+            promptUnlockPasword();*/
+
         // Attempt session restore first
         if (await attemptSessionRestore()) {
             log("AU.onAuthReady", "Found an active authenticated browser session — skipping password prompt");
@@ -67,16 +72,17 @@ async function onAuthReady(email) {
             await ID.ensureDevicePublicKey();
             await proceedAfterPasswordSuccess();
             return;
-        }
+        } else
+            log("AU.onAuthReady", "No active pre-authenticated browser session found, proceeding in 'unlock' mode");
 
         // Returning user → unlock
         setAuthMode("unlock");
-        log("AU.onAuthReady", "Existing device detected, prompting unlock");
+        //log("AU.onAuthReady", "Existing device detected, prompting unlock");
 
     } catch (e) {
         error("AU.onAuthReady", "Error loading identity:", e.message);
         showUnlockMessage("Failed to load identity. Try again.");
-        loginUI.signinBtn.disabled = false;
+        loginUI.signinBtn.setEnabled(true);
     }
 }
 
@@ -84,27 +90,28 @@ function setAuthMode(mode, options = {}) {
     log("AU.setAuthMode", "called - mode: " + mode);
     G.authMode = mode;
 
-    // reset fields
-    enterPreSignInMode();
-
     setupPasswordPrompt(mode, options);
 }
+
+// Temporarily commented as not sure it is needed, was referenced previously - 03/18/2026
+/*function isSessionAuthenticated() {
+    return !!sessionStorage.getItem("sv_session_private_key");
+}*/
 
 async function attemptSessionRestore() {
     log("AU.attemptSessionRestore", "called");
 
     try {
-        const stored = sessionStorage.getItem("sv_session_private_key");
+        const storedSessionKey = sessionStorage.getItem("sv_session_private_key");
 
-        log("AU.attemptSessionRestore", "sessionStorage private key exists:", !!stored);
-        if (!stored) {
-            warn("AU.attemptSessionRestore", "No session private key found in sessionStorage");
+        if (!storedSessionKey) {
+            warn("AU.attemptSessionRestore", "No session private key found in memory (sessionStorage)");
             return false;
         }
 
         log("AU.attemptSessionRestore", "Restoring session private key...");
 
-        const bytes = Uint8Array.from(atob(stored), c => c.charCodeAt(0));
+        const bytes = Uint8Array.from(atob(storedSessionKey), c => c.charCodeAt(0));
 
         G.currentPrivateKey = await crypto.subtle.importKey(
             "pkcs8",
@@ -146,7 +153,7 @@ async function attemptSessionRestore() {
 }
 
 async function ensureAuthorization() {
-    log("AU.ensureAuthorization", "called");
+    log("AU.ensureAuthorization", `called - verifying against ${C.AUTH_FILE_NAME}`);
 
     const existing = await GD.readJsonByName(C.AUTH_FILE_NAME);
 
@@ -175,7 +182,7 @@ async function ensureAuthorization() {
     if (!G.auth.admins.includes(G.userEmail) && !G.auth.members.includes(G.userEmail))
         throw new Error("Unauthorized user");
 
-    log("AU.ensureAuthorization", "Authorized user verified");
+    log("AU.ensureAuthorization", "Signed in user is authorized to proceed");
 }
 
 /**
@@ -183,7 +190,7 @@ async function ensureAuthorization() {
  */
 export function initGIS() {
 
-    log("AU.initGIS", "called");
+    log("AU.initGIS", `called for [v${C.APP_VERSION}]`);
 
     G.tokenClient = google.accounts.oauth2.initTokenClient({
         client_id: C.CLIENT_ID,
@@ -198,8 +205,6 @@ export function initGIS() {
         // Do not prompt for choosing other accounts if atleast one is signed in to Google already
         G.tokenClient.requestAccessToken({ prompt:"" });
     }
-
-    loginUI.signinBtn.disabled = true;
 }
 
 export function isAdmin() {
