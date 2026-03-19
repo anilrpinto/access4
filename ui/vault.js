@@ -1,11 +1,11 @@
-import { C, G, AU, E, U, log, trace, debug, info, warn, error } from '../exports.js';
+import { C, G, inReadOnlyMode, AU, E, U, log, trace, debug, info, warn, error } from '../exports.js';
 
 import { logout } from '../app.js';
 import { loadUI, swapVisibility } from './uihelper.js';
 
 import { rootUI, vaultUI, vaultRawDataUI, copyLogsToClipboard } from './loader.js';
 import { showRecoveryRotationUI, hideRecoveryRotation } from './recovery-rotation.js';
-import { showAddNewUI, showDeleteUI, hideAddDelete } from './add-delete.js';
+import { showAddNewUI, showRenameUI, showDeleteUI, hideAddDelete } from './add-rename-delete.js';
 
 let idleTimer;
 let idleCallback = null;
@@ -75,10 +75,12 @@ async function init() {
     vaultUI.saveMenu.onClick(doSaveClick);
     vaultUI.toggleEditMenu.onClick(doToggleEditClick);
     vaultUI.rawDataMenu.onClick(doShowRawDataClick);
+    vaultUI.recoveryRotationMenu.onClick(showRecoveryRotationUI);
 
     vaultUI.title.onClick(doToggleSecureClick);
     vaultUI.toggleSecureBtn.onClick(doToggleSecureClick);
     vaultUI.addBtn.onClick(doAddClick);
+    vaultUI.renameBtn.onClick(doRenameClick);
     vaultUI.deleteBtn.onClick(doDeleteClick);
 
     // temporary menu
@@ -127,29 +129,10 @@ async function showVaultUI({ readOnly = false, onIdle = () => { doLogout() } } =
     // Hide login section
     rootUI.loginView.setVisible(false);
 
-    if (AU.isAdmin()) {
-        vaultUI.recoveryRotationMenu.setVisible(true);
-        vaultUI.recoveryRotationMenu.onClick(showRecoveryRotationUI);
-        vaultUI.toggleLogsMenu.setVisible(true);
-    } else {
-        warn("vaultUI.showVaultUI", "Recovery option turned off for non-admin user");
-        vaultUI.recoveryRotationMenu.setVisible(false);
-    }
+    handleReadonlyState(readOnly);
 
     // Show main unlocked view
     rootUI.vaultView.setVisible(true);
-
-    // Update UI for read-only mode
-    if (readOnly) {
-        warn("vaultUI.showVaultUI", "Unlocked UI in read-only mode: disabling save button");
-        vaultUI.saveMenu.setEnabled(false);
-        vaultRawDataUI.content.readOnly = true;
-        //vaultUI.title.setText("Unlocked (Read-only)");
-    } else {
-        vaultUI.saveMenu.setEnabled(true);
-        //vaultRawDataUI.content.readOnly = false;
-        //vaultUI.title.setText("Unlocked");
-    }
 
     // Events that "wake up" the timer
     // Clean up old listeners to prevent memory leaks/duplicate triggers
@@ -197,10 +180,10 @@ async function doAddClick() {
         vaultUI.mainSection.setVisible(false);
         showAddNewUI(depth, sessionState.path[depth-1], vaultData, {
             onAdd: (name) => {
-                vaultUI.mainSection.setVisible(true);
                 if (depth === 1) executeAddGroup(name);
                 else if (depth === 2) executeAddItem(name);
 
+                vaultUI.mainSection.setVisible(true);
                 refreshAddDeleteBtnVisibility();
             },
             onCancel: () => {
@@ -209,6 +192,28 @@ async function doAddClick() {
             }
         });
     }
+}
+
+async function doRenameClick() {
+    const depth = sessionState.path.length;
+    log("vaultUI.doRenameClick", "called - depth:", depth);
+
+    // We only rename things we are currently "inside" or looking at
+    if (depth < 2) return;
+
+    vaultUI.mainSection.setVisible(false);
+
+    showRenameUI(depth, vaultData, sessionState.path, {
+        onRename: (newName) => {
+            executeRename(newName);
+            vaultUI.mainSection.setVisible(true);
+            refreshAddDeleteBtnVisibility();
+        },
+        onCancel: () => {
+            vaultUI.mainSection.setVisible(true);
+            refreshAddDeleteBtnVisibility();
+        }
+    });
 }
 
 async function doDeleteClick() {
@@ -237,16 +242,19 @@ async function doDeleteClick() {
 }
 
 function refreshAddDeleteBtnVisibility() {
+
+    const writeable = !inReadOnlyMode();
     const depth = sessionState.path.length;
+
     let a = true, b = true;
     if (depth === 1) b = false;
     else if (depth === 3) a = false;
 
-    vaultUI.addBtn.setVisible(a);
-    vaultUI.deleteBtn.setVisible(b);
+    vaultUI.addBtn.setVisible(a && writeable);
+    vaultUI.renameBtn.setVisible(b && writeable);
+    vaultUI.deleteBtn.setVisible(b && writeable);
 
-
-    log("vaultUI.refreshAddDeleteBtnVisibility", `depth:${depth} a:${a} b:${b}`);
+    //log("vaultUI.refreshAddDeleteBtnVisibility", `depth:${depth} a:${a} b:${b}`);
 }
 
 async function doToggleEditClick() {
@@ -310,6 +318,28 @@ export function executeAddItem(name) {
         fields: [{ type: 'text', key: 'Username', val: '' }, { type: 'secure', key: 'Password', val: '' }, { type: 'note', key: 'Notes', val: '' }]
     };
     group.items.push(newItem);
+    renderVaultExplorer();
+}
+
+function executeRename(newName) {
+    log("vaultUI.executeRename", "called - newName:", newName);
+
+    const depth = sessionState.path.length;
+    const groupId = sessionState.path[1];
+
+    if (depth === 2) {
+        const group = vaultData.groups.find(g => g.id === groupId);
+        if (group) group.name = newName;
+    } else if (depth === 3) {
+        const itemId = sessionState.path[2];
+        const group = vaultData.groups.find(g => g.id === groupId);
+        const item = group?.items.find(i => i.id === itemId);
+        if (item) {
+            item.label = newName;
+            item.modified = new Date().toISOString();
+        }
+    }
+
     renderVaultExplorer();
 }
 
@@ -691,6 +721,57 @@ async function renderVaultExplorer() {
     } else if (depth === 3) {
         // We'll build the detail renderer in Phase 4
         renderItemDetails(explorer, sessionState.path[1], sessionState.path[2]);
+    }
+}
+
+function handleReadonlyState(readOnly) {
+    warn("vaultUI.showVaultUI", "Read-Only mode, app will be limited to view info only!");
+    manageActionableItems(readOnly);
+    applyReadOnlyTheme(readOnly);
+}
+
+function manageActionableItems(readOnly) {
+    log("vaultUI.manageActionableItems", "called");
+
+    const visible = !readOnly;
+    const admin = AU.isAdmin();
+
+    vaultUI.saveMenu.setVisible(visible);
+    vaultUI.toggleEditMenu.setVisible(visible);
+    vaultUI.rawDataMenu.setVisible(visible && admin);
+    vaultUI.recoveryRotationMenu.setVisible(visible && admin);
+    vaultUI.addBtn.setVisible(visible);
+    vaultUI.renameBtn.setVisible(visible);
+    vaultUI.deleteBtn.setVisible(visible);
+}
+
+/**
+ * Updates the visual theme of the vault based on read-only status.
+ */
+function applyReadOnlyTheme(readOnly) {
+    log("vaultUI.applyReadOnlyTheme", "called readOnly:", readOnly);
+
+    const mainHeader = document.querySelector('header'); // Or vaultUI.header if defined
+    const body = document.body;
+
+    if (readOnly) {
+        mainHeader.classList.add('vault-readonly-mode');
+        body.classList.add('vault-frozen');
+
+        // Add a "Read Only" text indicator if it doesn't exist
+        if (!document.getElementById('readonly_indicator')) {
+            const badge = document.createElement('span');
+            badge.id = 'readonly_indicator';
+            badge.className = 'readonly-badge';
+            badge.innerText = 'READ ONLY';
+            vaultUI.title.appendChild(badge);
+        }
+    } else {
+        mainHeader.classList.remove('vault-readonly-mode');
+        body.classList.remove('vault-frozen');
+
+        const badge = document.getElementById('readonly_indicator');
+        if (badge) badge.remove();
     }
 }
 

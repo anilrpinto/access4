@@ -43,11 +43,15 @@ const _G = {
         minifyJson: false,
         clearBioDbOnLoad: false,
         clearLocalStorageOnLoad: false
-    }
+    },
 };
 
 export let G = structuredClone(_G);
 
 export function clearGlobals() {
     G = structuredClone(_G);
+}
+
+export function inReadOnlyMode() {
+    return G.driveLockState?.mode !== "write";
 }

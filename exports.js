@@ -1,5 +1,5 @@
 export { C } from './constants.js';
-export { G, clearGlobals } from './global.js';
+export { G, clearGlobals, inReadOnlyMode } from './global.js';
 import { CR_ALG } from './crypto.js';
 
 export * as AU from './auth.js';

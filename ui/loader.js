@@ -8,7 +8,7 @@ export const loginUI = loadUI(['title', 'signinBtn', 'signinStatus', 'welcomeSpa
     'authMsg', 'pwdSection', 'confirmPwdSection', 'pwdInput', 'confirmPwdInput',
     'unlockBtn', 'recoverBtn', 'recoveryLnk', 'statusMsg'], 'login_', 'loginView');
 
-export const vaultUI = loadUI(['title', 'toggleSecureBtn', 'mainSection', 'addBtn', 'deleteBtn', 'menuBtn',
+export const vaultUI = loadUI(['title', 'toggleSecureBtn', 'mainSection', 'addBtn', 'renameBtn', 'deleteBtn', 'menuBtn',
     'menuDropdown', 'saveMenu', 'toggleEditMenu', 'rawDataMenu', 'copyLogsMenu', 'toggleLogsMenu',
     'recoveryRotationMenu', 'logoutMenu', 'breadcrumbs', 'explorer', 'statusMsg'], 'vault_', 'vaultView');
 
@@ -33,7 +33,6 @@ export async function copyLogsToClipboard() {
         error("UI.copyLogsToClipboard", "Failed to copy logs:", err);
     }
 }
-
 
 export function enterVaultMode() {
     rootUI.loginView.setVisible(false);

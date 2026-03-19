@@ -4,7 +4,7 @@ import { vaultUI, vaultAddNewUI, vaultDeleteUI } from './loader.js';
 
 // Function to handle the Add Button click in the header
 export function showAddNewUI(depth, toParentId, vaultData, {onAdd = () => {},  onCancel = () => {}} = {}) {
-    log("vaultAddDelete.showAddNewUI", "called - depth:", depth);
+    log("vaultAddRenDel.showAddNewUI", "called - depth:", depth);
 
     vaultUI.addBtn.setVisible(false);
     vaultUI.deleteBtn.setVisible(false);
@@ -55,8 +55,56 @@ export function showAddNewUI(depth, toParentId, vaultData, {onAdd = () => {},  o
     }
 }
 
+export function showRenameUI(depth, vaultData, path, {onRename = () => {}, onCancel = () => {}} = {}) {
+    log("vaultAddRenDel.showRenameUI", "called - depth:", depth);
+
+    const title = vaultAddNewUI.title;
+    const input = vaultAddNewUI.input;
+    const saveBtn = vaultAddNewUI.addBtn;
+
+    // 1. Identify what we are renaming
+    let currentName = "";
+    let headerText = "Rename";
+
+    if (depth === 2) {
+        const groupId = path[1];
+        const group = vaultData.groups.find(g => g.id === groupId);
+        currentName = group ? group.name : "";
+        headerText = "Rename Group";
+    } else if (depth === 3) {
+        const groupId = path[1];
+        const itemId = path[2];
+        const group = vaultData.groups.find(g => g.id === groupId);
+        const item = group?.items.find(i => i.id === itemId);
+        currentName = item ? item.label : "";
+        headerText = "Rename Item";
+    }
+
+    // 2. Setup UI
+    input.value = currentName;
+    title.setText(headerText);
+    saveBtn.setText("Save");
+    vaultAddNewUI.mainSection.setVisible(true);
+    input.focus();
+
+    // 3. Handle Save
+    saveBtn.onClick(() => {
+        const newVal = input.value.trim();
+        if (!newVal) return; // Add status msg if needed
+
+        onRename(newVal);
+        vaultAddNewUI.mainSection.setVisible(false);
+    });
+
+    // 4. Handle Cancel
+    vaultAddNewUI.cancelBtn.onClick(() => {
+        vaultAddNewUI.mainSection.setVisible(false);
+        onCancel();
+    });
+}
+
 export function showDeleteUI(depth, groupId, itemId, vaultData, {onConfirm = () => {}, onCancel = () => {}} = {}) {
-    log("vaultAddDelete.showDeleteUI", "called - depth:", depth);
+    log("vaultAddRenDel.showDeleteUI", "called - depth:", depth);
 
     vaultUI.addBtn.setVisible(false);
     vaultUI.deleteBtn.setVisible(false);
