@@ -734,7 +734,6 @@ button.link-button:active {
 
 /* Secondary/Cancel Style */
 #vaultAddNew_cancelBtn,
-#vaultDelete_cancelBtn,
 #vaultRecoveryKey_cancelBtn,
 .secondary-btn {
     background-color: #f0f2f5 !important;
@@ -744,18 +743,20 @@ button.link-button:active {
 }
 
 /* Danger/Delete Style */
-#vaultDelete_confirmBtn {
+.danger-btn {
     background-color: #ffebee !important; /* Soft Red Background */
     color: #c62828 !important;          /* Strong Red Text */
     border: 1px solid #f5c6cb !important;
     font-weight: 600;
 }
 
-#vaultDelete_confirmBtn:active {
+#vaultDelete_confirmBtn:active,
+.danger-btn:active {
     background-color: #f8d7da !important;
 }
 
-#vaultDelete_confirmBtn:hover {
+#vaultDelete_confirmBtn:hover,
+.danger-btn:hover {
     background-color: #c62828 !important;
     color: white !important;
 }
@@ -764,8 +765,8 @@ button.link-button:active {
 
 /* 1. Ensure the container fills the screen width */
 #vaultAddNew_mainSection,
-#vaultDelete_mainSection,
-#vaultRecoveryKey_mainSection {
+#vaultRecoveryKey_mainSection,
+#vaultConfirm_mainSection {
     width: 100% !important;
     max-width: none !important;
     padding: 0px 15px;
@@ -796,7 +797,7 @@ button.link-button:active {
 /* --- MANAGEMENT TITLES (Add/Delete) --- */
 
 #vaultAddNew_title,
-#vaultDelete_title {
+#vaultConfirm_title {
     font-size: 1.1rem;
     font-weight: 700;
     margin: 0 0 15px 0;
@@ -953,4 +954,53 @@ body.vault-frozen .list-row:active {
 .source-group-active span {
     font-weight: bold;
     color: #e68a00;
+}
+
+/* This class transforms the inline section into a floating modal */
+.confirm-floating-overlay {
+    position: fixed !important; /* Ignore parent flow */
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.5); /* Dim the vault behind it */
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    animation: fadeIn 0.15s ease-out;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+/* Style the white box inside the overlay */
+.confirm-floating-overlay > div {
+    background: white;
+    padding: 24px;
+    border-radius: 12px;
+    width: 85%;
+    max-width: 320px;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+    animation: scaleIn 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes scaleIn {
+    from { transform: scale(0.9); }
+    to { transform: scale(1); }
+}
+
+.success-btn {
+    background-color: #4CAF50 !important; /* A nice "Safe" Green */
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.success-btn:hover {
+    background-color: #45a049;
 }

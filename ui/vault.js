@@ -3,9 +3,11 @@ import { C, G, inReadOnlyMode, AU, E, U, log, trace, debug, info, warn, error } 
 import { logout } from '../app.js';
 import { loadUI, swapVisibility } from './uihelper.js';
 
+import { showConfirmUI, showOverlayConfirmUI, showOverlayAlertUI } from './confirm.js';
+
 import { rootUI, vaultUI, vaultRawDataUI, copyLogsToClipboard } from './loader.js';
 import { showRecoveryRotationUI, hideRecoveryRotation } from './recovery-rotation.js';
-import { showAddNewUI, showRenameUI, showDeleteUI, hideAddDelete } from './add-rename-delete.js';
+import { showAddNewUI, showRenameUI, showDeleteUI, hideAddRenDel } from './add-rename-delete.js';
 
 let idleTimer;
 let idleCallback = null;
@@ -24,7 +26,9 @@ const resetTimer = () => {
     }, C.IDLE_TIMEOUT_MS);
 };
 
+let originalVaultData = null;
 let vaultData = null;
+
 
 let vaultClipboard = {
     mode: null,      // 'cut' (we can add 'copy' later if needed)
@@ -51,7 +55,7 @@ async function init() {
 
     vaultRawDataUI.mainSection.setVisible(false);
     hideRecoveryRotation();
-    hideAddDelete();
+    hideAddRenDel();
 
     vaultUI.menuBtn.onClick((e) => {
         // 1. Prevent the 'window' or 'body' from seeing this click
@@ -80,6 +84,7 @@ async function init() {
     vaultUI.saveMenu.onClick(doSaveClick);
     vaultUI.toggleEditMenu.onClick(doToggleEditClick);
     vaultUI.rawDataMenu.onClick(doShowRawDataClick);
+    vaultUI.discardChangesMenu.onClick(doDiscardChangesClick);
     vaultUI.recoveryRotationMenu.onClick(showRecoveryRotationUI);
 
     vaultUI.title.onClick(doToggleSecureClick);
@@ -101,6 +106,31 @@ async function init() {
     // Ensure these containers always use flex when shown
     //vaultRawDataUI.mainSection.setFlex();
     //vaultUI.mainSection.setFlex();
+}
+
+function doDiscardChangesClick() {
+    showConfirmUI({
+        title: "Discard Changes",
+        message: "This will revert the vault to the last saved state. All current progress will be lost.",
+        okText: "Discard",
+        cancelText: "Keep Editing",
+        onConfirm: () => {
+            log("vaultUI.doDiscardChangesClick", "reverting...");
+
+            // Your logic using structuredClone
+            vaultData = structuredClone(originalVaultData);
+
+            // Reset UI state
+            sessionState.path = ['root'];
+            vaultClipboard.items = [];
+            vaultClipboard.mode = null;
+            sessionState.isSelectionMode = false;
+
+            showStatusMessage("Reverted to last save.", "info");
+            refreshMenuUI();
+            renderVaultExplorer();
+        }
+    });
 }
 
 function doSelectClick() {
@@ -286,7 +316,7 @@ function doShowRawDataClick() {
 
 async function doAddClick() {
     const depth = sessionState.path.length;
-    log("vaultUI.doSaveClick", "called - depth:", depth);
+    log("vaultUI.doAddClick", "called - depth:", depth);
 
     if (depth < 3) {
         vaultUI.mainSection.setVisible(false);
@@ -296,11 +326,10 @@ async function doAddClick() {
                 else if (depth === 2) executeAddItem(name);
 
                 vaultUI.mainSection.setVisible(true);
-                refreshAddDeleteBtnVisibility();
             },
             onCancel: () => {
                 vaultUI.mainSection.setVisible(true);
-                refreshAddDeleteBtnVisibility();
+                renderVaultExplorer();
             }
         });
     }
@@ -319,11 +348,10 @@ async function doRenameClick() {
         onRename: (newName) => {
             executeRename(newName);
             vaultUI.mainSection.setVisible(true);
-            refreshAddDeleteBtnVisibility();
         },
         onCancel: () => {
             vaultUI.mainSection.setVisible(true);
-            refreshAddDeleteBtnVisibility();
+            renderVaultExplorer();
         }
     });
 }
@@ -344,29 +372,39 @@ async function doDeleteClick() {
         onConfirm: () => {
             executeDeletion();
             vaultUI.mainSection.setVisible(true);
-            refreshAddDeleteBtnVisibility();
         },
         onCancel: () => {
             vaultUI.mainSection.setVisible(true);
-            refreshAddDeleteBtnVisibility();
+            renderVaultExplorer();
         }
     });
 }
 
-function refreshAddDeleteBtnVisibility() {
-
+function refreshAddRenDelBtnVisibility() {
+    // 1. Check Permissions (The Master Gate)
     const writeable = !inReadOnlyMode();
+
+    // 2. Check Navigation Depth
     const depth = sessionState.path.length;
 
-    let a = true, b = true;
-    if (depth === 1) b = false;
-    else if (depth === 3) a = false;
+    // 3. Logic: What is physically possible at this depth?
+    let canAdd = true;          // Possible at Root (Add Group) and Group (Add Item)
+    let canRenameDelete = true; // Possible at Group and Item Detail
 
-    vaultUI.addBtn.setVisible(a && writeable);
-    vaultUI.renameBtn.setVisible(b && writeable);
-    vaultUI.deleteBtn.setVisible(b && writeable);
+    if (depth === 1) {
+        // At Root: No existing target to Rename or Delete
+        canRenameDelete = false;
+    } else if (depth === 3) {
+        // At Item Detail: "Add" logic happens back in the Item List (Depth 2)
+        canAdd = false;
+    }
 
-    //log("vaultUI.refreshAddDeleteBtnVisibility", `depth:${depth} a:${a} b:${b}`);
+    // 4. Apply: Must be logically possible AND the vault must be writeable
+    vaultUI.addBtn.setVisible(canAdd && writeable);
+    vaultUI.renameBtn.setVisible(canRenameDelete && writeable);
+    vaultUI.deleteBtn.setVisible(canRenameDelete && writeable);
+
+    log("vaultUI.refreshAddRenDelBtnVisibility", `depth:${depth} add:${canAdd} renDel:${canRenameDelete} writeable:${writeable}`);
 }
 
 async function doToggleEditClick() {
@@ -396,13 +434,22 @@ async function doSaveClick() {
 
     try {
         await E.encryptAndPersistPlaintext(JSON.stringify(vaultData), { onUpdate: updateLockStatusUI });
-        log("vaultUI.doSaveClick", "Save successful.");
-        showStatusMessage(`Saved changes at ${U.getCurrentTime()}`, "success");
+        originalVaultData = structuredClone(vaultData);
+
+        showOverlayAlertUI({
+            title: "Vault Saved",
+            message: `Your changes have been encrypted and saved successfully.`,
+            okText: "OK",
+            onConfirm: () => {
+                refreshMenuUI(); // Hide the "Discard Changes" menu since we are in sync
+            }
+        });
+        showStatusMessage(`Last saved: ${U.getCurrentTime()}`, "success");
+
     } catch (err) {
-        error("vaultUI.doSaveClick", "Encryption/Persistence failed:", err);
+        error("vaultUI.doSaveClick", "Save failed:", err);
         showStatusMessage(`Save failed: ${err.message || err}`, "error");
     }
-    //alert("Saved!");
 }
 
 function executeAddGroup(name) {
@@ -531,6 +578,8 @@ function refreshMenuUI() {
         vaultUI.selectMenu.setText("Select Multiple");
         vaultUI.selectMenu.classList.remove('active-mode-text');
     }
+
+    vaultUI.discardChangesMenu.setVisible(JSON.stringify(vaultData) !== JSON.stringify(originalVaultData));
 }
 
 async function toggleLogs() {
@@ -593,8 +642,6 @@ function renderBreadcrumbs() {
 function renderGroupList(container) {
     log("vaultUI.renderGroupList", "called");
 
-    refreshAddDeleteBtnVisibility();
-
     if (!vaultData.groups || vaultData.groups.length === 0) {
         container.innerHTML = `<div class="empty-state">No groups found.</div>`;
         return;
@@ -622,8 +669,6 @@ function renderGroupList(container) {
 
 function renderItemList(container, groupId) {
     log("vaultUI.renderItemList", "called");
-
-    refreshAddDeleteBtnVisibility();
 
     const group = vaultData.groups.find(g => g.id === groupId);
     if (!group) return;
@@ -688,8 +733,6 @@ function updateMoveToolbar() {
 function renderItemDetails(container, groupId, itemId) {
 
     log("vaultUI.renderItemDetails", "called");
-
-    refreshAddDeleteBtnVisibility();
 
     const group = vaultData.groups.find(g => g.id === groupId);
     const item = group?.items.find(i => i.id === itemId);
@@ -864,14 +907,21 @@ function attachDetailListeners(container) {
             const index = parseInt(btn.dataset.index);
             const fieldName = item.fields[index].key || "unnamed";
 
-            if (confirm(`Delete the "${fieldName}" field?`)) {
-                item.fields.splice(index, 1);
+            showOverlayConfirmUI({
+                title: "Delete Field",
+                message: `Are you sure you want to delete the <b>${fieldName}</b> field?`,
+                okText: "Delete",
+                onConfirm: () => {
+                    // This code only runs if the user clicks the red "Delete" button
+                    item.fields.splice(index, 1);
 
-                // SAFEGUARD 2: Flag the item as changed for the sync logic
-                item.modified = new Date().toISOString();
+                    // SAFEGUARD 2: Flag the item as changed for the sync logic
+                    item.modified = new Date().toISOString();
 
-                renderVaultExplorer();
-            }
+                    // Refresh the UI to remove the row
+                    renderVaultExplorer();
+                }
+            });
         };
     });
 }
@@ -907,7 +957,12 @@ async function renderVaultExplorer() {
 
     // IMPORTANT: Let refreshMenuUI handle the title/breadcrumbs logic
     // instead of calling renderBreadcrumbs() directly here.
+    // 1. Update Menu (Title, Cut/Paste visibility)
     refreshMenuUI();
+
+    // 2. Update Toolbar (Add/Rename/Delete visibility)
+    // Moving this here ensures it runs on EVERY re-render (Paste, Undo, Nav, etc.)
+    refreshAddRenDelBtnVisibility();
 
     const explorer = vaultUI.explorer;
     if (!explorer) return;
@@ -938,13 +993,14 @@ function manageActionableItems(readOnly) {
     const visible = !readOnly;
     const admin = AU.isAdmin();
 
+    // These only care about read-only/admin status, not depth
     vaultUI.saveMenu.setVisible(visible);
     vaultUI.toggleEditMenu.setVisible(visible);
     vaultUI.rawDataMenu.setVisible(visible && admin);
     vaultUI.recoveryRotationMenu.setVisible(visible && admin);
-    vaultUI.addBtn.setVisible(visible);
-    vaultUI.renameBtn.setVisible(visible);
-    vaultUI.deleteBtn.setVisible(visible);
+
+    // NOTE: addBtn, renameBtn, and deleteBtn are intentionally removed from here
+    // as they are handled by the render loop.
 }
 
 /**
@@ -985,6 +1041,8 @@ export async function loadVault(data, options) {
     init();
 
     vaultData = data;
+    originalVaultData = structuredClone(data);
+
     await renderVaultExplorer();
     await showVaultUI(options);
 }

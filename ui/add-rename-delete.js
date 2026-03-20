@@ -1,12 +1,15 @@
 import { log, trace, debug, info, warn, error } from '../exports.js';
 
-import { vaultUI, vaultAddNewUI, vaultDeleteUI } from './loader.js';
+import { vaultUI, vaultAddNewUI } from './loader.js';
+
+import { showConfirmUI, hideConfirmUI } from './confirm.js';
 
 // Function to handle the Add Button click in the header
 export function showAddNewUI(depth, toParentId, vaultData, {onAdd = () => {},  onCancel = () => {}} = {}) {
     log("vaultAddRenDel.showAddNewUI", "called - depth:", depth);
 
     vaultUI.addBtn.setVisible(false);
+    vaultUI.renameBtn.setVisible(false);
     vaultUI.deleteBtn.setVisible(false);
 
     const title = vaultAddNewUI.title;
@@ -58,6 +61,10 @@ export function showAddNewUI(depth, toParentId, vaultData, {onAdd = () => {},  o
 export function showRenameUI(depth, vaultData, path, {onRename = () => {}, onCancel = () => {}} = {}) {
     log("vaultAddRenDel.showRenameUI", "called - depth:", depth);
 
+    vaultUI.addBtn.setVisible(false);
+    vaultUI.renameBtn.setVisible(false);
+    vaultUI.deleteBtn.setVisible(false);
+
     const title = vaultAddNewUI.title;
     const input = vaultAddNewUI.input;
     const saveBtn = vaultAddNewUI.addBtn;
@@ -104,45 +111,45 @@ export function showRenameUI(depth, vaultData, path, {onRename = () => {}, onCan
 }
 
 export function showDeleteUI(depth, groupId, itemId, vaultData, {onConfirm = () => {}, onCancel = () => {}} = {}) {
-    log("vaultAddRenDel.showDeleteUI", "called - depth:", depth);
+    log("vaultAddRenDel.showDeleteUI", "transitioned to showConfirmUI - depth:", depth);
 
     vaultUI.addBtn.setVisible(false);
+    vaultUI.renameBtn.setVisible(false);
     vaultUI.deleteBtn.setVisible(false);
 
     const group = vaultData.groups.find(g => g.id === groupId);
     const groupName = group ? group.name : "this group";
 
-    let msg;
+    let title, msg, okBtnText;
+
     if (depth === 2) {
-        msg = `This will delete selected group and all its child items. Continue?`;
-        vaultDeleteUI.title.setText(groupName);
-        vaultDeleteUI.confirmBtn.setText("Delete Group");
-        //vaultDeleteUI.title.classList.add('data-title'); // Turns Blue
+        // --- DELETE GROUP CASE ---
+        title = groupName;
+        msg = `This will delete the selected group and all its child items. Continue?`;
+        okBtnText = "Delete Group";
     } else {
+        // --- DELETE ITEM CASE ---
         const item = group?.items.find(i => i.id === itemId);
         const itemName = item ? item.label : "this item";
+        title = itemName;
         msg = `Delete selected item from group <b>${groupName}</b> permanently?`;
-        vaultDeleteUI.title.setText(itemName);
-        vaultDeleteUI.confirmBtn.setText("Delete Item");
-        //vaultDeleteUI.title.classList.add('data-title'); // Turns Blue
+        okBtnText = "Delete Item";
     }
 
-    vaultDeleteUI.message.innerHTML = msg;
-    vaultDeleteUI.mainSection.setVisible(true);
-
-    vaultDeleteUI.confirmBtn.onClick(() => {
-        vaultDeleteUI.mainSection.setVisible(false);
-        onConfirm();
-    });
-
-    vaultDeleteUI.cancelBtn.onClick(() => {
-        vaultDeleteUI.mainSection.setVisible(false);
-        onCancel();
+    // Call the generic UI
+    showConfirmUI({
+        title: title,
+        message: msg,
+        okText: okBtnText,
+        onConfirm: () => {
+            onConfirm();
+            // showConfirmUI handles the visibility swap back to main
+        }
     });
 }
 
-export function hideAddDelete() {
+export function hideAddRenDel() {
     vaultAddNewUI.mainSection.setVisible(false);
-    vaultDeleteUI.mainSection.setVisible(false);
+    hideConfirmUI();
 }
 

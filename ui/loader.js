@@ -9,7 +9,7 @@ export const loginUI = loadUI(['title', 'signinBtn', 'signinStatus', 'welcomeSpa
     'unlockBtn', 'recoverBtn', 'recoveryLnk', 'statusMsg'], 'login_', 'loginView');
 
 export const vaultUI = loadUI(['title', 'toggleSecureBtn', 'mainSection', 'addBtn', 'renameBtn', 'deleteBtn', 'menuBtn',
-    'menuDropdown', 'saveMenu', 'toggleEditMenu', 'rawDataMenu', 'copyLogsMenu', 'toggleLogsMenu',
+    'menuDropdown', 'saveMenu', 'toggleEditMenu', 'rawDataMenu', 'discardChangesMenu', 'copyLogsMenu', 'toggleLogsMenu',
     'recoveryRotationMenu', 'selectMenu', 'cutMenu', 'pasteMenu', 'logoutMenu', 'breadcrumbs', 'explorer', 'statusMsg'],
     'vault_', 'vaultView');
 
@@ -20,7 +20,7 @@ export const vaultRecoveryKeyUI = loadUI(['mainSection', 'currentPwdSection', 'c
 
 export const vaultAddNewUI = loadUI(['mainSection', 'title', 'label', 'input', 'cancelBtn', 'addBtn'], 'vaultAddNew_', 'vaultBody');
 
-export const vaultDeleteUI = loadUI(['mainSection', 'title', 'message', 'cancelBtn', 'confirmBtn'], 'vaultDelete_', 'vaultBody');
+export const confirmUI = loadUI(['mainSection', 'title', 'message', 'cancelBtn', 'okBtn'], 'vaultConfirm_', 'vaultBody');
 
 export let logEl = rootUI.log;
 
