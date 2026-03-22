@@ -91,6 +91,82 @@ export function showOverlayAlertUI({ title = "Success", message, okText = "OK", 
     });
 }
 
+/**
+ * A reusable Password Prompt using the existing Confirm UI Overlay
+ */
+export function showOverlayPasswordUI({ title = "Security Check", message = "Please enter your password:", okText = "Proceed" }) {
+    const section = confirmUI.mainSection;
+
+    return new Promise((resolve) => {
+        // 1. Setup Content
+        confirmUI.title.setText(title);
+
+        // Inject the message and a password input field
+        confirmUI.message.innerHTML = `
+            <div class="password-prompt-container">
+                <p style="margin-bottom: 15px;">${message}</p>
+                <input type="password" id="confirm_password_input"
+                       class="full-width-input"
+                       placeholder="Master Password"
+                       style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px;"
+                       autocomplete="current-password">
+            </div>
+        `;
+
+        confirmUI.okBtn.setText(okText);
+        confirmUI.okBtn.classList.remove('danger-btn');
+        confirmUI.okBtn.classList.add('success-btn');
+
+        // 2. Apply Overlay Style
+        section.classList.add('confirm-floating-overlay');
+        section.setVisible(true);
+
+        // Auto-focus the input for UX
+        setTimeout(() => document.getElementById('confirm_password_input')?.focus(), 50);
+
+        // 3. Setup Listeners
+        const cleanup = (value) => {
+            section.setVisible(false);
+            section.classList.remove('confirm-floating-overlay');
+            resolve(value);
+        };
+
+        confirmUI.okBtn.onClick(() => {
+            const val = document.getElementById('confirm_password_input').value;
+            cleanup(val);
+        });
+
+        confirmUI.cancelBtn.onClick(() => {
+            cleanup(null);
+        });
+
+        // Allow "Enter" key to submit
+        const handleEnter = (e) => {
+            if (e.key === 'Enter') {
+                const val = document.getElementById('confirm_password_input').value;
+                cleanup(val);
+                window.removeEventListener('keydown', handleEnter);
+            }
+        };
+        window.addEventListener('keydown', handleEnter);
+    });
+}
+
 export function hideConfirmUI() {
     swapVisibility(confirmUI.mainSection, vaultUI.mainSection);
+}
+
+export function showSilentToast(msg) {
+    let toast = document.getElementById('vault_silentToast');
+    if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'vault_silentToast';
+        toast.className = 'silent-toast'; // Styles from previous step
+        document.body.appendChild(toast);
+    }
+    toast.textContent = msg;
+    toast.classList.add('show');
+
+    // Auto-hide after 4 seconds
+    setTimeout(() => toast.classList.remove('show'), 4000);
 }

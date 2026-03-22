@@ -1,13 +1,13 @@
 import { C, G, inReadOnlyMode, AU, E, U, log, trace, debug, info, warn, error } from '../exports.js';
 
-import { logout } from '../app.js';
-import { loadUI, swapVisibility } from './uihelper.js';
-
-import { showConfirmUI, showOverlayConfirmUI, showOverlayAlertUI } from './confirm.js';
-
+import { loadUI, swapVisibility, showSilentToast } from './uihelper.js';
 import { rootUI, vaultUI, vaultRawDataUI, copyLogsToClipboard } from './loader.js';
+
+import { logout } from '../app.js';
+import { showConfirmUI, showOverlayConfirmUI, showOverlayAlertUI, showOverlayPasswordUI } from './confirm.js';
 import { showRecoveryRotationUI, hideRecoveryRotation } from './recovery-rotation.js';
 import { showAddNewUI, showRenameUI, showDeleteUI, hideAddRenDel } from './add-rename-delete.js';
+import { runAdminBackup } from '../backup.js';
 
 let idleTimer;
 let idleCallback = null;
@@ -28,7 +28,6 @@ const resetTimer = () => {
 
 let originalVaultData = null;
 let vaultData = null;
-
 
 let vaultClipboard = {
     mode: null,      // 'cut' (we can add 'copy' later if needed)
@@ -85,6 +84,8 @@ async function init() {
     vaultUI.toggleEditMenu.onClick(doToggleEditClick);
     vaultUI.rawDataMenu.onClick(doShowRawDataClick);
     vaultUI.discardChangesMenu.onClick(doDiscardChangesClick);
+
+    vaultUI.runBackupMenu.onClick(doRunBackupUI);
     vaultUI.recoveryRotationMenu.onClick(showRecoveryRotationUI);
 
     vaultUI.title.onClick(doToggleSecureClick);
@@ -106,6 +107,73 @@ async function init() {
     // Ensure these containers always use flex when shown
     //vaultRawDataUI.mainSection.setFlex();
     //vaultUI.mainSection.setFlex();
+}
+
+export function refreshCleanupPill() {
+    log("vaultUI.refreshCleanupPill", "called");
+
+    const count = parseInt(localStorage.getItem(C.BACKUP_CLEANUP_COUNTER_KEY) || 0);
+    const header = vaultUI.headerRightSide;
+    if (!header) return;
+
+    let pill = document.getElementById('admin_cleanup_pill');
+
+    if (count >= 2) {
+        if (!pill) {
+            pill = document.createElement('div');
+            pill.id = 'admin_cleanup_pill';
+            pill.className = 'admin-cleanup-pill';
+
+            // prepend() puts it at the start of the right-side actions
+            header.prepend(pill);
+        }
+
+        pill.innerHTML = `<span class="icon">⚠️</span> <span>${count}</span>`;
+        pill.title = `${count} backups generated. Click to acknowledge.`;
+
+        pill.onclick = () => {
+            showOverlayConfirmUI({
+                title: "Storage Cleanup",
+                message: `You have <b>${count}</b> backup bundles saved on this device. Clear from storage manually and click <b>Cleared</b>.`,
+                okText: "Cleared",
+                onConfirm: () => {
+                    localStorage.setItem(C.BACKUP_CLEANUP_COUNTER_KEY, 0);
+                    pill.remove();
+                    showSilentToast("Storage tracking counter reset.");
+                }
+            });
+        };
+    } else if (pill) {
+        pill.remove();
+    }
+}
+
+async function doRunBackupUI() {
+    log("vaultUI.doRunBackupUI", "called");
+
+    // 1. Prompt for password
+    const pwd = await showOverlayPasswordUI({
+        title: "Manual Backup",
+        message: "Password required to create a secure backup package.",
+        okText: "Run"
+    });
+
+    if (!pwd) return; // Opted out - canceled
+
+    try {
+        // 2. Execute (true = explicit request)
+        await runAdminBackup(pwd, vaultData, false, () => {
+            showSilentToast("Writing backup package (ZIP+HTML+TXT) to local storage...");
+            refreshCleanupPill();
+        });
+
+    } catch (err) {
+        error("vaultUI.doRunBackupUI", "Error:" + err);
+        showOverlayAlertUI({
+            title: "Error",
+            message: "Decryption failed. Please ensure your Master Password is correct."
+        });
+    }
 }
 
 function doDiscardChangesClick() {
@@ -404,7 +472,7 @@ function refreshAddRenDelBtnVisibility() {
     vaultUI.renameBtn.setVisible(canRenameDelete && writeable);
     vaultUI.deleteBtn.setVisible(canRenameDelete && writeable);
 
-    log("vaultUI.refreshAddRenDelBtnVisibility", `depth:${depth} add:${canAdd} renDel:${canRenameDelete} writeable:${writeable}`);
+    //log("vaultUI.refreshAddRenDelBtnVisibility", `depth:${depth} add:${canAdd} renDel:${canRenameDelete} writeable:${writeable}`);
 }
 
 async function doToggleEditClick() {
@@ -982,7 +1050,8 @@ async function renderVaultExplorer() {
 }
 
 function handleReadonlyState(readOnly) {
-    warn("vaultUI.showVaultUI", "Read-Only mode, app will be limited to view info only!");
+    if (readOnly)
+        warn("vaultUI.handleReadonlyState", "Read-Only mode, app will be limited to view info only!");
     manageActionableItems(readOnly);
     applyReadOnlyTheme(readOnly);
 }
@@ -997,6 +1066,7 @@ function manageActionableItems(readOnly) {
     vaultUI.saveMenu.setVisible(visible);
     vaultUI.toggleEditMenu.setVisible(visible);
     vaultUI.rawDataMenu.setVisible(visible && admin);
+    vaultUI.runBackupMenu.setVisible(admin);
     vaultUI.recoveryRotationMenu.setVisible(visible && admin);
 
     // NOTE: addBtn, renameBtn, and deleteBtn are intentionally removed from here
@@ -1036,12 +1106,17 @@ function applyReadOnlyTheme(readOnly) {
 /**
  * EXPORTED FUNCTIONS
  */
-export async function loadVault(data, options) {
+export async function loadVault(pwd, data, options) {
 
     init();
 
     vaultData = data;
     originalVaultData = structuredClone(data);
+
+    if (AU.isAdmin()) {
+        await runAdminBackup(pwd, vaultData, true, () => refreshCleanupPill(), () => refreshCleanupPill());
+    }
+    pwd = null;
 
     await renderVaultExplorer();
     await showVaultUI(options);

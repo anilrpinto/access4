@@ -1004,3 +1004,190 @@ body.vault-frozen .list-row:active {
 .success-btn:hover {
     background-color: #45a049;
 }
+
+.silent-toast {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background: #333;
+    color: #fff;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    opacity: 0;
+    transition: opacity 0.5s ease;
+    z-index: 10000;
+}
+.silent-toast.show { opacity: 1; }
+
+
+.modal-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 10000;
+}
+
+.modal-mini-card {
+    background: white; width: 350px; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    overflow: hidden; padding: 0;
+}
+
+.modal-header {
+    background: #f1f1f1; padding: 10px 15px; border-bottom: 1px solid #ddd;
+    display: flex; justify-content: space-between; align-items: center;
+}
+
+.modal-simple-body { padding: 15px; }
+
+/* Standard buttons you already likely have */
+.btn-primary { background: #1a73e8; color: white; border: none; padding: 10px; border-radius: 4px; cursor: pointer; }
+.btn-secondary { background: white; border: 1px solid #1a73e8; color: #1a73e8; padding: 10px; border-radius: 4px; cursor: pointer; }
+
+/* Make the header title solid and dark */
+#restoreBackup_title {
+    font-size: 16px;
+    font-weight: 700 !important;
+    color: #222 !important; /* Force deep dark grey */
+    letter-spacing: -0.2px;
+}
+
+/* Make the Close Button (X) look like a real interactive element */
+#restoreBackup_closeBtn {
+    background: #eee !important;
+    color: #666;
+    border-radius: 50%;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: bold;
+    transition: all 0.2s;
+    line-height: 1;
+    border: none;
+    padding: 0;
+}
+
+#restoreBackup_closeBtn:hover {
+    background: #e0e0e0 !important;
+    color: #000;
+    transform: scale(1.1);
+}
+
+.admin-cleanup-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: #fff3cd;
+    color: #856404;
+    border: 1px solid #ffeeba;
+    padding: 0 10px;
+    height: 28px; /* Matches your icon-button height roughly */
+    border-radius: 14px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    margin-right: 8px; /* Space between pill and the [+] button */
+    transition: all 0.2s;
+    user-select: none;
+}
+
+.admin-cleanup-pill:hover {
+    background: #ffeeba;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+}
+
+.admin-cleanup-pill .icon {
+    font-size: 13px;
+}
+
+/* ─────────────────────────────
+   RESTORE & ADMIN UI ADDITIONS
+   ───────────────────────────── */
+
+/* Label for the restore inputs */
+.input-label {
+    font-size: 13px;
+    color: #555;
+    margin-bottom: 8px;
+    font-weight: 500;
+}
+
+/* Specific styling for the Recovery String box */
+.restore-textarea {
+    width: 100%;
+    height: 100px;
+    margin-bottom: 15px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 8px;
+    font-family: monospace;
+    font-size: 13px;
+    background: #fafafa;
+    resize: none;
+    box-sizing: border-box; /* Essential for mobile width */
+}
+
+/* Safari-optimized password input for Restore */
+.restore-password-input {
+    width: 100%;
+    padding: 10px;
+    margin-bottom: 20px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 16px; /* Prevents iOS Safari auto-zoom */
+    box-sizing: border-box;
+}
+
+/* Read-only output box for the decrypted JSON */
+.restore-output-textarea {
+    width: 100%;
+    height: 200px;
+    margin-bottom: 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 8px;
+    font-family: monospace;
+    font-size: 12px;
+    background: #f9f9f9;
+    resize: none;
+    box-sizing: border-box;
+}
+
+/* Success status text in Restore UI */
+.status-success {
+    color: #28a745;
+    font-weight: bold;
+    font-size: 13px;
+    margin-bottom: 10px;
+}
+
+/* Admin Cleanup Pill Styling */
+.admin-cleanup-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: #fff3cd;
+    color: #856404;
+    border: 1px solid #ffeeba;
+    padding: 0 10px;
+    height: 28px;
+    border-radius: 14px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    margin-right: 8px;
+    transition: all 0.2s;
+    user-select: none;
+}
+
+.admin-cleanup-pill:hover {
+    background: #ffeeba;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+}
+
+.admin-cleanup-pill .icon {
+    font-size: 13px;
+}

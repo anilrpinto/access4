@@ -42,7 +42,8 @@ const _G = {
     settings: {
         minifyJson: false,
         clearBioDbOnLoad: false,
-        clearLocalStorageOnLoad: false
+        clearLocalStorageOnLoad: false,
+        clearLastAutoBackupKey: false
     },
 };
 

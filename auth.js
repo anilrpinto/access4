@@ -22,7 +22,7 @@ async function handleAuth(resp) {
         trace("AU.handleAuth", `Acquired access token [${G.accessToken?.slice(0, 20)}...]`);
 
         await GD.fetchUserEmail();
-        handleSignInSuccessStatus();
+        await handleSignInSuccessStatus();
 
         await GD.verifySharedRoot(C.ACCESS4_ROOT_ID);
         await GD.verifyWritable(C.ACCESS4_ROOT_ID);

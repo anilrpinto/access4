@@ -6,6 +6,7 @@
     <title>Access4 Login</title>
     <link rel="stylesheet" href="style.css">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/@zip.js/zip.js/dist/zip.min.js"></script>
 </head>
 <body>
 
@@ -46,17 +47,56 @@
                 <div id="login_statusMsg" class="unlock-message"></div>
             </div>
         </main>
+        <button  id="login_restoreBackupLnk" class="link-button">Restore backup</button>
+    </div>
+
+    <div id="restoreBackupView" class="modal-overlay" style="display: none;">
+        <div id="restoreBackup_mainSection" class="modal-mini-card">
+
+            <header class="modal-header">
+                <span id="restoreBackup_title" style="font-weight:bold;">Restore Vault</span>
+                <button id="restoreBackup_closeBtn" title="Close">✕</button>
+            </header>
+
+            <div id="restoreBackup_inputSection" class="modal-simple-body">
+                <p class="input-label">Paste Backup Restore Text (from .txt)</p>
+                <textarea id="restoreBackup_encInput"
+                          class="restore-textarea"
+                          placeholder="Paste recovery string..."
+                          spellcheck="false"
+                          autocorrect="off"
+                          autocapitalize="none"></textarea>
+
+                <p class="input-label">Password (access password for the backup)</p>
+                <input type="password"
+                       id="restoreBackup_pwdInput"
+                       class="restore-password-input"
+                       placeholder="Enter backup password"
+                       autocorrect="off"
+                       autocapitalize="none"
+                       autocomplete="current-password">
+
+                <button id="restoreBackup_decryptBtn" class="btn-primary" style="width: 100%;">Decrypt</button>
+            </div>
+
+            <div id="restoreBackup_outputSection" class="modal-simple-body" style="display: none;">
+                <p class="status-success">✅ Decrypted Successfully</p>
+                <textarea id="restoreBackup_outputTxa" class="restore-output-textarea" readonly></textarea>
+                <button id="restoreBackup_copyBtn" class="btn-secondary" style="width: 100%;">Copy to Clipboard</button>
+            </div>
+
+        </div>
     </div>
 
     <!-- VAULT VIEW -->
     <div id="vaultView" style="display: none;">
         <header>
-            <div class="header-side-left" style="display: flex; align-items: center; flex: 1;">
+            <div id="vault_headerLeftSide" class="header-side-left" style="display: flex; align-items: center; flex: 1;">
                 <button id="vault_toggleSecureBtn" class="icon-button" style="margin-right: 10px;">🔒</button>
                 <h1 id="vault_title" style="font-size: 1.1rem; margin: 0;">Vault</h1>
             </div>
 
-            <div class="header-side-right">
+            <div id="vault_headerRightSide" class="header-side-right">
                 <button id="vault_addBtn" class="icon-button" title="Add">➕</button>
                 <button id="vault_renameBtn" class="icon-button" title="Rename">✏️</button>
                 <button id="vault_deleteBtn" class="icon-button danger-text" title="Delete">🗑️</button>
@@ -65,12 +105,14 @@
                     <button id="vault_menuBtn" class="icon-button" aria-label="Options">⋮</button>
                     <div id="vault_menuDropdown" class="menuDropdown-content">
                         <button id="vault_saveMenu">Save</button>
-                        <button id="vault_toggleEditMenu">Toggle Edit</button>
-
-                        <button id="vault_rawDataMenu">Raw data</button>
                         <button id="vault_discardChangesMenu">Discard changes</button>
+                        <button id="vault_toggleEditMenu">Toggle Edit</button>
+                        <hr>
+                        <button id="vault_rawDataMenu">Raw data</button>
                         <button id="vault_copyLogsMenu">Copy logs</button>
                         <button id="vault_toggleLogsMenu" style="display: none;">Toggle logs</button>
+                        <hr>
+                        <button id="vault_runBackupMenu">Run Backup</button>
                         <button id="vault_recoveryRotationMenu">Recovery Rotation</button>
                         <hr>
                         <button id="vault_selectMenu">Select</button>

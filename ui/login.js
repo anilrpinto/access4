@@ -1,10 +1,48 @@
 import { C, G, clearGlobals, AU, BM, CR, ID, R, E, U, log, trace, debug, info, warn, error } from '../exports.js';
 
 import { loadUI, swapVisibility } from './uihelper.js';
-
 import { rootUI, loginUI, vaultUI } from './loader.js';
 
+import { runAdminBackup } from '../backup.js';
+import { openRecoveryModal } from './restore-backup.js';
+
 import { loadVault, stopVaultIdleCheck } from './vault.js';
+
+function init() {
+    log("loginUI.init", "called");
+
+    //swapVisibility(rootUI.vaultView, rootUI.loginView);
+
+    rootUI.loginView.setVisible(true).setFlex();
+    rootUI.vaultView.setVisible(false).setFlex();
+
+    loginUI.title.setText(`Login [v${C.APP_VERSION}]`);
+
+    loginUI.signinBtn.setVisible(true);
+    //showAuthorizedName();
+    handleSignOut();
+
+    // Clear password inputs
+    clearSensitiveFields();
+
+    // Hide password input sections until needed
+    loginUI.pwdSection.setVisible(false);
+    loginUI.confirmPwdSection.setVisible(false);
+
+    showUnlockMessage("");
+
+    // Reset button state
+    loginUI.unlockBtn.setText("Unlock");
+    loginUI.unlockBtn.setEnabled(true);
+
+    log("loginUI.init", "G.authMode:", G.authMode)
+
+    //TODO: Figure out the purpose of this check - temporarily removed - 03/18/2026
+    /*    if (G.authMode !== "create" && G.authMode !== "unlock") {
+            showAuthorizedName();
+            //loginUI.signinBtn.setEnabled(true);
+        }*/
+}
 
 // attach gesture logic
 function setupTitleGesture() {
@@ -47,9 +85,9 @@ async function doHiddenGesture() {
     const registered = await BM.isBiometricRegistered();
 
     if (registered) {
-        await BM.attemptBiometricUnlock(async (password) => {
-            await unlockIdentityFlow(password);
-            await proceedAfterPasswordSuccess();
+        await BM.attemptBiometricUnlock(async (pwd) => {
+            await unlockIdentityFlow(pwd);
+            await proceedAfterPasswordSuccess(pwd);
         });
 
         // After attempt, clear temporary intent
@@ -217,9 +255,6 @@ async function unlockIdentityFlow(pwd) {
         G.biometricIntent = false;
     }
 
-    // 3️⃣ Immediately destroy password reference
-    pwd = null;
-
     await updateBiometricIndicator();
     return id;
 }
@@ -273,7 +308,7 @@ async function doUnlockClick() {
 
     try {
         await unlockIdentityFlow(pwd);
-        await proceedAfterPasswordSuccess();
+        await proceedAfterPasswordSuccess(pwd);
         G.unlockInProgress = false;
     } catch (e) {
         G.unlockInProgress = false;
@@ -342,76 +377,11 @@ async function doCreatePasswordClick()  {
         //SAFETY: Clear any existing local identity before creating new (could be recovery or normal flow)
         await ID.removeDeviceIdentity();
         await ID.createIdentity(pwd);
-        await proceedAfterPasswordSuccess();
+        await proceedAfterPasswordSuccess(pwd);
         log("loginUI.doCreatePasswordClick", "New identity created and unlocked");
     } catch (e) {
         showUnlockMessage(e.message);
     }
-}
-
-/*
- * development helpers
- */
-async function promptClearBiometricIndexedDB() {
-    const confirmed = window.confirm("Are you sure you want to clear the biometric db? This cannot be undone.");
-
-    if (!confirmed) {
-        log("loginUI.promptClearBiometricIndexedDB] Deleting bio metric db canceled");
-        return false;
-    }
-
-    await BM.clearBiometricIndexedDB();
-    log("loginUI.promptClearBiometricIndexedDB", "db deleted successfully.");
-    return true;
-}
-
-function promptClearLocalStorage() {
-    const confirmed = window.confirm("Are you sure you want to clear all localStorage data for this app? This cannot be undone.");
-
-    if (!confirmed) {
-        log("loginUI.promptClearLocalStorage", "localStorage clear canceled");
-        return false;
-    }
-
-    localStorage.clear();
-    log("loginUI.promptClearLocalStorage", "localStorage cleared successfully.");
-    return true;
-}
-
-function init() {
-    log("loginUI.init", "called");
-
-    //swapVisibility(rootUI.vaultView, rootUI.loginView);
-
-    rootUI.loginView.setVisible(true).setFlex();
-    rootUI.vaultView.setVisible(false).setFlex();
-
-    loginUI.title.setText(`Login [v${C.APP_VERSION}]`);
-
-    loginUI.signinBtn.setVisible(true);
-    //showAuthorizedName();
-    handleSignOut();
-
-    // Clear password inputs
-    clearSensitiveFields();
-
-    // Hide password input sections until needed
-    loginUI.pwdSection.setVisible(false);
-    loginUI.confirmPwdSection.setVisible(false);
-
-    showUnlockMessage("");
-
-    // Reset button state
-    loginUI.unlockBtn.setText("Unlock");
-    loginUI.unlockBtn.setEnabled(true);
-
-    log("loginUI.init", "G.authMode:", G.authMode)
-
-    //TODO: Figure out the purpose of this check - temporarily removed - 03/18/2026
-/*    if (G.authMode !== "create" && G.authMode !== "unlock") {
-        showAuthorizedName();
-        //loginUI.signinBtn.setEnabled(true);
-    }*/
 }
 
 /**
@@ -431,17 +401,13 @@ export async function loadLogin() {
     loginUI.recoveryLnk.onClick(doNeedRecoveryClick);
     loginUI.recoverBtn.onClick(doRecoverClick);
 
-    if (G.settings.clearBioDbOnLoad)
-        await promptClearBiometricIndexedDB();
-
-    if (G.settings.clearLocalStorageOnLoad)
-        promptClearLocalStorage();
+    loginUI.restoreBackupLnk.onClick(openRecoveryModal);
 
     await BM.debugBiometricDB();
     await updateBiometricIndicator();
 }
 
-export async function proceedAfterPasswordSuccess() {
+export async function proceedAfterPasswordSuccess(pwd = null) {
     log("loginUI.proceedAfterPasswordSuccess", "called");
     log("loginUI.proceedAfterPasswordSuccess", `G.unlockedIdentity exists: ${!!G.unlockedIdentity}, G.currentPrivateKey exists: ${!!G.currentPrivateKey}, fingerprint: ${G.unlockedIdentity?.fingerprint}`);
     log("loginUI.proceedAfterPasswordSuccess", "G.driveLockState:", G.driveLockState ? { mode: G.driveLockState.mode, self: G.driveLockState.self } : null);
@@ -463,10 +429,6 @@ export async function proceedAfterPasswordSuccess() {
         showUnlockMessage("This device is not authorized to access vault. Ask for access", "error");
         return;
     }
-
-    // 3️⃣ Recovery key only after confirmed authorization
-    // Recovery is now managed from Vault UI security menu
-    //~await R.ensureRecoveryKey(async () => await promptRecoveryPasswordUI());
 
     // 4️⃣ Attempt write lock escalation (optional upgrade)
     if (G.driveLockState?.mode === "read") {
@@ -498,7 +460,10 @@ export async function proceedAfterPasswordSuccess() {
         warn("loginUI.proceedAfterPasswordSuccess", "Showing unlocked UI in read-only mode");
     }
 
-    loadVault(vaultData, { readOnly });
+    await loadVault(pwd, vaultData, { readOnly });
+
+    // Immediately destroy password reference here as well if missed in vault
+    pwd = null;
 
     log("loginUI.proceedAfterPasswordSuccess", "IndexedDB dbs:", JSON.stringify(await indexedDB.databases()));
 
@@ -553,10 +518,12 @@ export function handleSignInSuccessStatus() {
         loginUI.welcomeSpan.classList.remove('not-signed-in');
         loginUI.authorizedNameSpan.setText(name);
         loginUI.signoutLnk.setVisible(true);
+
+        // temp code - REMOVE
+        doDevelopmentCleanup();
     } else {
         handleSignOut();
     }
-
 }
 
 // On Sign Out
@@ -590,4 +557,58 @@ export function showAuthMessage(msg, type = "error") {
 
     loginUI.authMsg.textContent = msg;
     loginUI.authMsg.className = `status-message ${type}`;
+}
+
+
+/*
+ * TEMPORARY DEVELOPMENT CODE - REMOVE
+ */
+function doDevelopmentCleanup() {
+    if (G.settings.clearBioDbOnLoad)
+        promptClearBiometricIndexedDB();
+
+    if (G.settings.clearLocalStorageOnLoad)
+        promptClearLocalStorage();
+
+    if (G.settings.clearLastAutoBackupKey)
+        promptClearLastAutoBackupKey();
+}
+
+async function promptClearBiometricIndexedDB() {
+    const confirmed = window.confirm("Are you sure you want to clear the biometric db? This cannot be undone.");
+
+    if (!confirmed) {
+        log("loginUI.promptClearBiometricIndexedDB] Deleting bio metric db canceled");
+        return false;
+    }
+
+    await BM.clearBiometricIndexedDB();
+    log("loginUI.promptClearBiometricIndexedDB", "db deleted successfully.");
+    return true;
+}
+
+async function promptClearLocalStorage() {
+    const confirmed = window.confirm("Are you sure you want to clear all localStorage data for this app? This cannot be undone.");
+
+    if (!confirmed) {
+        log("loginUI.promptClearLocalStorage", "localStorage clear canceled");
+        return false;
+    }
+
+    localStorage.clear();
+    log("loginUI.promptClearLocalStorage", "localStorage cleared successfully.");
+    return true;
+}
+
+async function promptClearLastAutoBackupKey() {
+    const confirmed = window.confirm("Are you sure you want to clear SILENT BACKUP data for this app? This cannot be undone.");
+
+    if (!confirmed) {
+        log("loginUI.promptClearLastAutoBackupKey", "Silent Backup key clear canceled");
+        return false;
+    }
+
+    localStorage.removeItem(C.LAST_AUTO_BACKUP_KEY);
+    log("loginUI.promptClearLastAutoBackupKey", "Silent Backup key cleared successfully.");
+    return true;
 }

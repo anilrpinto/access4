@@ -173,6 +173,19 @@ export function swapVisibility(hide, show) {
         show.setVisible(true);
 }
 
+export function showSilentToast(msg) {
+    let toast = document.getElementById('vault_silentToast');
+    if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'vault_silentToast';
+        toast.className = 'silent-toast';
+        document.body.appendChild(toast);
+    }
+    toast.textContent = msg;
+    toast.classList.add('show');
+    setTimeout(() => toast.classList.remove('show'), 4000);
+}
+
 /*
     //Pro-Tip on setVisible
     //If you find that your div containers (like mainSection) look weird with inline-block, you can always override just that one after loading:

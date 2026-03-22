@@ -2,16 +2,16 @@ import { log, trace, debug, info, warn, error } from '../log.js';
 
 import { loadUI } from './uihelper.js';
 
-export const rootUI = loadUI(['loginView', 'vaultView', 'log']);
+export const rootUI = loadUI(['loginView', 'vaultView', 'restoreBackupView', 'log']);
 
 export const loginUI = loadUI(['title', 'signinBtn', 'signinStatus', 'welcomeSpan', 'authorizedNameSpan', 'signoutLnk',
     'authMsg', 'pwdSection', 'confirmPwdSection', 'pwdInput', 'confirmPwdInput',
-    'unlockBtn', 'recoverBtn', 'recoveryLnk', 'statusMsg'], 'login_', 'loginView');
+    'unlockBtn', 'recoverBtn', 'recoveryLnk', 'statusMsg', 'restoreBackupLnk'], 'login_', 'loginView');
 
-export const vaultUI = loadUI(['title', 'toggleSecureBtn', 'mainSection', 'addBtn', 'renameBtn', 'deleteBtn', 'menuBtn',
+export const vaultUI = loadUI(['title', 'toggleSecureBtn', 'mainSection', 'headerRightSide', 'addBtn', 'renameBtn', 'deleteBtn', 'menuBtn',
     'menuDropdown', 'saveMenu', 'toggleEditMenu', 'rawDataMenu', 'discardChangesMenu', 'copyLogsMenu', 'toggleLogsMenu',
-    'recoveryRotationMenu', 'selectMenu', 'cutMenu', 'pasteMenu', 'logoutMenu', 'breadcrumbs', 'explorer', 'statusMsg'],
-    'vault_', 'vaultView');
+    'runBackupMenu', 'recoveryRotationMenu', 'selectMenu', 'cutMenu', 'pasteMenu', 'logoutMenu', 'breadcrumbs',
+    'explorer', 'statusMsg'], 'vault_', 'vaultView');
 
 export const vaultRawDataUI = loadUI(['mainSection', 'content', 'closeBtn'], 'vaultRawData_', 'vaultView');
 
@@ -21,6 +21,9 @@ export const vaultRecoveryKeyUI = loadUI(['mainSection', 'currentPwdSection', 'c
 export const vaultAddNewUI = loadUI(['mainSection', 'title', 'label', 'input', 'cancelBtn', 'addBtn'], 'vaultAddNew_', 'vaultBody');
 
 export const confirmUI = loadUI(['mainSection', 'title', 'message', 'cancelBtn', 'okBtn'], 'vaultConfirm_', 'vaultBody');
+
+export const backupRestoreUI = loadUI(['title' , 'closeBtn', 'inputSection', 'encInput', 'pwdInput', 'decryptBtn', 'outputSection', 'outputTxa', 'copyBtn'],
+    'restoreBackup_', 'restoreBackup_mainSection');
 
 export let logEl = rootUI.log;
 
