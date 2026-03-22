@@ -1,4 +1,4 @@
-import { C, G, ID, log, trace, debug, info, warn, error } from './exports.js';
+import { C, G, ID, log, trace, debug, info, warn, error } from '@/shared/exports.js';
 
 const DB_VERSION = 1;
 

@@ -5,6 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Access4 Login</title>
     <link rel="stylesheet" href="style.css">
+    <script type="importmap">
+        {
+          "imports": {
+            "@/": "./js/",
+            "@/core/": "./js/core/",
+            "@/shared/": "./js/shared/",
+            "@/ui/": "./js/ui/"
+          }
+        }
+    </script>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="https://cdn.jsdelivr.net/npm/@zip.js/zip.js/dist/zip.min.js"></script>
 </head>
@@ -194,6 +204,6 @@
         </main>
     </div>
     <pre id="log" style="display: none;"></pre>
-    <script src="app.js" type="module" defer></script>
+    <script src="js/app.js" type="module" defer></script>
 </body>
 </html>

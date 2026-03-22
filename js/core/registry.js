@@ -1,4 +1,4 @@
-import { C, G, E, GD, log, trace, debug, info, warn, error } from './exports.js';
+import { C, G, E, GD, log, trace, debug, info, warn, error } from '@/shared/exports.js';
 
 function resetKeyRegistry() {
     log("RG.resetKeyRegistry", "called");

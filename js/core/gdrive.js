@@ -1,4 +1,4 @@
-import { C, G, U, log, trace, debug, info, warn, error } from './exports.js';
+import { C, G, U, log, trace, debug, info, warn, error } from '@/shared/exports.js';
 
 /**
  * IMPORTANT:

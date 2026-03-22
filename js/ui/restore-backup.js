@@ -1,8 +1,9 @@
-import { U, log, trace, debug, info, warn, error } from '../exports.js';
+import { U, log, trace, debug, info, warn, error } from '@/shared/exports.js';
 
-import { restoreFromRawString } from '../backup.js';
-import { rootUI, backupRestoreUI } from './loader.js';
-import { swapVisibility, showSilentToast } from './uihelper.js';
+import { restoreFromRawString } from '@/core/backup.js';
+
+import { rootUI, backupRestoreUI } from '@/ui/loader.js';
+import { swapVisibility, showSilentToast } from '@/ui/uihelper.js';
 
 /**
  * Reset and show the recovery modal

@@ -1,6 +1,6 @@
-import { log, trace, debug, info, warn, error } from '../log.js';
+import { log, trace, debug, info, warn, error } from '@/shared/log.js';
 
-import { loadUI } from './uihelper.js';
+import { loadUI } from '@/ui/uihelper.js';
 
 export const rootUI = loadUI(['loginView', 'vaultView', 'restoreBackupView', 'log']);
 
@@ -25,7 +25,6 @@ export const confirmUI = loadUI(['mainSection', 'title', 'message', 'cancelBtn',
 export const backupRestoreUI = loadUI(['title' , 'closeBtn', 'inputSection', 'encInput', 'pwdInput', 'decryptBtn', 'outputSection', 'outputTxa', 'copyBtn'],
     'restoreBackup_', 'restoreBackup_mainSection');
 
-export let logEl = rootUI.log;
 
 export async function copyLogsToClipboard() {
     if (!logEl) return;

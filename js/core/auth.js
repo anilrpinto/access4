@@ -1,9 +1,9 @@
-import { C, G, ID, GD, log, trace, debug, info, warn, error, isTraceEnabled } from './exports.js';
+import { C, G, ID, GD, log, trace, debug, info, warn, error, isTraceEnabled } from '@/shared/exports.js';
 
-import { loginUI } from './ui/loader.js';
+import { loginUI } from '@/ui/loader.js';
 
-import { handleSignInSuccessStatus, showAuthMessage, setupPasswordPrompt, proceedAfterPasswordSuccess, showUnlockMessage
-/*, promptUnlockPasword*/ }  from './ui/login.js';
+import { handleSignInSuccessStatus, showAuthMessage, setupPasswordPrompt,
+        proceedAfterPasswordSuccess, showUnlockMessage } from '@/ui/login.js';
 
 async function handleAuth(resp) {
     log("AU.handleAuth", "called");

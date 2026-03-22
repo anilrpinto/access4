@@ -1,4 +1,4 @@
-import { C, G, CR, E, GD, log, trace, debug, info, warn, error } from './exports.js';
+import { C, G, CR, E, GD, log, trace, debug, info, warn, error } from '@/shared/exports.js';
 
 function constantTimeEqual(a, b) {
     if (a.length !== b.length) return false;

@@ -1,8 +1,7 @@
-import { log, trace, debug, info, warn, error } from '../exports.js';
+import { log, trace, debug, info, warn, error } from '@/shared/exports.js';
 
-import { vaultUI, vaultAddNewUI } from './loader.js';
-
-import { showConfirmUI, hideConfirmUI } from './confirm.js';
+import { vaultUI, vaultAddNewUI } from '@/ui/loader.js';
+import { showConfirmUI, hideConfirmUI } from '@/ui/confirm.js';
 
 // Function to handle the Add Button click in the header
 export function showAddNewUI(depth, toParentId, vaultData, {onAdd = () => {},  onCancel = () => {}} = {}) {

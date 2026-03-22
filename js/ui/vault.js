@@ -1,13 +1,14 @@
-import { C, G, inReadOnlyMode, AU, E, U, log, trace, debug, info, warn, error } from '../exports.js';
+import { C, G, inReadOnlyMode, AU, E, U, log, trace, debug, info, warn, error } from '@/shared/exports.js';
 
-import { loadUI, swapVisibility, showSilentToast } from './uihelper.js';
-import { rootUI, vaultUI, vaultRawDataUI, copyLogsToClipboard } from './loader.js';
+import { logout } from '@/app.js';
+import { runAdminBackup } from '@/core/backup.js';
 
-import { logout } from '../app.js';
-import { showConfirmUI, showOverlayConfirmUI, showOverlayAlertUI, showOverlayPasswordUI } from './confirm.js';
-import { showRecoveryRotationUI, hideRecoveryRotation } from './recovery-rotation.js';
-import { showAddNewUI, showRenameUI, showDeleteUI, hideAddRenDel } from './add-rename-delete.js';
-import { runAdminBackup } from '../backup.js';
+import { loadUI, swapVisibility, showSilentToast } from '@/ui/uihelper.js';
+import { rootUI, vaultUI, vaultRawDataUI, copyLogsToClipboard } from '@/ui/loader.js';
+import { showConfirmUI, showOverlayConfirmUI, showOverlayAlertUI, showOverlayPasswordUI } from '@/ui/confirm.js';
+import { showRecoveryRotationUI, hideRecoveryRotation } from '@/ui/recovery-rotation.js';
+import { showAddNewUI, showRenameUI, showDeleteUI, hideAddRenDel } from '@/ui/add-rename-delete.js';
+
 
 let idleTimer;
 let idleCallback = null;

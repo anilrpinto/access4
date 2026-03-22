@@ -1,11 +1,12 @@
 "use strict";
 
 import { C, G, clearGlobals, E, log, trace, debug, info, warn, error,
-    setLogLevel, onlyLogLevels, TRACE, DEBUG, INFO, WARN, ERROR } from './exports.js';
+    setLogLevel, onlyLogLevels, TRACE, DEBUG, INFO, WARN, ERROR } from '@/shared/exports.js';
 
-import { loadUI } from './ui/uihelper.js';
+import { rootUI } from '@/ui/loader.js';
+import { loadLogin }  from '@/ui/login.js';
 
-import { loadLogin }  from './ui/login.js';
+export let logEl = rootUI.log;
 
 function onLoad() {
 

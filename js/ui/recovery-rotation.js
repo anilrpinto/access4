@@ -1,6 +1,6 @@
-import { C, AU, CR, ID, R, E, RG, GD, log, trace, debug, info, warn, error } from '../exports.js';
+import { C, AU, CR, ID, R, E, RG, GD, log, trace, debug, info, warn, error } from '@/shared/exports.js';
 
-import { vaultRecoveryKeyUI, vaultUI } from './loader.js';
+import { vaultRecoveryKeyUI, vaultUI } from '@/ui/loader.js';
 
 function showRecoveryRotationStatusMessage(msg, type = "error") {
     if (!vaultRecoveryKeyUI.statusMsg) return;

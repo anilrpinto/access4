@@ -1,6 +1,6 @@
 "use strict";
 
-import { logEl } from './ui/loader.js';
+import { logEl } from '@/app.js';
 
 export const ERROR = 0;
 export const WARN = 1;

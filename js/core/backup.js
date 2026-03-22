@@ -1,5 +1,5 @@
-import { C, AU, CR, ID, log, trace, debug, info, warn, error } from './exports.js';
-import { showSilentToast } from './ui/confirm.js';
+import { C, AU, CR, ID, log, trace, debug, info, warn, error } from '@/shared/exports.js';
+import { showSilentToast } from '@/ui/confirm.js';
 
 const RECOVERY_STRING_PREFIX = "access4recoveryv1";
 

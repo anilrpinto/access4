@@ -1,6 +1,6 @@
-import { C, G, CR, RG, ID, GD, log, trace, debug, info, warn, error } from './exports.js';
+import { C, G, CR, RG, ID, GD, log, trace, debug, info, warn, error } from '@/shared/exports.js';
 
-import { updateLockStatusUI }  from './ui/vault.js';
+import { updateLockStatusUI }  from '@/ui/vault.js';
 
 async function getDriveLockSelf() {
     log("E.getDriveLockSelf", "called");

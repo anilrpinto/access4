@@ -1,6 +1,5 @@
-
-import { G } from './global.js';
-import { log, trace, debug, info, warn, error } from './log.js';
+import { G } from '@/shared/global.js';
+import { log, trace, debug, info, warn, error } from '@/shared/log.js';
 
 export function deepFreeze(obj) {
     // 1. Retrieve the property names defined on obj

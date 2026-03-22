@@ -1,12 +1,11 @@
-import { C, G, clearGlobals, AU, BM, CR, ID, R, E, U, log, trace, debug, info, warn, error } from '../exports.js';
+import { C, G, clearGlobals, AU, BM, CR, ID, R, E, U, log, trace, debug, info, warn, error } from '@/shared/exports.js';
 
-import { loadUI, swapVisibility } from './uihelper.js';
-import { rootUI, loginUI, vaultUI } from './loader.js';
+import { runAdminBackup } from '@/core/backup.js';
 
-import { runAdminBackup } from '../backup.js';
-import { openRecoveryModal } from './restore-backup.js';
-
-import { loadVault, stopVaultIdleCheck } from './vault.js';
+import { rootUI, loginUI, vaultUI } from '@/ui/loader.js';
+import { openRecoveryModal } from '@/ui/restore-backup.js';
+import { loadUI, swapVisibility } from '@/ui/uihelper.js';
+import { loadVault, stopVaultIdleCheck } from '@/ui/vault.js';
 
 function init() {
     log("loginUI.init", "called");
