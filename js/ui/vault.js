@@ -4,11 +4,11 @@ import { logout } from '@/app.js';
 import { runAdminBackup } from '@/core/backup.js';
 
 import { loadUI, swapVisibility, showSilentToast } from '@/ui/uihelper.js';
-import { rootUI, vaultUI, vaultRawDataUI, copyLogsToClipboard } from '@/ui/loader.js';
+import { rootUI, vaultUI, vaultNavBarUI, vaultRawDataUI, copyLogsToClipboard } from '@/ui/loader.js';
 import { showConfirmUI, showOverlayConfirmUI, showOverlayAlertUI, showOverlayPasswordUI } from '@/ui/confirm.js';
 import { showRecoveryRotationUI, hideRecoveryRotation } from '@/ui/recovery-rotation.js';
 import { showAddNewUI, showRenameUI, showDeleteUI, hideAddRenDel } from '@/ui/add-rename-delete.js';
-
+import { generateFilterMap, hideFilterUI } from '@/ui/filter.js';
 
 let idleTimer;
 let idleCallback = null;
@@ -42,6 +42,10 @@ let sessionState = {
     showSecure: false,     // Global toggle for Requirement 1
     isSelectionMode: false
 };
+
+let currentFilterMap = null;
+let searchDebounceTimer = null;
+let currentSearchQuery = null;
 
 async function init() {
     log("vaultUI.init", "called");
@@ -83,6 +87,7 @@ async function init() {
 
     vaultUI.saveMenu.onClick(doSaveClick);
     vaultUI.toggleEditMenu.onClick(doToggleEditClick);
+
     vaultUI.rawDataMenu.onClick(doShowRawDataClick);
     vaultUI.discardChangesMenu.onClick(doDiscardChangesClick);
 
@@ -108,6 +113,33 @@ async function init() {
     // Ensure these containers always use flex when shown
     //vaultRawDataUI.mainSection.setFlex();
     //vaultUI.mainSection.setFlex();
+}
+
+/**
+ * Triggered by the Input Event on your search bar
+ */
+export function handleSearchInput(query) {
+    currentSearchQuery = query;
+    clearTimeout(searchDebounceTimer);
+
+    searchDebounceTimer = setTimeout(() => {
+        // 💡 CRITICAL: If query is empty, reset to null
+        if (!query || query.trim() === "") {
+            currentFilterMap = null;
+        } else {
+            currentFilterMap = generateFilterMap(vaultData, query);
+        }
+
+        // FORCE HOME: Reset the navigation path to the root
+        // This ensures the user sees the top-level filtered groups immediately.
+        sessionState.path = ['root'];
+
+        // Re-run the existing master render flow
+        renderVaultExplorer();
+
+        // Log for your debugging
+        console.log(`[Search] Query: "${query}" | Map Active: ${!!currentFilterMap}`);
+    }, 150);
 }
 
 export function refreshCleanupPill() {
@@ -326,7 +358,7 @@ function doSecure() {
     vaultClipboard.items = [];
 
     // 3. Clear the DOM (Prevents seeing old data for a split second on re-login)
-    vaultUI.breadcrumbs.clear();
+    vaultNavBarUI.breadcrumbs.clear();
     vaultUI.explorer.clear();
 
     // Use vaultUI.mainSection and not rootUI.vaultView as there's rendering issues in certain cases after log in
@@ -677,10 +709,10 @@ function getNameFromId(id, index) {
  * Renders the Breadcrumb interface
  */
 function renderBreadcrumbs() {
-    const nav = vaultUI.breadcrumbs;
-    if (!nav) return;
+    const breadcrumbs = vaultNavBarUI.breadcrumbs;
+    if (!breadcrumbs) return;
 
-    nav.innerHTML = "";
+    breadcrumbs.innerHTML = "";
     sessionState.path.forEach((id, index) => {
         const isLast = index === sessionState.path.length - 1;
         const label = getNameFromId(id, index);
@@ -696,12 +728,12 @@ function renderBreadcrumbs() {
             };
         }
 
-        nav.appendChild(span);
+        breadcrumbs.appendChild(span);
         if (!isLast) {
             const sep = document.createElement('span');
             sep.className = 'sep';
             sep.innerText = ' › ';
-            nav.appendChild(sep);
+            breadcrumbs.appendChild(sep);
         }
     });
 }
@@ -711,49 +743,79 @@ function renderBreadcrumbs() {
 function renderGroupList(container) {
     log("vaultUI.renderGroupList", "called");
 
+    container.innerHTML = ""; // Clear existing
+
     if (!vaultData.groups || vaultData.groups.length === 0) {
         container.innerHTML = `<div class="empty-state">No groups found.</div>`;
         return;
     }
 
     vaultData.groups.forEach(group => {
+
+        // FILTER CHECK: Skip if not visible in search
+        if (currentFilterMap && !currentFilterMap.visible.has(group.id)) {
+            return;
+        }
+
         // Check if any item in the clipboard is from THIS group
         const hasCutItems = vaultClipboard.items.some(i => i.parentId === group.id);
 
+        // HIGHLIGHT CHECK: Is this group name a match?
+        const isMatch = currentFilterMap?.highlighted.has(group.id);
+
         const div = document.createElement('div');
         // Add 'source-group' class if items are being cut from here
-        div.className = `list-row ${hasCutItems ? 'source-group-active' : ''}`;
+        // Add 'search-highlight' class if it's a match
+        div.className = `list-row ${hasCutItems ? 'source-group-active' : ''} ${isMatch ? 'search-highlight' : ''}`;
 
         div.innerHTML = `
             <span>📁 ${group.name} ${hasCutItems ? '<small>(moving items...)</small>' : ''}</span>
             <span class="count">${group.items.length}</span>
         `;
         div.onclick = () => {
+            hideFilterUI();
             sessionState.path.push(group.id);
             renderVaultExplorer();
         };
         container.appendChild(div);
     });
+
+    // THE EMPTY CHECK: If the loop finished but added nothing
+    if (container.children.length === 0 && currentFilterMap) {
+        container.innerHTML = `<div class="empty-state">No data matching "${currentSearchQuery}".</div>`;
+    }
 }
 
 function renderItemList(container, groupId) {
     log("vaultUI.renderItemList", "called");
 
+    container.innerHTML = "";
+
     const group = vaultData.groups.find(g => g.id === groupId);
     if (!group) return;
 
+    // 💡 EMPTY STATE TWEAK:
     if (group.items.length === 0) {
         container.innerHTML = `<div class="empty-state">This group is empty.</div>`;
         return;
     }
 
     group.items.forEach(item => {
+
+        // FILTER CHECK: Skip if item is hidden by filter
+        if (currentFilterMap && !currentFilterMap.visible.has(item.id)) {
+            return;
+        }
+
         const div = document.createElement('div');
 
         // 1. Check if item is in the clipboard (works for both Selection and Cut modes)
         const isSelected = vaultClipboard.items.some(i => i.id === item.id);
 
-        div.className = `list-row ${isSelected ? 'to-be-moved' : ''}`;
+        // 💡 HIGHLIGHT CHECK: Is this item title a match?
+        const isMatch = currentFilterMap?.highlighted.has(item.id);
+
+        div.className = `list-row ${isSelected ? 'to-be-moved' : ''} ${isMatch ? 'search-highlight' : ''}`;
         div.innerHTML = `<span>📄 ${item.label}</span><span class="arrow">›</span>`;
 
         div.onclick = () => {
@@ -763,12 +825,19 @@ function renderItemList(container, groupId) {
                 toggleItemSelection(item.id, div);
             } else {
                 // Normal navigation
+                hideFilterUI();
                 sessionState.path.push(item.id);
                 renderVaultExplorer();
             }
         };
         container.appendChild(div);
     });
+
+    // THE EMPTY CHECK:
+    if (container.children.length === 0) {
+        const msg = currentFilterMap ? "No items match your search." : "This group is empty.";
+        container.innerHTML = `<div class="empty-state">${msg}</div>`;
+    }
 }
 
 function toggleItemSelection(id, element) {
@@ -837,6 +906,10 @@ function renderItemDetails(container, groupId, itemId) {
     const editClass = sessionState.isEditable ? "editable-mode" : "";
 
     item.fields.forEach((field, index) => {
+
+        const fieldMatchID = `${item.id}-field-${field.key}`;
+        const isMatch = currentFilterMap?.highlighted.has(fieldMatchID);
+
         const fieldBox = document.createElement('div');
         fieldBox.className = `field-box ${sessionState.isEditable ? 'editable' : ''}`;
         const readonlyAttr = sessionState.isEditable ? "" : "readonly";
@@ -844,8 +917,9 @@ function renderItemDetails(container, groupId, itemId) {
         // Header now contains: [Label Input] + [Action Buttons (Copy or Trash)]
         let html = `
         <div class="field-header">
-            <input type="text" class="label-input" data-index="${index}"
-                   value="${field.key}" ${readonlyAttr} placeholder="Label">
+            <input type="text" class="label-input ${isMatch ? 'search-label-hit' : ''}"
+               data-index="${index}"
+               value="${field.key}" ${readonlyAttr} placeholder="Label">
             <div class="field-actions">
                 ${sessionState.isEditable ?
                     `<button class="icon-btn delete-field-btn" data-index="${index}">🗑️</button>` :

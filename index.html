@@ -20,190 +20,198 @@
 </head>
 <body>
 
-    <!-- LOGIN VIEW -->
-    <div id="loginView">
-        <header>
-            <h1 id="login_title">Login</h1>
+<!-- LOGIN VIEW -->
+<div id="loginView">
+    <header>
+        <h1 id="login_title">Login</h1>
+    </header>
+
+    <main id="loginBody">
+        <!-- Sign-in button -->
+        <button id="login_signinBtn">Sign in with Google</button>
+
+        <div id="login_signinStatus" class="login-user-line">
+            <div class="user-info-left">
+                <span id="login_welcomeSpan" class="not-signed-in">Not signed in</span>
+                <b><span id="login_authorizedNameSpan"></span></b>
+            </div>
+            <button id="login_signoutLnk" class="link-button" style="display: none;">Sign out</button>
+        </div>
+        <div id="login_authMsg"></div>
+
+        <!-- Password input appears after sign-in -->
+        <div id="login_pwdSection">
+            <div class="input-group">
+                <label>Password</label>
+                <input type="password" id="login_pwdInput">
+            </div>
+            <div id="login_confirmPwdSection" class="input-group">
+                <label>Confirm Password</label>
+                <input type="password" id="login_confirmPwdInput">
+            </div>
+            <button id="login_unlockBtn">Unlock</button>
+            <div id="login_recoverySection">
+                <button id="login_recoverBtn" style="display: none;">Recover</button>
+                <button  id="login_recoveryLnk" style="display: none;" class="link-button">Need recovery?</button>
+            </div>
+            <div id="login_statusMsg" class="unlock-message"></div>
+        </div>
+    </main>
+    <button  id="login_restoreBackupLnk" class="link-button">Restore backup</button>
+</div>
+
+<div id="restoreBackupView" class="modal-overlay" style="display: none;">
+    <div id="restoreBackup_mainSection" class="modal-mini-card">
+
+        <header class="modal-header">
+            <span id="restoreBackup_title" style="font-weight:bold;">Restore Vault</span>
+            <button id="restoreBackup_closeBtn" title="Close">✕</button>
         </header>
 
-        <main id="loginBody">
-            <!-- Sign-in button -->
-            <button id="login_signinBtn">Sign in with Google</button>
+        <div id="restoreBackup_inputSection" class="modal-simple-body">
+            <p class="input-label">Paste Backup Restore Text (from .txt)</p>
+            <textarea id="restoreBackup_encInput"
+                      class="restore-textarea"
+                      placeholder="Paste recovery string..."
+                      spellcheck="false"
+                      autocorrect="off"
+                      autocapitalize="none"></textarea>
 
-            <div id="login_signinStatus" class="login-user-line">
-                <div class="user-info-left">
-                    <span id="login_welcomeSpan" class="not-signed-in">Not signed in</span>
-                    <b><span id="login_authorizedNameSpan"></span></b>
-                </div>
-                <button id="login_signoutLnk" class="link-button" style="display: none;">Sign out</button>
-            </div>
-            <div id="login_authMsg"></div>
+            <p class="input-label">Password (access password for the backup)</p>
+            <input type="password"
+                   id="restoreBackup_pwdInput"
+                   class="restore-password-input"
+                   placeholder="Enter backup password"
+                   autocorrect="off"
+                   autocapitalize="none"
+                   autocomplete="current-password">
 
-            <!-- Password input appears after sign-in -->
-            <div id="login_pwdSection">
-                <div class="input-group">
-                    <label>Password</label>
-                    <input type="password" id="login_pwdInput">
-                </div>
-                <div id="login_confirmPwdSection" class="input-group">
-                    <label>Confirm Password</label>
-                    <input type="password" id="login_confirmPwdInput">
-                </div>
-                <button id="login_unlockBtn">Unlock</button>
-                <div id="login_recoverySection">
-                    <button id="login_recoverBtn" style="display: none;">Recover</button>
-                    <button  id="login_recoveryLnk" style="display: none;" class="link-button">Need recovery?</button>
-                </div>
-                <div id="login_statusMsg" class="unlock-message"></div>
-            </div>
-        </main>
-        <button  id="login_restoreBackupLnk" class="link-button">Restore backup</button>
-    </div>
-
-    <div id="restoreBackupView" class="modal-overlay" style="display: none;">
-        <div id="restoreBackup_mainSection" class="modal-mini-card">
-
-            <header class="modal-header">
-                <span id="restoreBackup_title" style="font-weight:bold;">Restore Vault</span>
-                <button id="restoreBackup_closeBtn" title="Close">✕</button>
-            </header>
-
-            <div id="restoreBackup_inputSection" class="modal-simple-body">
-                <p class="input-label">Paste Backup Restore Text (from .txt)</p>
-                <textarea id="restoreBackup_encInput"
-                          class="restore-textarea"
-                          placeholder="Paste recovery string..."
-                          spellcheck="false"
-                          autocorrect="off"
-                          autocapitalize="none"></textarea>
-
-                <p class="input-label">Password (access password for the backup)</p>
-                <input type="password"
-                       id="restoreBackup_pwdInput"
-                       class="restore-password-input"
-                       placeholder="Enter backup password"
-                       autocorrect="off"
-                       autocapitalize="none"
-                       autocomplete="current-password">
-
-                <button id="restoreBackup_decryptBtn" class="btn-primary" style="width: 100%;">Decrypt</button>
-            </div>
-
-            <div id="restoreBackup_outputSection" class="modal-simple-body" style="display: none;">
-                <p class="status-success">✅ Decrypted Successfully</p>
-                <textarea id="restoreBackup_outputTxa" class="restore-output-textarea" readonly></textarea>
-                <button id="restoreBackup_copyBtn" class="btn-secondary" style="width: 100%;">Copy to Clipboard</button>
-            </div>
-
-        </div>
-    </div>
-
-    <!-- VAULT VIEW -->
-    <div id="vaultView" style="display: none;">
-        <header>
-            <div id="vault_headerLeftSide" class="header-side-left" style="display: flex; align-items: center; flex: 1;">
-                <button id="vault_toggleSecureBtn" class="icon-button" style="margin-right: 10px;">🔒</button>
-                <h1 id="vault_title" style="font-size: 1.1rem; margin: 0;">Vault</h1>
-            </div>
-
-            <div id="vault_headerRightSide" class="header-side-right">
-                <button id="vault_addBtn" class="icon-button" title="Add">➕</button>
-                <button id="vault_renameBtn" class="icon-button" title="Rename">✏️</button>
-                <button id="vault_deleteBtn" class="icon-button danger-text" title="Delete">🗑️</button>
-
-                <div class="menu-container">
-                    <button id="vault_menuBtn" class="icon-button" aria-label="Options">⋮</button>
-                    <div id="vault_menuDropdown" class="menuDropdown-content">
-                        <button id="vault_saveMenu">Save</button>
-                        <button id="vault_discardChangesMenu">Discard changes</button>
-                        <button id="vault_toggleEditMenu">Toggle Edit</button>
-                        <hr>
-                        <button id="vault_rawDataMenu">Raw data</button>
-                        <button id="vault_copyLogsMenu">Copy logs</button>
-                        <button id="vault_toggleLogsMenu" style="display: none;">Toggle logs</button>
-                        <hr>
-                        <button id="vault_runBackupMenu">Run Backup</button>
-                        <button id="vault_recoveryRotationMenu">Recovery Rotation</button>
-                        <hr>
-                        <button id="vault_selectMenu">Select</button>
-                        <button id="vault_cutMenu" style="display:none;">Cut</button>
-                        <button id="vault_pasteMenu" style="display:none;">Paste</button>
-                        <hr>
-                        <button id="vault_logoutMenu" class="danger-text">Logout</button>
-                    </div>
-                </div>
-            </div>
-        </header>
-
-        <div id="vaultRawData_mainSection" style="display:none;">
-            <div id="vaultRawData_content" class="code-block"></div>
-            <button id="vaultRawData_closeBtn">Close</button>
+            <button id="restoreBackup_decryptBtn" class="btn-primary" style="width: 100%;">Decrypt</button>
         </div>
 
-        <main id="vaultBody">
+        <div id="restoreBackup_outputSection" class="modal-simple-body" style="display: none;">
+            <p class="status-success">✅ Decrypted Successfully</p>
+            <textarea id="restoreBackup_outputTxa" class="restore-output-textarea" readonly></textarea>
+            <button id="restoreBackup_copyBtn" class="btn-secondary" style="width: 100%;">Copy to Clipboard</button>
+        </div>
 
-            <!-- Vault Main Section -->
-            <div id="vault_mainSection">
+    </div>
+</div>
 
-                <div id="vault_navBar">
-                    <nav id="vault_breadcrumbs"></nav>
+<!-- VAULT VIEW -->
+<div id="vaultView" style="display: none;">
+    <header>
+        <div id="vault_headerLeftSide" class="header-side-left" style="display: flex; align-items: center; flex: 1;">
+            <button id="vault_toggleSecureBtn" class="icon-button" style="margin-right: 10px;">🔒</button>
+            <h1 id="vault_title" style="font-size: 1.1rem; margin: 0;">Vault</h1>
+        </div>
+
+        <div id="vault_headerRightSide" class="header-side-right">
+            <button id="vault_addBtn" class="icon-button" title="Add">➕</button>
+            <button id="vault_renameBtn" class="icon-button" title="Rename">✏️</button>
+            <button id="vault_deleteBtn" class="icon-button danger-text" title="Delete">🗑️</button>
+
+            <div class="menu-container">
+                <button id="vault_menuBtn" class="icon-button" aria-label="Options">⋮</button>
+                <div id="vault_menuDropdown" class="menuDropdown-content">
+                    <button id="vault_saveMenu">Save</button>
+                    <button id="vault_discardChangesMenu">Discard changes</button>
+                    <button id="vault_toggleEditMenu">Toggle Edit</button>
+                    <hr>
+                    <button id="vault_rawDataMenu">Raw data</button>
+                    <button id="vault_copyLogsMenu">Copy logs</button>
+                    <button id="vault_toggleLogsMenu" style="display: none;">Toggle logs</button>
+                    <hr>
+                    <button id="vault_runBackupMenu">Run Backup</button>
+                    <button id="vault_recoveryRotationMenu">Recovery Rotation</button>
+                    <hr>
+                    <button id="vault_selectMenu">Select</button>
+                    <button id="vault_cutMenu" style="display:none;">Cut</button>
+                    <button id="vault_pasteMenu" style="display:none;">Paste</button>
+                    <hr>
+                    <button id="vault_logoutMenu" class="danger-text">Logout</button>
                 </div>
-
-                <div id="vault_explorer"></div>
-                <div id="vault_statusMsg" class="unlock-message"></div>
             </div>
+        </div>
+    </header>
 
-            <div id="vaultConfirm_mainSection" class="inline-ui-view" style="display:none;">
-                <div>
-                    <h2 id="vaultConfirm_title" class="data-title">Confirm</h2>
-                    <p id="vaultConfirm_message" style="margin-bottom: 20px;">Are you sure?</p>
+    <div id="vaultRawData_mainSection" style="display:none;">
+        <div id="vaultRawData_content" class="code-block"></div>
+        <button id="vaultRawData_closeBtn">Close</button>
+    </div>
 
-                    <div class="button-group">
-                        <button id="vaultConfirm_cancelBtn" class="secondary-btn">Cancel</button>
-                        <button id="vaultConfirm_okBtn" class="danger-btn">Confirm</button>
+    <main id="vaultBody">
+
+        <!-- Vault Main Section -->
+        <div id="vault_mainSection">
+
+            <div id="vaultNavBar_mainSection">
+                <div id="vaultNavBar_content" style="flex: 1; position: relative;">
+                    <nav id="vaultNavBar_breadcrumbs"></nav>
+
+                    <div id="vaultNavBar_filterSection" class="hidden">
+                        <input type="text" id="vaultNavBar_filterInput" placeholder="Filter vault..." autocomplete="off">
                     </div>
                 </div>
+
+                <span id="vaultNavBar_filterToggle" title="Search/Filter">🔍</span>
             </div>
 
-            <!-- Vault Add new section (group, item etc.)-->
-            <div id="vaultAddNew_mainSection" style="display:none;">
-                <div>
-                    <h3 id="vaultAddNew_title">Add New</h3>
-                    <div class="input-group">
-                        <label id="vaultAddNew_label">Name</label>
-                        <input type="text" id="vaultAddNew_input" placeholder="Enter name...">
-                    </div>
-                    <div class="button-group">
-                        <button id="vaultAddNew_cancelBtn" class="secondary-btn">Cancel</button>
-                        <button id="vaultAddNew_addBtn">Add</button>
-                    </div>
-                </div>
-                <div id="vaultAddNew_statusMsg" class="unlock-message"></div>
-            </div>
+            <div id="vault_explorer"></div>
+            <div id="vault_statusMsg" class="unlock-message"></div>
+        </div>
 
-            <!-- Vault Rotate Recovery Key Section -->
-            <div id="vaultRecoveryKey_mainSection" style="display: none;">
-                <div id="vaultRecoveryKey_currentPwdSection" class="input-group" style="display: none;">
-                    <label>Current Password</label>
-                    <input type="password" id="vaultRecoveryKey_currentPwdInput">
+        <div id="vaultConfirm_mainSection" class="inline-ui-view" style="display:none;">
+            <div>
+                <h2 id="vaultConfirm_title" class="data-title">Confirm</h2>
+                <p id="vaultConfirm_message" style="margin-bottom: 20px;">Are you sure?</p>
+
+                <div class="button-group">
+                    <button id="vaultConfirm_cancelBtn" class="secondary-btn">Cancel</button>
+                    <button id="vaultConfirm_okBtn" class="danger-btn">Confirm</button>
                 </div>
+            </div>
+        </div>
+
+        <!-- Vault Add new section (group, item etc.)-->
+        <div id="vaultAddNew_mainSection" style="display:none;">
+            <div>
+                <h3 id="vaultAddNew_title">Add New</h3>
                 <div class="input-group">
-                    <label>Password</label>
-                    <input type="password" id="vaultRecoveryKey_pwdInput">
-                </div>
-                <div class="input-group">
-                    <label>Confirm Password</label>
-                    <input type="password" id="vaultRecoveryKey_confirmPwdInput">
+                    <label id="vaultAddNew_label">Name</label>
+                    <input type="text" id="vaultAddNew_input" placeholder="Enter name...">
                 </div>
                 <div class="button-group">
-                    <button id="vaultRecoveryKey_cancelBtn">Cancel</button>
-                    <button id="vaultRecoveryKey_rotateBtn">Rotate Key</button>
+                    <button id="vaultAddNew_cancelBtn" class="secondary-btn">Cancel</button>
+                    <button id="vaultAddNew_addBtn">Add</button>
                 </div>
-                <div id="vaultRecoveryKey_statusMsg" class="unlock-message"></div>
             </div>
-        </main>
-    </div>
-    <pre id="log" style="display: none;"></pre>
-    <script src="js/app.js" type="module" defer></script>
+            <div id="vaultAddNew_statusMsg" class="unlock-message"></div>
+        </div>
+
+        <!-- Vault Rotate Recovery Key Section -->
+        <div id="vaultRecoveryKey_mainSection" style="display: none;">
+            <div id="vaultRecoveryKey_currentPwdSection" class="input-group" style="display: none;">
+                <label>Current Password</label>
+                <input type="password" id="vaultRecoveryKey_currentPwdInput">
+            </div>
+            <div class="input-group">
+                <label>Password</label>
+                <input type="password" id="vaultRecoveryKey_pwdInput">
+            </div>
+            <div class="input-group">
+                <label>Confirm Password</label>
+                <input type="password" id="vaultRecoveryKey_confirmPwdInput">
+            </div>
+            <div class="button-group">
+                <button id="vaultRecoveryKey_cancelBtn">Cancel</button>
+                <button id="vaultRecoveryKey_rotateBtn">Rotate Key</button>
+            </div>
+            <div id="vaultRecoveryKey_statusMsg" class="unlock-message"></div>
+        </div>
+    </main>
+</div>
+<pre id="log" style="display: none;"></pre>
+<script src="js/app.js" type="module" defer></script>
 </body>
 </html>

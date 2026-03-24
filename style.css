@@ -1191,3 +1191,85 @@ body.vault-frozen .list-row:active {
 .admin-cleanup-pill .icon {
     font-size: 13px;
 }
+
+/* The Tile (Group or Item) Match */
+.search-highlight {
+    border-left: 4px solid #27ae60 !important; /* Mid-tone Emerald */
+    background-color: rgba(39, 174, 96, 0.05) !important;
+    transition: all 0.2s ease-in-out;
+}
+
+/* The Item Listing specifically (the 📄 row) */
+.search-highlight span {
+    color: #1b5e20 !important; /* Deep Forest Green for text readability */
+    font-weight: 600;
+}
+
+/* The Label Highlight (Inside Item Details) */
+.search-label-hit {
+    color: #1b5e20 !important; /* Deep Forest Green */
+    font-weight: 800 !important;
+    background-color: rgba(46, 204, 113, 0.15) !important;
+    border-bottom: 2px solid #1b5e20 !important;
+    padding: 2px 4px;
+    border-radius: 2px;
+}
+
+/** NAV BAR **/
+#vaultNavBar_mainSection {
+    display: flex;
+    align-items: center;
+    padding: 0 10px;
+    height: 40px; /* Adjust to your design */
+    background: #f4f4f4;
+    border-bottom: 1px solid #ddd;
+    margin-bottom: 5px; /* Adds 15px of space between the nav and folders */
+}
+
+/* The Green Confirmation State */
+#vaultNavBar_mainSection.filter-mode-active {
+    background-color: #e8f5e9 !important; /* Soft emerald background */
+    border-bottom: 1px solid #2ecc71;    /* Vibrant green bottom edge */
+    transition: background-color 0.3s ease;
+    margin-bottom: 5px; /* Keep the margin consistent in both modes */
+}
+
+#vaultNavBar_filterInput {
+    width: 100%;
+    height: 30px;        /* Fixed height looks better than 100% */
+    margin: 5px 0;       /* Centers it vertically within the 40px bar */
+    padding: 0 10px;
+    border: 1px solid transparent; /* Hidden until focus */
+    border-radius: 4px;
+    background: transparent;
+    outline: none;
+    font-size: 0.95rem;
+    color: #2c3e50;
+    box-sizing: border-box;
+}
+
+
+#vaultNavBar_mainSection.filter-mode-active #vaultNavBar_filterInput {
+    background: rgba(255, 255, 255, 0.7); /* Slightly higher opacity white to ensure text pops */
+
+    /* THE BORDER FIX: We are switching from a primary green to a muted sage green */
+    border: 1px solid #99bba5 !important;
+
+    border-radius: 6px; /* A softer corner than the original 4px helps reduce the "hard" edge feel */
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.05); /* Adds a subtle depth that makes it feel like an input */
+    transition: border-color 0.2s, box-shadow 0.2s; /* Ensures a smooth visual transition */
+}
+
+#vaultNavBar_filterToggle {
+    cursor: pointer;
+    font-size: 1.2rem;
+    padding: 0 10px;
+    user-select: none;
+    min-width: 44px; /* Minimum recommended touch target size */
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.hidden { display: none !important; }
