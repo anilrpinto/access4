@@ -869,7 +869,6 @@ function updateMoveToolbar() {
 }
 
 function renderItemDetails(container, groupId, itemId) {
-
     log("vaultUI.renderItemDetails", "called");
 
     const group = vaultData.groups.find(g => g.id === groupId);
@@ -880,83 +879,116 @@ function renderItemDetails(container, groupId, itemId) {
         return;
     }
 
-    // Create the Detail Container
     const detailEl = document.createElement('div');
     detailEl.className = 'detail-view';
 
-    // NEW: Audit Meta Bar at the top
+    // 1. Audit Meta Bar (Existing)
     const metaBar = document.createElement('div');
     metaBar.className = 'item-meta-bar';
-
     const dateOpts = { dateStyle: 'short', timeStyle: 'short' };
     const createdStr = new Date(item.created).toLocaleString(undefined, dateOpts);
     const modifiedStr = new Date(item.modified).toLocaleString(undefined, dateOpts);
-
-    // Compare the raw ISO strings (or timestamps)
     const isModified = item.created !== item.modified;
-
     metaBar.innerHTML = `
         <span class="meta-left">${createdStr}</span>
         ${isModified ? `<span class="meta-right">${modifiedStr}</span>` : ''}
     `;
     detailEl.appendChild(metaBar);
 
-    // Determine if fields should be interactive
     const readonlyAttr = sessionState.isEditable ? "" : "readonly";
-    const editClass = sessionState.isEditable ? "editable-mode" : "";
 
+    // 2. Render Standard Fields (Text, Secure, Note)
     item.fields.forEach((field, index) => {
-
         const fieldMatchID = `${item.id}-field-${field.key}`;
         const isMatch = currentFilterMap?.highlighted.has(fieldMatchID);
-
         const fieldBox = document.createElement('div');
         fieldBox.className = `field-box ${sessionState.isEditable ? 'editable' : ''}`;
-        const readonlyAttr = sessionState.isEditable ? "" : "readonly";
 
-        // Header now contains: [Label Input] + [Action Buttons (Copy or Trash)]
         let html = `
-        <div class="field-header">
-            <input type="text" class="label-input ${isMatch ? 'search-label-hit' : ''}"
-               data-index="${index}"
-               value="${field.key}" ${readonlyAttr} placeholder="Label">
-            <div class="field-actions">
-                ${sessionState.isEditable ?
-                    `<button class="icon-btn delete-field-btn" data-index="${index}">🗑️</button>` :
-                    `<button class="icon-btn copy-btn" data-val="${field.val}">📋</button>`
-                }
-            </div>
-        </div>`;
+            <div class="field-header">
+                <input type="text" class="label-input ${isMatch ? 'search-label-hit' : ''}"
+                   data-index="${index}" value="${field.key}" ${readonlyAttr} placeholder="Label">
+                <div class="field-actions">
+                    ${sessionState.isEditable ?
+                        `<button class="icon-btn delete-field-btn" data-index="${index}">🗑️</button>` :
+                        `<button class="icon-btn copy-btn" data-val="${field.val}">📋</button>`
+                    }
+                </div>
+            </div>`;
 
         if (field.type === 'secure') {
-            html += `
-            <div class="input-wrap">
-                <input type="${sessionState.showSecure ? 'text' : 'password'}"
-                       class="field-input" data-index="${index}"
-                       value="${field.val}" ${readonlyAttr} spellcheck="false">
-            </div>`;
+            html += `<div class="input-wrap"><input type="${sessionState.showSecure ? 'text' : 'password'}" class="field-input" data-index="${index}" value="${field.val}" ${readonlyAttr} spellcheck="false"></div>`;
         } else if (field.type === 'note') {
             html += `<textarea class="field-input" data-index="${index}" ${readonlyAttr} rows="4">${field.val}</textarea>`;
         } else {
-            html += `
-            <div class="input-wrap">
-                <input type="text" class="field-input" data-index="${index}" value="${field.val}" ${readonlyAttr}>
-            </div>`;
+            html += `<div class="input-wrap"><input type="text" class="field-input" data-index="${index}" value="${field.val}" ${readonlyAttr}></div>`;
         }
 
         fieldBox.innerHTML = html;
         detailEl.appendChild(fieldBox);
     });
 
-    // Pass the 'item' object directly to the template function
+    // 3. NEW: Render Attachments Section
+    if (item.attachments && item.attachments.length > 0) {
+        const attachmentSection = document.createElement('div');
+        attachmentSection.id = `attachments_${item.id}`;
+        attachmentSection.className = 'attachment-section';
+        attachmentSection.innerHTML = `<div class="section-label">Attachments</div>`;
+
+        // EVENT DELEGATION: One listener for the whole box
+        attachmentSection.onclick = (e) => {
+            // Handle Download
+            const link = e.target.closest('.file-link');
+            if (link) {
+                e.preventDefault();
+                const fileId = link.getAttribute('data-id');
+                const fileObj = item.attachments.find(a => a.val === fileId);
+                if (fileObj) handleDownloadAttachment(fileObj);
+                return;
+            }
+
+            // Handle Delete
+            const deleteBtn = e.target.closest('.delete-attachment-btn');
+            if (deleteBtn) {
+                // 1. STOP the click from traveling up to the main vault listeners
+                e.stopPropagation();
+                e.preventDefault();
+
+                const index = deleteBtn.getAttribute('data-index');
+                handleDeleteAttachment(item, index);
+            }
+        };
+
+        item.attachments.forEach((file, index) => {
+            const sizeKB = Math.round(file.meta.size / 1024);
+
+            // 💡 HIGHLIGHT LOGIC: Construct the ID used in filter.js
+            const attachmentMatchID = `${item.id}-attachment-${file.val}`;
+            const isMatch = currentFilterMap?.highlighted.has(attachmentMatchID);
+
+            const fileRow = document.createElement('div');
+            fileRow.className = `attachment-row ${isMatch ? 'filter-match' : ''}`;
+
+            fileRow.innerHTML = `
+            <a href="#" class="file-link" data-id="${file.val}">📄 ${file.key} (${sizeKB} KB)</a>
+            <div class="field-actions">
+                ${sessionState.isEditable ?
+                    `<button class="icon-btn delete-attachment-btn" data-index="${index}">🗑️</button>` : ''}
+            </div>
+        `;
+            attachmentSection.appendChild(fileRow);
+        });
+
+        detailEl.appendChild(attachmentSection);
+    }
+
+    // 4. Field Template (Existing)
     if (sessionState.isEditable) {
         addNewFieldTemplate(detailEl, item);
     }
 
     container.appendChild(detailEl);
-
-    // Attach Event Listeners for Copy/Toggle
-    attachDetailListeners(container);
+    attachDetailListeners(container, item); // Pass item to handle file actions
 }
 
 function addNewFieldTemplate(targetElement, itemObject) {
@@ -965,39 +997,198 @@ function addNewFieldTemplate(targetElement, itemObject) {
 
     addTemplate.innerHTML = `
         <div class="add-field-row">
-            <input type="text" id="newField_label" placeholder="Label (e.g. Pin)" class="add-label-input">
+            <input type="text" id="newField_label" placeholder="Label" class="add-label-input">
             <select id="newField_type" class="add-type-select">
                 <option value="text">Text</option>
                 <option value="secure">Secure</option>
                 <option value="note">Note</option>
+                <option value="file">File</option>
             </select>
+            <input type="file" id="file_uploader" style="display:none">
             <button id="newField_confirmBtn" class="add-icon-btn">➕</button>
         </div>
     `;
 
-    addTemplate.querySelector('#newField_confirmBtn').onclick = () => {
-        const labelInput = document.getElementById('newField_label');
-        const typeSelect = document.getElementById('newField_type');
+    const confirmBtn = addTemplate.querySelector('#newField_confirmBtn');
+    const typeSelect = addTemplate.querySelector('#newField_type');
+    const fileInput = addTemplate.querySelector('#file_uploader');
 
-        const label = labelInput.value.trim();
+    confirmBtn.onclick = () => {
+        const label = document.getElementById('newField_label').value.trim();
         const type = typeSelect.value;
 
-        if (!label) {
-            alert("Label is mandatory!");
-            return;
+        if (type === 'file') {
+            fileInput.click(); // Open system file picker
+        } else {
+            if (!label) {
+                return showOverlayAlertUI({
+                    title: "Error",
+                    message: "Label is mandatory!"
+                });
+            }
+
+            itemObject.fields.push({ key: label, val: "", type: type });
+            itemObject.modified = new Date().toISOString();
+            renderVaultExplorer();
         }
+    };
 
-        // FIX: Use the passed itemObject instead of the undefined 'currentItem'
-        itemObject.fields.push({ key: label, val: "", type: type });
+    fileInput.onchange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
 
-        // Update the modified timestamp since the data changed
-        itemObject.modified = new Date().toISOString();
+        const label = document.getElementById('newField_label').value.trim();
 
-        // Refresh UI
+        await handleUploadAttachment(file, label, itemObject);
+
         renderVaultExplorer();
     };
 
+    typeSelect.onchange = () => {
+        const labelInput = document.getElementById('newField_label');
+        if (typeSelect.value === 'file') {
+            labelInput.placeholder = "Optional File Label...";
+        } else {
+            labelInput.placeholder = "Label (e.g. Username)";
+        }
+    };
+
     targetElement.appendChild(addTemplate);
+}
+
+async function handleUploadAttachment(file, label, itemObject) {
+    // 1. Create a temporary ID to find this specific UI row later
+    const tempId = "up_" + Date.now();
+    const fileName = label || file.name;
+
+    try {
+        log("vaultUI.handleUploadAttachment", `Starting upload for: ${fileName}`);
+
+        // 1. Find the container
+        let container = document.querySelector('.attachment-section');
+
+        // SAFETY: If the section doesn't exist yet (first upload for this item),
+        // find the main detail container and inject it.
+        if (!container) {
+            const detailView = document.getElementById('vault_explorer'); // Or your specific detail ID
+            container = document.createElement('div');
+            container.className = 'attachment-section';
+            detailView.appendChild(container);
+        }
+
+        // 2. Now append the spinner
+        const loadingRow = document.createElement('div');
+        loadingRow.className = 'attachment-row uploading-row';
+        loadingRow.id = tempId;
+        loadingRow.innerHTML = `
+            <div class="field-actions">
+                <span><div class="spinner"></div> &nbsp; Encrypting ${fileName}...</span>
+            </div>
+        `;
+        container.appendChild(loadingRow);
+
+        // 3. Perform the actual work
+        const arrayBuffer = await file.arrayBuffer();
+        const binary = new Uint8Array(arrayBuffer);
+
+        let mimeType = file.type;
+
+        log("vaultUI.handleUploadAttachment", "mimeType:", mimeType);
+
+        if (!mimeType && file.name.endsWith('.zip')) {
+            mimeType = 'application/zip';
+        }
+
+        const attachmentEntry = await E.saveAttachment(
+            fileName,
+            binary,
+            file.type
+        );
+
+        // 4. Update memory
+        if (!itemObject.attachments) itemObject.attachments = [];
+        itemObject.attachments.push(attachmentEntry);
+        itemObject.modified = new Date().toISOString();
+
+        // 5. Success! The full render will now replace our temp row
+        renderVaultExplorer();
+        info("vaultUI.handleUploadAttachment", "Upload complete.");
+
+    } catch (err) {
+        // Remove the failed spinner if it exists
+        document.getElementById(tempId)?.remove();
+
+        console.error("Upload Error:", err);
+        alert("Upload failed. Check console for details.");
+    }
+}
+
+async function handleDownloadAttachment(attachment) {
+    try {
+        log("vaultUI.handleDownloadAttachment", `Opening: ${attachment.key}`);
+
+        // 1. Get the decrypted bytes from the Envelope layer
+        const plaintext = await E.openAttachment(attachment);
+
+        // 2. Trigger the actual browser download
+        const blob = new Blob([plaintext], { type: attachment.meta.mime });
+        const url = URL.createObjectURL(blob);
+
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = attachment.key;
+        document.body.appendChild(a);
+        a.click();
+
+        // Cleanup memory
+        setTimeout(() => {
+            URL.revokeObjectURL(url);
+            a.remove();
+        }, 100);
+
+        info("vaultUI.handleDownloadAttachment", "File delivered.");
+
+    } catch (err) {
+        // Now vault.js only handles UI-level reporting
+        error("vaultUI.handleDownloadAttachment", "Failed to open file", err);
+        alert("Failed to download or decrypt file.");
+    }
+}
+
+async function handleDeleteAttachment(item, index) {
+    const attachment = item.attachments[index];
+
+    showOverlayConfirmUI({
+        title: `Delete ${attachment.key}?`,
+        message: `Are you sure you want to permanently delete this attachment? This cannot be undone.`,
+        okText: "Delete",
+        onConfirm: async () => {
+
+            if (!attachment) return; // to account for accidental double clicks on mobile deivces
+
+            try {
+                // 1. Attempt Drive Deletion
+                // Even if this fails with a 404, our updated engine returns 'true'
+                await E.deleteAttachmentFile(attachment);
+
+            } catch (err) {
+                error("vaultUI.handleDeleteAttachment", "Critical Delete Error", err);
+                alert("Could not communicate with Google Drive. Check your connection.");
+                return; // Only stop here if it's a network/auth error
+            }
+
+            // 2. ALWAYS remove from the local JSON if we got this far
+            // This clears the "ghost" entry that was bothering you
+            log("vaultUI.handleDeleteAttachment", "Removing metadata entry.");
+            item.attachments.splice(index, 1);
+            item.modified = new Date().toISOString();
+
+            // 3. Re-render and Sync to Drive
+            renderVaultExplorer();
+
+            info("vaultUI.handleDeleteAttachment", "Ghost attachment cleared.");
+        }
+    });
 }
 
 function attachDetailListeners(container) {
@@ -1091,6 +1282,9 @@ function refreshRawDisplay() {
 // --- Main Render Entry Point ---
 async function renderVaultExplorer() {
     log("vaultUI.renderVaultExplorer", "called");
+
+    // 1. Wipe transient keys/envelope before any rendering starts
+    E.flushAttachmentTransients();
 
     // Safety check: if we still don't have data, stop here.
     if (!vaultData) {

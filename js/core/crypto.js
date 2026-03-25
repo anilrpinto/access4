@@ -42,6 +42,7 @@ export const CR_ALG = {
         GCM: "AES-GCM"
     },
     PBKDF2: "PBKDF2",
+    HKDF: "HKDF",
 
     SALT_LENGTH: 16,
     PBKDF2_ITERATIONS: 100000,
@@ -231,6 +232,40 @@ export async function generateCEK() {
         },
         true,
         ["encrypt","decrypt"]
+    );
+}
+
+/**
+ * Low-level HKDF derivation.
+ * Moves the subtle crypto complexity out of the business logic.
+ */
+export async function deriveSubKey(baseKey, salt, info) {
+    log("CR.deriveSubKey", "called");
+
+    // 1. Export the Master Key (CEK) to raw bytes
+    const rawByteKey = await crypto.subtle.exportKey("raw", baseKey);
+
+    // 2. Import it specifically for HKDF
+    const hkdfBase = await crypto.subtle.importKey(
+        "raw",
+        rawByteKey,
+        CR_ALG.HKDF,
+        false,
+        ["deriveKey"]
+    );
+
+    // 3. Derive the specific AES-GCM key
+    return crypto.subtle.deriveKey(
+        {
+            name: CR_ALG.HKDF,
+            salt: normalizeBytes(salt),
+            info: normalizeBytes(info),
+            hash: CR_ALG.HASH.SHA256
+        },
+        hkdfBase,
+        { name: CR_ALG.AES.GCM, length: 256 },
+        false,
+        ["encrypt", "decrypt"]
     );
 }
 

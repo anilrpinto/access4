@@ -1215,6 +1215,20 @@ body.vault-frozen .list-row:active {
     border-radius: 2px;
 }
 
+/* Styling for matching attachment rows */
+.attachment-row.filter-match {
+    background-color: rgba(76, 175, 80, 0.1); /* Subtle green tint (matches Access4 theme) */
+    border-left: 4px solid #4CAF50;           /* Solid green accent */
+    border-radius: 4px;
+    padding-left: 8px;
+}
+
+.attachment-row.filter-match .file-link {
+    font-weight: 600;
+    color: #2e7d32; /* Slightly darker green for readability */
+}
+
+
 /** NAV BAR **/
 #vaultNavBar_mainSection {
     display: flex;
@@ -1273,3 +1287,57 @@ body.vault-frozen .list-row:active {
 }
 
 .hidden { display: none !important; }
+
+
+.attachment-section {
+    margin-top: 15px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border-color);
+}
+
+.attachment-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 0;
+}
+
+.file-link {
+    color: #3498db; /* Blue link */
+    text-decoration: none;
+    font-size: 0.9em;
+    cursor: pointer;
+    transition: opacity 0.2s;
+}
+
+.file-link:hover {
+    opacity: 0.7;
+}
+
+.section-label {
+    font-size: 0.75em;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    margin-bottom: 8px;
+}
+
+.spinner {
+    width: 18px;
+    height: 18px;
+    border: 2px solid #ddd;
+    border-top: 2px solid var(--primary-color);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    display: inline-block;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Optional: Fade the text while uploading */
+.uploading-row {
+    opacity: 0.6;
+    pointer-events: none; /* Prevent double-clicks */
+}

@@ -41,6 +41,9 @@ function _log(level, icon, TAG, msg, ...args) {
 
     console.log(message);
 
+    if (level === ERROR)
+        console.error(msg, args);
+
     try {
         logEl.textContent += message + "\n";
     } catch (err) {

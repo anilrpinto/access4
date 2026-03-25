@@ -1,6 +1,9 @@
-import { C, G, CR, RG, ID, GD, log, trace, debug, info, warn, error } from '@/shared/exports.js';
+import { C, G, CR, RG, ID, GD, log, trace, debug, info, warn, error, isTraceEnabled } from '@/shared/exports.js';
 
 import { updateLockStatusUI }  from '@/ui/vault.js';
+
+let _transientCEK = null;
+let _transientEnvelope = null;
 
 async function getDriveLockSelf() {
     log("E.getDriveLockSelf", "called");
@@ -962,24 +965,12 @@ export async function encryptAndPersistPlaintext(plainText, options = {}) {
 
     await assertEnvelopeWrite(C.ENVELOPE_NAME);
 
-    // Load envelope
     const envelopeFile = await readEnvelopeFromDrive(C.ENVELOPE_NAME);
-    if (!envelopeFile?.json) {
-        throw new Error("Envelope missing");
-    }
-
     const envelope = envelopeFile.json;
 
-    trace("E.encryptAndPersistPlaintext", "envelope:", envelope);
-
-    // Unwrap CEK using this device
-    const selfEntry = envelope.keys.find(k => k.deviceId === G.driveLockState.self.deviceId);
-
-    if (!selfEntry) {
-        throw new Error("No device key to unwrap CEK");
-    }
-
-    const cek = await unwrapContentKey(selfEntry.wrappedKey, selfEntry.keyId);
+    // Use the centralized helper to get the CEK
+    // This handles the Drive fetch, the self-entry lookup, and the unwrap
+    const cek = await getActiveCEK(envelope);
 
     // Encrypt new payload
     const payload = await CR.encrypt(plainText, cek);
@@ -994,10 +985,6 @@ export async function encryptAndPersistPlaintext(plainText, options = {}) {
     const written = await writeEnvelopeSafely(updatedEnvelope);
 
     info("E.encryptAndPersistPlaintext", "Payload encrypted & written to envelope");
-
-    // Verify decrypt immediately (sanity + demo)
-    //const decrypted = await openEnvelope(written);
-    //log("E.encryptAndPersistPlaintext", "Decrypted payload:", decrypted);
 }
 
 export async function loadEnvelopePayloadToUI(uiCallback) {
@@ -1107,5 +1094,209 @@ export async function validateEnvelopeDecryption(envelope, devicePrivateKey) {
         error("Envelope decrypt validation FAILED", err);
 
         return false;
+    }
+}
+
+/**
+ * Derives a unique AES-GCM key for a specific file using the Vault CEK.
+ */
+async function deriveFileKey(cek, fileUuid) {
+    log("E.deriveFileKey", `Deriving key for ${fileUuid}`);
+
+    // We pass the CEK, a versioned salt, and the unique UUID.
+    // normalizeBytes in CR handles the string-to-buffer conversion for us.
+    return CR.deriveSubKey(cek, C.ATTACHMENT_FILEKEY_SALT, fileUuid);
+}
+
+/**
+ * Encrypts a binary blob (Uint8Array) for Drive storage.
+ */
+export async function encryptAttachment(binaryData, fileUuid) {
+    log("E.encryptAttachment", "called");
+
+
+
+    // Get the CEK (Borrowing your existing unwrap logic)
+    const cek = await _getTransientCEK();
+
+    // Derive the unique key for this specific UUID
+    const fek = await deriveFileKey(cek, fileUuid);
+
+    // Use existing CR.encrypt (it returns {iv, data} in B64)
+    // NOTE: For large binaries, we convert to a flat Uint8Array for Drive efficiency
+    const encrypted = await CR.encrypt(binaryData, fek);
+
+    const ivBuf = CR.b64ToBuf(encrypted.iv);
+    const dataBuf = CR.b64ToBuf(encrypted.data);
+
+    // Combine into a single binary packet: [IV (12 bytes)][Ciphertext]
+    const combined = new Uint8Array(ivBuf.length + dataBuf.length);
+    combined.set(ivBuf, 0);
+    combined.set(dataBuf, ivBuf.length);
+
+    return combined;
+}
+
+// only use with logic that is okay to use the transients - attachment logic
+async function _getTransientCEK() {
+    if (!_transientEnvelope) {
+        const envelopeFile = await readEnvelopeFromDrive(C.ENVELOPE_NAME);
+        if (!envelopeFile?.json) {
+            throw new Error("Active envelope not found on Drive.");
+        }
+        _transientEnvelope = envelopeFile.json;
+    }
+
+    return await getActiveCEK(_transientEnvelope);
+}
+
+/**
+ * Decrypts a binary blob from Drive.
+ */
+export async function decryptAttachment(combinedBuffer, fileUuid) {
+    log("E.decryptAttachment", "called");
+
+    const cek = await _getTransientCEK();
+    const fek = await deriveFileKey(cek, fileUuid);
+
+    const iv = combinedBuffer.slice(0, 12);
+    const data = combinedBuffer.slice(12);
+
+    // Reconstruct the format CR.decrypt expects
+    const enc = {
+        iv: CR.bufToB64(iv),
+        data: CR.bufToB64(data)
+    };
+
+    return CR.decrypt(enc, fek);
+}
+
+/**
+ * Wipes the cached CEK.
+ * Call this when the user closes the Vault or logs out.
+ */
+export function flushAttachmentTransients() {
+    _transientCEK = null;
+    _transientEnvelope = null;
+    log("E.clearSessionKeys", "Transient CEK wiped.");
+}
+
+/**
+ * Internal helper to retrieve and unwrap the CEK for the current session.
+ * Reuses the existing logic from encryptAndPersistPlaintext but returns the key object.
+ */
+async function getActiveCEK(envelope) {
+    // 1. Check if we already unwrapped it this session/view
+    if (_transientCEK) {
+        trace("E.getActiveCEK", "Returning cached transient CEK");
+        return _transientCEK;
+    }
+
+    log("E.getActiveCEK", "Cache miss - unwrapping CEK from envelope");
+
+    if (isTraceEnabled())
+        trace("E.getActiveCEK", "envelope:", envelope);
+
+    const selfEntry = envelope.keys.find(k => k.deviceId === G.driveLockState.self.deviceId);
+
+    if (!selfEntry) {
+        error("E.getActiveCEK", "This device is not authorized in the current envelope.");
+        throw new Error("Device authorization missing.");
+    }
+
+    // 2. Perform the expensive RSA unwrap
+    const cek = await unwrapContentKey(selfEntry.wrappedKey, selfEntry.keyId);
+
+    // 3. Store in the transient variable for subsequent calls
+    _transientCEK = cek;
+
+    return _transientCEK;
+}
+
+/**
+ * Handles the encryption and Drive upload of an attachment.
+ * Returns the metadata object to be stored in the Vault JSON.
+ * @param {string} name - The display name/label for the file.
+ * @param {Uint8Array} binary - The raw file bytes.
+ * @param {string} mimeType - The original mime type (for metadata).
+ */
+/**
+ * Refactored: Coordination only.
+ * Cryptography is delegated to E.encryptAttachment.
+ */
+export async function saveAttachment(name, binary, mimeType) {
+    log("E.saveAttachment", `Processing: ${name}`);
+
+    const fileUuid = CR.generateUUID();
+    const encryptedBytes = await encryptAttachment(binary, fileUuid);
+
+    // 1. Get the folder ID (this should be cached in G.attachmentsFolderId eventually)
+    const folderId = await GD.findOrCreateFolder("attachments", C.ACCESS4_ROOT_ID);
+
+    // 2. Use the new wrapper
+    const driveFileId = await GD.upsertBinaryFile({
+        name: `${fileUuid}.bin`,
+        parentId: folderId,
+        content: encryptedBytes,
+        mimeType: "application/octet-stream"
+    });
+
+    // 3. Construct the Vault Entry
+    // 'val' is now explicitly the driveFileId for direct access
+    return {
+        key: name,
+        type: "file",
+        val: driveFileId,
+        uuid: fileUuid,
+        meta: {
+            size: binary.length,
+            mime: mimeType,
+            updated: new Date().toISOString()
+        }
+    };
+}
+
+
+/**
+ * High-level coordinator to fetch and decrypt an attachment.
+ * @param {Object} attachment - The attachment entry from the Vault JSON.
+ * @returns {Uint8Array} - The decrypted file bytes.
+ */
+export async function openAttachment(attachment) {
+    log("E.openAttachment", `Fetching and decrypting: ${attachment.key}`);
+
+    // 1. Fetch encrypted bytes via Drive (using your existing GD helper)
+    // Note: ensure GD is imported at the top of envelope.js
+    const buffer = await GD.readBinaryByFileId(attachment.val);
+    const encryptedCombined = new Uint8Array(buffer);
+
+    // 2. Perform the Decryption
+    // This calls your decryptAttachment logic (getting CEK, deriving FEK, splitting IV)
+    const plaintext = await decryptAttachment(encryptedCombined, attachment.uuid);
+
+    return plaintext;
+}
+
+/**
+ * Deletes an attachment's encrypted file from Google Drive.
+ * @param {Object} attachment - The attachment object containing the Drive File ID (val).
+ */
+export async function deleteAttachmentFile(attachment) {
+    if (!attachment.val) {
+        warn("E.deleteAttachmentFile", "No Drive File ID found for this attachment.");
+        return;
+    }
+
+    try {
+        log("E.deleteAttachmentFile", `Scrubbing: ${attachment.val}`);
+        await GD.deleteFileById(attachment.val);
+    } catch (err) {
+        // If the error is "Not Found", we don't care! The goal was to remove it.
+        if (err.message.includes("404") || err.message.includes("not found")) {
+            warn("E.deleteAttachmentFile", "File already gone from Drive. Proceeding...");
+            return true;
+        }
+        // If it's a 403 (Permission) or 500 (Server Error), we SHOULD still throw it.
+        throw err;
     }
 }

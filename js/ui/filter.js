@@ -40,6 +40,19 @@ export function generateFilterMap(vaultData, query) {
             });
         }
 
+        // 2.5 NEW: Check Attachments
+        if (type === 'item' && node.attachments) {
+            node.attachments.forEach(a => {
+                // We search the 'key' which is the filename (e.g., "passport.pdf")
+                if (a.key.toLowerCase().includes(q)) {
+                    // Highlighting the specific attachment ID helps the UI
+                    // visually mark the matching file in the detail view
+                    map.highlighted.add(`${node.id}-attachment-${a.val}`);
+                    nodeHasMatch = true;
+                }
+            });
+        }
+
         // 💡 THE FIX: If the parent matched OR this node matched,
         // we tell the children they are in a "matched branch"
         const isVisibleByInheritance = parentMatch || nodeHasMatch;

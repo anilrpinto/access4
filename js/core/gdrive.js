@@ -158,6 +158,35 @@ async function _driveMultipartUpload({ metadata, content, contentType = "applica
     return json;
 }
 
+async function _driveMultipartUploadBinary({ metadata, content, contentType = "application/octet-stream" }) {
+    const boundary = "-------access4-" + crypto.randomUUID();
+
+    // Use a Blob/ArrayBuffer approach for true binary safety
+    const header = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: ${contentType}\r\n\r\n`;
+    const footer = `\r\n--${boundary}--`;
+
+    const body = new Blob([
+        header,
+        content, // This can now be a Uint8Array or Blob safely
+        footer
+    ]);
+
+    const res = await fetch(
+        "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true",
+        {
+            method: "POST",
+            headers: {
+                Authorization: `Bearer ${G.accessToken}`,
+                "Content-Type": `multipart/related; boundary=${boundary}`
+            },
+            body
+        }
+    );
+
+    if (!res.ok) throw new Error(`Binary upload failed: ${res.status}`);
+    return await res.json();
+}
+
 async function ensurePubKeyFolder() {
     return findOrCreateFolder(C.PUBKEY_FOLDER_NAME, C.ACCESS4_ROOT_ID);
 }
@@ -187,6 +216,14 @@ export async function readJsonByFileId(fileId) {
     return await res.json();
 }
 
+export async function readBinaryByFileId(fileId) {
+    const res = await _driveFetchRaw(
+        _buildDriveUrl(`files/${fileId}`, { alt: "media" })
+    );
+    // Return as ArrayBuffer for decryption
+    return await res.arrayBuffer();
+}
+
 // auth.js, envelope.js, loader.js
 export async function upsertJsonFile({ name, parentId, json, overwrite = false }) {
 
@@ -209,6 +246,54 @@ export async function upsertJsonFile({ name, parentId, json, overwrite = false }
     });
 
     return file.id;
+}
+
+/**
+ * Binary version of upsert.
+ * Handles the 'attachments' folder and returns the Drive File ID.
+ */
+export async function upsertBinaryFile({ name, parentId, content, mimeType = "application/octet-stream" }) {
+    log("GD.upsertBinaryFile", `Uploading ${name}`);
+
+    // Note: We usually don't 'overwrite' attachments since they use UUIDs,
+    // but the structure remains consistent with your JSON helper.
+    const file = await _driveMultipartUploadBinary({
+        metadata: {
+            name,
+            parents: [parentId],
+            mimeType
+        },
+        content
+    });
+
+    return file.id; // This is the ID we MUST store in the Vault JSON
+}
+
+/**
+ * Permanently deletes a file from Google Drive by its ID.
+ * @param {string} fileId - The unique Drive File ID.
+ */
+export async function deleteFileById(fileId) {
+    if (!fileId) throw new Error("GD.deleteFileById: No fileId provided.");
+
+    log("GD.deleteFileById", `Permanently deleting file: ${fileId}`);
+
+    // Using your existing _driveFetchRaw pattern
+    const response = await _driveFetchRaw(_buildDriveUrl(`files/${fileId}`), { method: "DELETE" });
+
+    // Google returns a 204 No Content on a successful delete
+    if (response.status === 204) {
+        info("GD.deleteFileById", "File deleted successfully.");
+        return true;
+    }
+
+    // Handle cases where the file might already be gone (404)
+    if (response.status === 404) {
+        warn("GD.deleteFileById", "File not found; it may have been deleted already.");
+        return true;
+    }
+
+    throw new Error(`Delete failed: ${response.status} ${response.statusText}`);
 }
 
 // envelope.js
@@ -344,3 +429,4 @@ export async function readJsonFilesFromFolder(parentId) {
 
     return results;
 }
+

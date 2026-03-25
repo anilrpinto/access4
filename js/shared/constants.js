@@ -8,6 +8,7 @@ export const C = U.deepFreeze({
     SCOPES: "https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/userinfo.email",
     ACCESS4_ROOT_ID: "1zQPiXTCDlPjzgD1YZiVKsRB2s4INUS_g",
     DEVICE_ID_KEY: "access4.device.id",
+    ATTACHMENT_FILEKEY_SALT: "access4.attachment.v1",
 
     AUTH_FILE_NAME: "authorized.json",
     ENVELOPE_NAME: "envelope.json",
