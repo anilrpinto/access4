@@ -1,10 +1,10 @@
-import { C, AU, CR, ID, log, trace, debug, info, warn, error } from '@/shared/exports.js';
+import { C, AU, E, CR, ID, log, trace, debug, info, warn, error } from '@/shared/exports.js';
 import { showSilentToast } from '@/ui/confirm.js';
 
 const RECOVERY_STRING_PREFIX = "access4recoveryv1";
 
 export async function runAdminBackup(pwd, vaultData, isAuto = true, onBackup = null, onSkip = null) {
-    log("runBackupUI.runAdminBackup", `Starting backup (Mode: ${isAuto ? 'Auto' : 'Manual'})`);
+    log("backup.runAdminBackup", `Starting backup (Mode: ${isAuto ? 'Auto' : 'Manual'})`);
 
     if (!AU.isAdmin()) return; // Non-admins never backup
 
@@ -14,7 +14,7 @@ export async function runAdminBackup(pwd, vaultData, isAuto = true, onBackup = n
         // Daily Throttling Logic
         const lastBackup = localStorage.getItem(C.LAST_AUTO_BACKUP_KEY);
         if (lastBackup === today) {
-            info("runBackupUI.runAdminBackup", "Auto-backup skipped: already ran today.");
+            info("backup.runAdminBackup", "Auto-backup skipped: already ran today.");
             if (onSkip) onSkip();
             return;
         }
@@ -37,15 +37,71 @@ export async function runAdminBackup(pwd, vaultData, isAuto = true, onBackup = n
 
         const vaultJson = JSON.stringify(vaultData, null, 2);
 
-        // --- STEP A: Create the Master Bundle ZIP ---
+        // --- Create the Master Bundle ZIP ---
         const masterZipWriter = new window.zip.ZipWriter(new window.zip.BlobWriter("application/zip"));
 
-        // 1. Add the Internal Encrypted Data ZIP
+        // --- STEP A: Internal Data ZIP (The Core) ---
         const internalZipWriter = new window.zip.ZipWriter(new window.zip.BlobWriter("application/zip"));
+
+        // A1. Add the main Vault JSON
         await internalZipWriter.add("vault_data.json", new window.zip.TextReader(vaultJson), {
             password: pwd,
             zipCrypto: true
         });
+
+        // A2. ATTACHMENT PROCESSING: Fetch, Decrypt, and Pack
+        const allAttachments = [];
+        vaultData.groups.forEach(g => {
+            if (g.items) {
+                g.items.forEach(i => {
+                    if (i.attachments && i.attachments.length > 0) {
+                        i.attachments.forEach(a => {
+                            // Use 'label' to match your JSON schema
+                            allAttachments.push({
+                                ...a,
+                                itemName: i.label || i.id || "Unknown_Item"
+                            });
+                        });
+                    }
+                });
+            }
+        });
+
+        if (allAttachments.length > 0) {
+            info("backup.runAdminBackup", `Processing ${allAttachments.length} attachments...`);
+
+            for (const attach of allAttachments) {
+                try {
+                    // Use your validated Envelope logic to get plaintext bytes
+                    const plaintext = await E.openAttachment(attach);
+
+                    // If openAttachment returns an ArrayBuffer, this converts it.
+                    // If it's already a Uint8Array, this is a safe no-op.
+                    const dataToZip = new Uint8Array(plaintext);
+
+                    if (dataToZip.length === 0) {
+                        warn("backup.runAdminBackup", `Decrypted data for ${attach.key} is 0 bytes!`);
+                    }
+
+                    // Path formatting: "attachments/ItemName_FileName.ext"
+                    // We sanitize the item name to prevent ZIP path errors
+                    const itemName = attach.itemName || "Unknown";
+                    const safeItemName = itemName.replace(/[^a-z0-9]/gi, '_');
+                    const zipPath = `attachments/${safeItemName}_${attach.key}`;
+
+                    await internalZipWriter.add(zipPath, new window.zip.Uint8ArrayReader(dataToZip), {
+                        password: pwd,
+                        zipCrypto: true
+                    });
+
+                    log("backup.runAdminBackup", `Bundled ${dataToZip.length} bytes: ${zipPath}`);
+                } catch (err) {
+                    // Log the error but keep the backup moving
+                    error("backup.runAdminBackup", `Failed to bundle ${attach.key}: ${err.message}`, err);
+                }
+            }
+        }
+
         const internalZipBlob = await internalZipWriter.close();
         await masterZipWriter.add("1-Encrypted_Data.zip", new window.zip.BlobReader(internalZipBlob));
 
@@ -76,7 +132,7 @@ export async function runAdminBackup(pwd, vaultData, isAuto = true, onBackup = n
 
     } catch (err) {
         if (onSkip) onSkip();
-        error("runBackupUI.runAdminBackup", "Bundle generation failed: " + err);
+        error("backup.runAdminBackup", "Bundle generation failed: " + err);
         throw err; // Re-throw so doRunBackupUI can catch it and show the error modal
     }
 }
@@ -87,7 +143,7 @@ export async function logBackupEvent(timestamp, autoRun) {
 
     // Keep only last 20 entries to prevent local storage bloat
     if (manifest.length > C.MAX_BACKUP_MANIFEST_ENTRIES) {
-        warn("runBackupUI.logBackupEvent", "Manifest threshold reached. Removing oldest entry.");
+        warn("backup.logBackupEvent", "Manifest threshold reached. Removing oldest entry.");
         manifest = manifest.slice(-C.MAX_BACKUP_MANIFEST_ENTRIES);
     }
     localStorage.setItem(C.BACKUP_MANIFEST_KEY, JSON.stringify(manifest));
@@ -96,7 +152,7 @@ export async function logBackupEvent(timestamp, autoRun) {
     let counter = parseInt(localStorage.getItem(C.BACKUP_CLEANUP_COUNTER_KEY) || 0);
     counter++;
     localStorage.setItem(C.BACKUP_CLEANUP_COUNTER_KEY, counter);
-    log("runBackupUI.logBackupEvent", `Event logged. New cleanup count: ${counter}`);
+    log("backup.logBackupEvent", `Event logged. New cleanup count: ${counter}`);
 }
 
 function downloadFile(blob, name) {
@@ -104,8 +160,20 @@ function downloadFile(blob, name) {
     const a = document.createElement('a');
     a.href = url;
     a.download = name;
+
+    // Add to body briefly (required for some mobile browsers)
+    document.body.appendChild(a);
     a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+    // Clean up the DOM element immediately
+    document.body.removeChild(a);
+
+    // CRITICAL: Delay the memory cleanup (Revoke)
+    // 5000ms (5 seconds) is the "Safe Zone" for mobile OS handoffs
+    setTimeout(() => {
+        URL.revokeObjectURL(url);
+        log("backup.downloadFile", "Blob URL revoked successfully.");
+    }, 5000);
 }
 
 async function generateRecoveryHTML(json, password) {
@@ -273,7 +341,7 @@ async function generateRecoveryString(vaultJson, password) {
  * @param {string} password - The user's master password
  */
 export async function restoreFromRawString(rawString, password) {
-    log("runBackupUI.restoreFromRawString", "called");
+    log("backup.restoreFromRawString", "called");
 
     // 1. DEEP CLEAN: Remove BOM, Zero-width spaces, and Non-Printables
     const cleaned = rawString
@@ -286,7 +354,7 @@ export async function restoreFromRawString(rawString, password) {
 
     if (parts.length !== 4 || parts[0].toLowerCase() !== RECOVERY_STRING_PREFIX.toLowerCase()) {
         const msg = `Format check failed. Parts: ${parts.length}, Prefix: ${parts[0]}`;
-        error("runBackupUI.restoreFromRawString", msg);
+        error("backup.restoreFromRawString", msg);
         throw new Error(msg);
     }
 
@@ -306,7 +374,7 @@ export async function restoreFromRawString(rawString, password) {
 
         return JSON.parse(new TextDecoder().decode(decryptedBuffer));
     } catch (e) {
-        error("runBackupUI.restoreFromRawString", "Crypto operation failed", e);
+        error("backup.restoreFromRawString", "Crypto operation failed", e);
         throw new Error("Decryption succeeded, but data is not valid JSON. The backup may be corrupted.");
     }
 }

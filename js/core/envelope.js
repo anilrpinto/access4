@@ -1175,10 +1175,10 @@ export async function decryptAttachment(combinedBuffer, fileUuid) {
  * Wipes the cached CEK.
  * Call this when the user closes the Vault or logs out.
  */
-export function flushAttachmentTransients() {
+export function flushCachedTransients() {
     _transientCEK = null;
     _transientEnvelope = null;
-    log("E.clearSessionKeys", "Transient CEK wiped.");
+    log("E.flushCachedTransients", "Transient CEK and envelope wiped from memory, if cached.");
 }
 
 /**

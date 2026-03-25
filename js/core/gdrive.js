@@ -296,6 +296,15 @@ export async function deleteFileById(fileId) {
     throw new Error(`Delete failed: ${response.status} ${response.statusText}`);
 }
 
+export async function trashFileById(fileId) {
+    log("GD.trashFileById", `Moving to trash: ${fileId}`);
+
+    return await _driveFetchRaw(`files/${fileId}?supportsAllDrives=true`, {
+        method: 'PATCH',
+        body: JSON.stringify({ trashed: true })
+    });
+}
+
 // envelope.js
 export async function drivePatchJsonFile(fileId, json) {
     await _driveFetchRaw(
