@@ -1,7 +1,6 @@
 "use strict";
 
 const _G = {
-    gisPrompt: false,
     tokenClient: null,
     accessToken: null,
     authorizedName: null,
@@ -41,6 +40,7 @@ const _G = {
     recoveryCEK: null,
 
     settings: {
+        gisPrompt: true,
         minifyJson: false,
         clearBioDbOnLoad: false,
         clearLocalStorageOnLoad: false,

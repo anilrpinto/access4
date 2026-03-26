@@ -497,6 +497,47 @@ async function readLockFromDrive(envelopeName) {
     };
 }
 
+function _createStarterVaultJson() {
+    return {
+        "meta": {
+            "version": "1.0",
+            "lastModified": null,
+        },
+        "groups": [
+            {
+                "id": "g-12345567890",
+                "name": "Genesis",
+                "items": [
+                    {
+                        "id": "i-1234567890",
+                        "label": "Access4",
+                        "created": "2026-01-10T08:00:00Z",
+                        "modified": "2026-02-20T15:30:00Z",
+                        "fields": [
+                            {
+                                "type": "text",
+                                "key": "username",
+                                "val": "username1234"
+                            },
+                            {
+                                "type": "secure",
+                                "key": "Password",
+                                "val": "password1234"
+                            },
+                            {
+                                "type": "note",
+                                "key": "Notes",
+                                "val": "Some important notes"
+                            }
+                        ],
+                        "attachments": []
+                    }
+                ]
+            }
+        ]
+    };
+}
+
 /**
  * EXPORTED FUNCTIONS
  */
@@ -576,7 +617,7 @@ export async function ensureEnvelope() {
     const selfKey = G.keyRegistry.flat.activeDevices.find(k => k.deviceId === self.deviceId);
     if (!selfKey) throw new Error("Active device public key not found for envelope genesis");
 
-    const envelope = await createEnvelope(JSON.stringify({ initialized: true }), selfKey);
+    const envelope = await createEnvelope(JSON.stringify(_createStarterVaultJson()), selfKey);
     return await writeEnvelopeWithLock(envelope);
 }
 

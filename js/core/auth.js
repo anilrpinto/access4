@@ -200,7 +200,7 @@ export function initGIS() {
         callback: handleAuth
     });
 
-    if (G.gisPrompt) {
+    if (G.settings.gisPrompt) {
         // Promts for accounts regardless (helpful in switching account)
         G.tokenClient.requestAccessToken({ prompt:"consent select_account" })
     } else {
