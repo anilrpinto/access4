@@ -505,7 +505,7 @@ export async function setupPasswordPrompt(mode, options = {}) {
 // On Sign In Success
 export function handleSignInSuccessStatus() {
 
-    log("loginUI.handleSignInSuccessStatus", "called - name:", G.authorizedName ? G.authorizedName?.slice(-2) : G.userEmail?.slice(-10));
+    log("loginUI.handleSignInSuccessStatus", `called - name: ${G.authorizedName ? G.authorizedName?.slice(-2) : G.userEmail?.slice(-10)}`);
 
     const name = G.authorizedName ? G.authorizedName : G.userEmail;
 

@@ -296,11 +296,25 @@ export async function deleteFileById(fileId) {
     throw new Error(`Delete failed: ${response.status} ${response.statusText}`);
 }
 
-export async function trashFileById(fileId) {
+/*export async function trashFileById(fileId) {
     log("GD.trashFileById", `Moving to trash: ${fileId}`);
 
     return await _driveFetchRaw(`files/${fileId}?supportsAllDrives=true`, {
         method: 'PATCH',
+        body: JSON.stringify({ trashed: true })
+    });
+}*/
+
+export async function trashFileById(fileId) {
+    log("GD.trashFileById", `Moving to trash via POST Override: ${fileId}`);
+
+    // We change the method to POST, but tell Google to treat it as a PATCH
+    return await _driveFetchRaw(`files/${fileId}?supportsAllDrives=true`, {
+        method: 'POST', // Tomcat will allow this
+        headers: {
+            'X-HTTP-Method-Override': 'PATCH', // Google will see this
+            'Content-Type': 'application/json'
+        },
         body: JSON.stringify({ trashed: true })
     });
 }
@@ -333,8 +347,9 @@ export async function fetchUserEmail() {
     const data = await res.json();
     G.userEmail = data.email;
     G.authorizedName = data.name;
+    G.userId = data.sub;
 
-    log("GD.fetchUserEmail", "Signed in as " + G?.userEmail?.slice(-10));
+    log("GD.fetchUserEmail", `Authenticated: ...${G?.userEmail?.slice(-10)} [ID: ...${G.userId.slice(-6)}]`);
 }
 
 // auth.js
@@ -370,7 +385,7 @@ export async function findDriveFileByNameInRoot(name) {
 }
 
 // recovery.js
-export async function findOrCreateFolder(name, parentId) {
+export async function findOrCreateFolder(name, parentId = C.ACCESS4_ROOT_ID) {
 
     const q = _buildDriveQuery({
         name,
@@ -380,8 +395,7 @@ export async function findOrCreateFolder(name, parentId) {
 
     const res = await _driveList({ q, fields: "files(id)" });
 
-    if (res.length)
-    return res[0].id;
+    if (res.length) return res[0].id;
 
     const folder = await _driveFetch(
         _buildDriveUrl("files"), {
@@ -410,7 +424,6 @@ export async function listFolders(parentId) {
 
 // registry.js
 export async function listJsonFiles(parentId) {
-
     return await _driveList({
         q: _buildDriveQuery({
             parent: parentId,
@@ -437,5 +450,29 @@ export async function readJsonFilesFromFolder(parentId) {
     }
 
     return results;
+}
+
+/**
+ * Lists all files in a folder that are owned by the authenticated user.
+ * Generalized to work for any folder (Attachments, PubKeys, etc.)
+ */
+export async function listFilesOwnedByMe(folderName) {
+    if (!folderName) {
+        error("GD.listFilesOwnedByMe", "No folder name provided");
+        return [];
+    }
+
+    const folderId = await findOrCreateFolder(folderName);
+
+    // We build a query that adds the 'me' in owners constraint
+    const q = _buildDriveQuery({ parent: folderId, trashed: false })
+                + " and 'me' in owners";
+
+    // We use your existing _driveList wrapper
+    return await _driveList({
+        q,
+        fields: "files(id, name)",
+        pageSize: 1000 // Higher limit for cleanup tasks
+    });
 }
 

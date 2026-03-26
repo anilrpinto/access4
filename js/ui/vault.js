@@ -2,6 +2,7 @@ import { C, G, inReadOnlyMode, AU, E, U, log, trace, debug, info, warn, error } 
 
 import { logout } from '@/app.js';
 import { runAdminBackup } from '@/core/backup.js';
+import { runGarbageCollection } from '@/core/janitor.js';
 
 import { loadUI, swapVisibility, showSilentToast } from '@/ui/uihelper.js';
 import { rootUI, vaultUI, vaultNavBarUI, vaultRawDataUI, copyLogsToClipboard } from '@/ui/loader.js';
@@ -9,6 +10,8 @@ import { showConfirmUI, showOverlayConfirmUI, showOverlayAlertUI, showOverlayPas
 import { showRecoveryRotationUI, hideRecoveryRotation } from '@/ui/recovery-rotation.js';
 import { showAddNewUI, showRenameUI, showDeleteUI, hideAddRenDel } from '@/ui/add-rename-delete.js';
 import { generateFilterMap, hideFilterUI } from '@/ui/filter.js';
+
+
 
 let idleTimer;
 let idleCallback = null;
@@ -46,6 +49,9 @@ let sessionState = {
 let currentFilterMap = null;
 let searchDebounceTimer = null;
 let currentSearchQuery = null;
+
+let pendingFileDeletions = [];  // Google Drive File IDs to DELETE on Save
+let pendingFileUploads = [];   // Google Drive File IDs to DELETE on Discard/Logout
 
 async function init() {
     log("vaultUI.init", "called");
@@ -218,8 +224,20 @@ function doDiscardChangesClick() {
         onConfirm: () => {
             log("vaultUI.doDiscardChangesClick", "reverting...");
 
-            // Your logic using structuredClone
+            // 1. REVERT THE DATA CHANGES
             vaultData = structuredClone(originalVaultData);
+
+            // 2. Nuke the "Orphaned" Uploads from Drive
+            if (pendingFileUploads.length > 0) {
+                pendingFileUploads.forEach(id => E.deleteAttachmentFile(id));
+                pendingFileUploads = [];
+            }
+
+            // 3. Clear the delete queue (They are back in the vault now)
+            if (typeof pendingFileDeletions !== 'undefined') {
+                log("vaultUI.doDiscardChangesClick", `Rescuing ${pendingFileDeletions.length} files from deletion queue.`);
+                pendingFileDeletions = [];
+            }
 
             // Reset UI state
             sessionState.path = ['root'];
@@ -523,8 +541,6 @@ async function doToggleEditClick() {
 
 async function doSaveClick() {
     log("vaultUI.doSaveClick", "Starting save process...");
-
-    // Clear previous status and show 'Working' state
     showStatusMessage("Encrypting and saving...", null);
 
     if (!vaultData || Object.keys(vaultData).length === 0) {
@@ -534,15 +550,53 @@ async function doSaveClick() {
     }
 
     try {
-        await E.encryptAndPersistPlaintext(JSON.stringify(vaultData), { onUpdate: updateLockStatusUI });
+        // 1. PERSIST THE JSON (The Source of Truth)
+        await E.encryptAndPersistPlaintext(JSON.stringify(vaultData), {
+            onUpdate: updateLockStatusUI
+        });
+
+        // 2. DATA SYNC: Update our "Last Saved" snapshot
         originalVaultData = structuredClone(vaultData);
 
+        // --- NEW SYMMETRY LINE ---
+        // Since the JSON saved successfully, these uploads are now "Official".
+        // We clear the list so we don't nuke them on a future Discard/Logout.
+        pendingFileUploads = [];
+        // -------------------------
+
+        // 3. PHYSICAL CLEANUP: Run this only after the JSON is safely saved
+        if (typeof pendingFileDeletions !== 'undefined' && pendingFileDeletions.length > 0) {
+            info("vaultUI.doSaveClick", `Processing ${pendingFileDeletions.length} queued deletions...`);
+
+            // We use allSettled so one 403 (Permission) doesn't stop the others
+            const cleanupResults = await Promise.allSettled(pendingFileDeletions.map(id => E.deleteAttachmentFile(id)));
+
+            // Optional: Log any files that couldn't be trashed (e.g., owned by User A)
+            cleanupResults.forEach((res, i) => {
+                const fileId = pendingFileDeletions[i];
+
+                if (res.status === 'rejected') {
+                    // Use res.reason.message to see the actual text instead of {}
+                    const reason = res.reason?.message || res.reason || "Unknown Error";
+                    error("vaultUI.doSaveClick", `System Error deleting ${fileId}: ${reason}`);
+                }
+                else if (res.value === false) {
+                    // This is the clean log you want!
+                    log("vaultUI.doSaveClick", `Skipped ${fileId}: Ownership restriction (Handled).`);
+                }
+            });
+
+            // IMPORTANT: Clear the queue so we don't try to delete them again on the next save
+            pendingFileDeletions = [];
+        }
+
+        // 4. UI SUCCESS STATE
         showOverlayAlertUI({
             title: "Vault Saved",
-            message: `Your changes have been encrypted and saved successfully.`,
+            message: `Your changes (and deletions) have been applied successfully.`,
             okText: "OK",
             onConfirm: () => {
-                refreshMenuUI(); // Hide the "Discard Changes" menu since we are in sync
+                refreshMenuUI();
             }
         });
         showStatusMessage(`Last saved: ${U.getCurrentTime()}`, "success");
@@ -550,6 +604,7 @@ async function doSaveClick() {
     } catch (err) {
         error("vaultUI.doSaveClick", "Save failed:", err);
         showStatusMessage(`Save failed: ${err.message || err}`, "error");
+        // Note: we do NOT clear pendingFileDeletions here so the user can try saving again
     }
 }
 
@@ -1091,19 +1146,17 @@ async function handleUploadAttachment(file, label, itemObject) {
         const arrayBuffer = await file.arrayBuffer();
         const binary = new Uint8Array(arrayBuffer);
 
-        let mimeType = file.type;
-
+        let mimeType = file.type || (file.name.endsWith('.zip') ? 'application/zip' : '');
         log("vaultUI.handleUploadAttachment", "mimeType:", mimeType);
 
-        if (!mimeType && file.name.endsWith('.zip')) {
-            mimeType = 'application/zip';
-        }
+        const attachmentEntry = await E.saveAttachment(fileName, binary, file.type);
 
-        const attachmentEntry = await E.saveAttachment(
-            fileName,
-            binary,
-            file.type
-        );
+        // attachmentEntry.val is the Google Drive File ID.
+        // We add it to our 'pendingFileUploads' so we can nuke it if they hit Discard.
+        if (attachmentEntry && attachmentEntry.val) {
+            pendingFileUploads.push(attachmentEntry.val);
+            log("vaultUI.handleUploadAttachment", `Tracking new file for discard-safety: ${attachmentEntry.val}`);
+        }
 
         // 4. Update memory
         if (!itemObject.attachments) itemObject.attachments = [];
@@ -1157,36 +1210,27 @@ async function handleDownloadAttachment(attachment) {
 
 async function handleDeleteAttachment(item, index) {
     const attachment = item.attachments[index];
+    if (!attachment) return;
 
     showOverlayConfirmUI({
-        title: `Delete ${attachment.key}?`,
-        message: `Are you sure you want to permanently delete this attachment? This cannot be undone.`,
-        okText: "Delete",
+        title: `Remove ${attachment.key}?`,
+        message: `This will remove the attachment from the vault. Changes are pending until you click 'Save'.`,
+        okText: "Remove",
         onConfirm: async () => {
-
-            if (!attachment) return; // to account for accidental double clicks on mobile deivces
-
-            try {
-                // 1. Attempt Drive Deletion
-                // Even if this fails with a 404, our updated engine returns 'true'
-                await E.deleteAttachmentFile(attachment);
-
-            } catch (err) {
-                error("vaultUI.handleDeleteAttachment", "Critical Delete Error", err);
-                alert("Could not communicate with Google Drive. Check your connection.");
-                return; // Only stop here if it's a network/auth error
+            // 1. Add the Drive File ID to our "Hit List"
+            if (attachment.val) {
+                pendingFileDeletions.push(attachment.val);
+                log("vault.handleDelete", `Added ${attachment.val} to pending deletes.`);
             }
 
-            // 2. ALWAYS remove from the local JSON if we got this far
-            // This clears the "ghost" entry that was bothering you
-            log("vaultUI.handleDeleteAttachment", "Removing metadata entry.");
+            // 2. Remove from the local vaultData array immediately
             item.attachments.splice(index, 1);
             item.modified = new Date().toISOString();
 
-            // 3. Re-render and Sync to Drive
+            // 3. Refresh the UI - the file disappears instantly!
             renderVaultExplorer();
 
-            info("vaultUI.handleDeleteAttachment", "Ghost attachment cleared.");
+            showSilentToast("Removed. Remember to Save changes.");
         }
     });
 }
@@ -1284,7 +1328,7 @@ async function renderVaultExplorer() {
     log("vaultUI.renderVaultExplorer", "called");
 
     // 1. Wipe transient keys/envelope before any rendering starts
-    E.flushAttachmentTransients();
+    E.flushCachedTransients();
 
     // Safety check: if we still don't have data, stop here.
     if (!vaultData) {
@@ -1389,6 +1433,8 @@ export async function loadVault(pwd, data, options) {
 
     await renderVaultExplorer();
     await showVaultUI(options);
+
+    setTimeout(async () => await runGarbageCollection(vaultData), 5000); // 5-second delay to prioritize the initial UI render
 }
 
 export function stopVaultIdleCheck() {

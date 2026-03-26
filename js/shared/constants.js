@@ -1,6 +1,6 @@
 "use strict";
 
-import { U } from './exports.js';
+import { U } from '@/shared/exports.js';
 
 export const C = U.deepFreeze({
     APP_VERSION: "15",
@@ -16,6 +16,7 @@ export const C = U.deepFreeze({
     RECOVERY_KEY_PRIVATE_FILE: "recovery.private.json",
     PUBKEY_FOLDER_NAME: "pub-keys",
     RECOVERY_FOLDER_NAME: "recovery",
+    ATTACHMENTS_FOLDER_NAME: "attachments",
 
     BACKUP_MANIFEST_KEY: "access4.backup.manifest",
     LAST_AUTO_BACKUP_KEY: "access4.last.auto.backup",

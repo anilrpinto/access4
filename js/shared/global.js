@@ -6,6 +6,7 @@ const _G = {
     accessToken: null,
     authorizedName: null,
     userEmail: null,
+    userId: null,
     needsIdentitySetup: false,
     biometricIntent: false,
 
@@ -43,7 +44,9 @@ const _G = {
         minifyJson: false,
         clearBioDbOnLoad: false,
         clearLocalStorageOnLoad: false,
-        clearLastAutoBackupKey: false
+        clearLastAutoBackupKey: false,
+        ignore24hBackupCheck: true
+
     },
 };
 

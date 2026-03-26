@@ -1114,8 +1114,6 @@ async function deriveFileKey(cek, fileUuid) {
 export async function encryptAttachment(binaryData, fileUuid) {
     log("E.encryptAttachment", "called");
 
-
-
     // Get the CEK (Borrowing your existing unwrap logic)
     const cek = await _getTransientCEK();
 
@@ -1233,9 +1231,12 @@ export async function saveAttachment(name, binary, mimeType) {
     // 1. Get the folder ID (this should be cached in G.attachmentsFolderId eventually)
     const folderId = await GD.findOrCreateFolder("attachments", C.ACCESS4_ROOT_ID);
 
+    // --- TEMP DEV LOGIC ---
+    const driveName = getDevDriveName(name);    //`${fileUuid}.bin`
+
     // 2. Use the new wrapper
     const driveFileId = await GD.upsertBinaryFile({
-        name: `${fileUuid}.bin`,
+        name: driveName,/*`${fileUuid}.bin`,*/
         parentId: folderId,
         content: encryptedBytes,
         mimeType: "application/octet-stream"
@@ -1248,14 +1249,26 @@ export async function saveAttachment(name, binary, mimeType) {
         type: "file",
         val: driveFileId,
         uuid: fileUuid,
+        oid: G.userId,
         meta: {
             size: binary.length,
             mime: mimeType,
-            updated: new Date().toISOString()
+            updated: new Date().toISOString(),
+            uploadedBy: G.userEmail
         }
     };
 }
 
+/**
+ * TEMPORARY DEV HELPER:
+ * Creates a readable name for Google Drive to assist in testing.
+ * REVERT THIS BEFORE PRODUCTION.
+ */
+function getDevDriveName(originalName) {
+    const timestamp = new Date().toLocaleTimeString().replace(/:/g, '-');
+    // We keep the original name but append 'DEV' and a time to avoid collisions
+    return `DEV_${timestamp}_${originalName}.enc`;
+}
 
 /**
  * High-level coordinator to fetch and decrypt an attachment.
@@ -1281,22 +1294,47 @@ export async function openAttachment(attachment) {
  * Deletes an attachment's encrypted file from Google Drive.
  * @param {Object} attachment - The attachment object containing the Drive File ID (val).
  */
-export async function deleteAttachmentFile(attachment) {
-    if (!attachment.val) {
-        warn("E.deleteAttachmentFile", "No Drive File ID found for this attachment.");
-        return;
-    }
+/**
+ * Physically trashes a file on Google Drive.
+ * Used during the 'Commit' phase of a Save.
+ */
+// envelope.js
+
+/**
+ * Universal file removal: Tries permanent delete, falls back to trash.
+ * Returns true if the file is gone or the attempt was made.
+ */
+export async function deleteAttachmentFile(fileId) {
+    if (!fileId) return true;
 
     try {
-        log("E.deleteAttachmentFile", `Scrubbing: ${attachment.val}`);
-        await GD.deleteFileById(attachment.val);
+        log("E.deleteAttachmentFile", `Primary: Attempting DELETE for ${fileId}`);
+        await GD.deleteFileById(fileId);
+        return true;
+
     } catch (err) {
-        // If the error is "Not Found", we don't care! The goal was to remove it.
-        if (err.message.includes("404") || err.message.includes("not found")) {
-            warn("E.deleteAttachmentFile", "File already gone from Drive. Proceeding...");
-            return true;
+        // 1. EXTRACT THE CODE (Google often buries it in err.message or err.body)
+        const errMsg = err.message || "";
+        const statusCode = err.status || (errMsg.includes("403") ? 403 : errMsg.includes("405") ? 405 : 0);
+
+        // 2. CHECK FOR PERMISSION/METHOD ERRORS
+        if (statusCode === 403 || statusCode === 405 || errMsg.toLowerCase().includes("permission")) {
+            warn("E.deleteAttachmentFile", `DELETE blocked (${statusCode}). Trying Trash fallback...`);
+
+            try {
+                await GD.trashFileById(fileId);
+                return true;
+            } catch (trashErr) {
+                // If even Trash fails, we've done our best.
+                warn("E.deleteAttachmentFile", `Ownership wall for ${fileId}. Skipping physical delete.`);
+                return false; // This 'false' tells doSaveClick it was a handled skip
+            }
         }
-        // If it's a 403 (Permission) or 500 (Server Error), we SHOULD still throw it.
+
+        // 3. IF 404, IT'S ALREADY GONE
+        if (statusCode === 404 || errMsg.includes("404")) return true;
+
+        // 4. REAL SYSTEM ERROR (Network down, Auth expired, etc)
         throw err;
     }
 }
