@@ -1,4 +1,4 @@
-import { C, G, E, GD, log, trace, debug, info, warn, error } from '@/shared/exports.js';
+import { C, G, SV, GD, log, trace, debug, info, warn, error } from '@/shared/exports.js';
 
 function resetKeyRegistry() {
     log("RG.resetKeyRegistry", "called");
@@ -132,13 +132,59 @@ async function loadPublicKeyJsonsFromDrive() {
 
     for (const key of rawKeys)
         if (key.supersedes)
-        superseded.add(key.supersedes);
+            superseded.add(key.supersedes);
 
     const publicKeyJsons = rawKeys.filter(k => k.state !== "revoked" && !superseded.has(k.keyId));
 
     log("RG.loadPublicKeyJsonsFromDrive", `Loaded ${publicKeyJsons.length} active public keys`);
 
     return publicKeyJsons;
+}
+
+function normalizePublicKey(raw) {
+
+    if (!raw || typeof raw !== "object") {
+        throw new Error("Invalid public key JSON");
+    }
+
+    if (!raw.keyId || !raw.fingerprint || !raw.publicKey) {
+        throw new Error("Missing required public key fields (keyId, fingerprint, publicKey)");
+    }
+    trace("SV.normalizePublicKey", "fingerprint:", raw.fingerprint);
+
+    return {
+        version: Number(raw.version) || 1,
+
+        account: raw.account || null,
+        role: raw.role,
+
+        keyId: raw.keyId,
+        fingerprint: raw.fingerprint,
+        state: raw.state || "active",
+
+        deviceId: raw.role === "device" ? raw.deviceId : null,
+        supersedes: raw.supersedes || null,
+        created: raw.created || null,
+
+        algorithm: {
+            type: raw.algorithm?.type,
+            usage: raw.algorithm?.usage || [],
+            modulusLength: raw.algorithm?.modulusLength,
+            hash: raw.algorithm?.hash
+        },
+
+        publicKey: {
+            format: raw.publicKey.format,
+            encoding: raw.publicKey.encoding,
+            data: raw.publicKey.data
+        },
+
+        meta: {
+            deviceName: raw.deviceName || null,
+            browser: raw.browser || null,
+            os: raw.os || null
+        }
+    };
 }
 
 /**
@@ -149,11 +195,10 @@ export async function buildKeyRegistryFromDrive() {
 
     resetKeyRegistry(); // keep global registry mutable
 
-    // ─── Load key registry from pub-keys on Drive ───
     const publicKeyJsons = await loadPublicKeyJsonsFromDrive();
 
     for (const raw of publicKeyJsons) {
-        const normalized = E.normalizePublicKey(raw);
+        const normalized = normalizePublicKey(raw);
         if (!normalized) continue; // skip invalid
         registerPublicKey(normalized);
     }
@@ -170,7 +215,7 @@ export async function buildKeyRegistryFromDrive() {
     // Resolve terminal active devices
     const activeDevices = resolveEffectiveActiveDevices(G.keyRegistry.flat);
 
-    // 🔒 Frozen snapshot for read-only use elsewhere (do NOT assign to G.keyRegistry)
+    // Frozen snapshot for read-only use elsewhere (do NOT assign to G.keyRegistry)
     const snapshot = structuredClone(G.keyRegistry);
     snapshot.flat.activeDevices = Object.freeze(activeDevices.map(d => Object.freeze(d)));
     snapshot.flat.deprecatedDevices = Object.freeze(snapshot.flat.deprecatedDevices.map(d => Object.freeze(d)));
@@ -178,6 +223,8 @@ export async function buildKeyRegistryFromDrive() {
 
     return snapshot; // assign to local var if needed, not G.keyRegistry
 }
+
+
 
 /*async function markPreviousDriveKeyDeprecated(oldFingerprint, newFingerprint) {
     log("GD.markPreviousDriveKeyDeprecated", "called");

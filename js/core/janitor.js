@@ -1,4 +1,4 @@
-import { C, G, GD, E, ID, log, info, warn, error } from '@/shared/exports.js';
+import { C, G, GD, SV, ID, log, info, warn, error } from '@/shared/exports.js';
 
 /**
  * Sweeps the Attachments folder for files owned by the current user
@@ -27,7 +27,7 @@ export async function runGarbageCollection(vaultData) {
     } else
         log("janitor.runGarbageCollection", "IGNORING 24H backup check!!");
 
-    info("janitor.runGarbageCollection", "Starting background cleanup...");
+    log("janitor.runGarbageCollection", "Starting background cleanup...");
 
     try {
         const driveFiles = await GD.listFilesOwnedByMe(C.ATTACHMENTS_FOLDER_NAME);
@@ -47,12 +47,12 @@ export async function runGarbageCollection(vaultData) {
             const orphans = driveFiles.filter(file => !activeIds.has(file.id));
 
             if (orphans.length > 0) {
-                info("janitor.runGarbageCollection", `Purging ${orphans.length} orphans...`);
+                log("janitor.runGarbageCollection", `Purging ${orphans.length} orphans...`);
                 for (const file of orphans) {
-                    await E.deleteAttachmentFile(file.id).catch(err => warn("janitor.GC", err.message));
+                    await SV.deleteAttachmentFile(file.id).catch(err => warn("janitor.GC", err.message));
                 }
             } else {
-                info("janitor.runGarbageCollection", "Drive is in sync. No orphans found.");
+                log("janitor.runGarbageCollection", "Drive is in sync. No orphans found.");
             }
         }
 

@@ -1,4 +1,4 @@
-import { C, AU, CR, ID, R, E, RG, GD, log, trace, debug, info, warn, error } from '@/shared/exports.js';
+import { C, AU, CR, ID, R, SV, RG, GD, log, trace, debug, info, warn, error } from '@/shared/exports.js';
 
 import { vaultRecoveryKeyUI, vaultUI } from '@/ui/loader.js';
 
@@ -84,7 +84,7 @@ async function doRotateRecoveryKeyClick(rotateMode) {
         await RG.buildKeyRegistryFromDrive();
 
         // 7️⃣ Add to envelope for CEK housekeeping
-        await E.addRecoveryKeyToEnvelope({
+        await SV.addRecoveryKeyToEnvelope({
             publicKey: recoveryIdentity.publicKey,
             keyId: recoveryIdentity.fingerprint
         });

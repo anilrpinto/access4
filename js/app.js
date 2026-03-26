@@ -1,6 +1,6 @@
 "use strict";
 
-import { C, G, clearGlobals, E, log, trace, debug, info, warn, error,
+import { C, G, clearGlobals, SV, log, trace, debug, info, warn, error,
     setLogLevel, onlyLogLevels, TRACE, DEBUG, INFO, WARN, ERROR } from '@/shared/exports.js';
 
 import { rootUI } from '@/ui/loader.js';
@@ -32,7 +32,7 @@ async function releaseDriveLock() {
         expiresAt: new Date(0).toISOString()
     };
 
-    await E.writeLockToDrive(
+    await SV.writeLockToDrive(
         G.driveLockState.envelopeName,
         cleared,
         G.driveLockState.fileId
@@ -56,7 +56,7 @@ export function logout() {
     releaseDriveLock();
 
     // Release Drive lock if held
-    E.handleDriveLockLost(); // stops heartbeat & clears local G.driveLockState
+    SV.handleDriveLockLost(); // stops heartbeat & clears local G.driveLockState
 
     // Clear user-specific memory
     clearGlobals();

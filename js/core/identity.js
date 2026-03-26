@@ -134,10 +134,6 @@ export function removeDeviceIdentity() {
     }
 }
 
-export function devicePublicKeyDriveJsonName() {
-    return `${G.userEmail}_${getDeviceId()}.json`;
-}
-
 export async function ensureDevicePublicKey() {
     log("ID.ensureDevicePublicKey", "called");
 
@@ -147,19 +143,15 @@ export async function ensureDevicePublicKey() {
     const deviceId = getDeviceId();
 
     const folder = await GD.ensureUserPubKeyFolder();
-    log("ID.ensureDevicePublicKey", `folder: ${folder}`);
 
-    const filename = devicePublicKeyDriveJsonName();
+    const filename = `${G.userEmail}_${deviceId}.json`;
     const file = await GD.findDriveFileByNameInFolder(filename, folder);
 
-    log("ID.ensureDevicePublicKey", `file: ${file?.id ?? "none"}`);
-
     if (file?.id) {
-        log("ID.ensureDevicePublicKey", `Device public key already exists as ...${filename.slice(-30)}`);
+        info("ID.ensureDevicePublicKey", `Device public key ...${filename.slice(-30)} exists on drive`);
         return;
     }
 
-    // Compute fingerprint (canonical keyId)
     const pubBytes = CR.b64ToBuf(id.publicKey);
     const fingerprint = await CR.computePublicKeyFingerprint(pubBytes);
 

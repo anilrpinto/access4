@@ -65,11 +65,13 @@ async function onAuthReady(email) {
 
         // Attempt session restore first
         if (await attemptSessionRestore()) {
-            log("AU.onAuthReady", "Found an active authenticated browser session — skipping password prompt");
+            info("AU.onAuthReady", "Found an active authenticated browser session — skipping password prompt");
 
             log("AU.onAuthReady", "G.driveLockState after session restore:" + (G.driveLockState ? { mode: G.driveLockState.mode, self: G.driveLockState.self } : null));
             showUnlockMessage("Authentication succeeded, proceeding to vault", "success");
-            await ID.ensureDevicePublicKey();
+
+            // Commented as it's already being called in proceedAfterPasswordSuccess()
+            //await ID.ensureDevicePublicKey();
             await proceedAfterPasswordSuccess();
             return;
         } else

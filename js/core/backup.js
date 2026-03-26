@@ -1,4 +1,4 @@
-import { C, AU, E, CR, ID, log, trace, debug, info, warn, error } from '@/shared/exports.js';
+import { C, AU, SV, CR, ID, log, trace, debug, info, warn, error } from '@/shared/exports.js';
 import { showSilentToast } from '@/ui/confirm.js';
 
 const RECOVERY_STRING_PREFIX = "access4recoveryv1";
@@ -73,7 +73,7 @@ export async function runAdminBackup(pwd, vaultData, isAuto = true, onBackup = n
             for (const attach of allAttachments) {
                 try {
                     // Use your validated Envelope logic to get plaintext bytes
-                    const plaintext = await E.openAttachment(attach);
+                    const plaintext = await SV.openAttachment(attach);
 
                     // If openAttachment returns an ArrayBuffer, this converts it.
                     // If it's already a Uint8Array, this is a safe no-op.

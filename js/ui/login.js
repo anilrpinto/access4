@@ -1,4 +1,4 @@
-import { C, G, clearGlobals, AU, BM, CR, ID, R, E, U, log, trace, debug, info, warn, error } from '@/shared/exports.js';
+import { C, G, clearGlobals, AU, BM, CR, ID, R, SV, U, log, trace, debug, info, warn, error } from '@/shared/exports.js';
 
 import { runAdminBackup } from '@/core/backup.js';
 
@@ -411,16 +411,16 @@ export async function proceedAfterPasswordSuccess(pwd = null) {
     log("loginUI.proceedAfterPasswordSuccess", `G.unlockedIdentity exists: ${!!G.unlockedIdentity}, G.currentPrivateKey exists: ${!!G.currentPrivateKey}, fingerprint: ${G.unlockedIdentity?.fingerprint}`);
     log("loginUI.proceedAfterPasswordSuccess", "G.driveLockState:", G.driveLockState ? { mode: G.driveLockState.mode, self: G.driveLockState.self } : null);
 
-    log("loginUI.proceedAfterPasswordSuccess", "Proceeding to device public key exchange");
+    log("loginUI.proceedAfterPasswordSuccess", "Proceeding to device public key check on drive");
     await ID.ensureDevicePublicKey();
 
     // 1️⃣ Ensure envelope exists (read-only init only)
-    await E.ensureEnvelope();      // 🔐 guarantees CEK + envelope
+    await SV.ensureEnvelope();      // guarantees CEK + envelope
 
     log("loginUI.proceedAfterPasswordSuccess", `G.recoverySession: ${G.recoverySession}, G.recoveryCEK exists: ${!!G.recoveryCEK}`);
 
     // 2️⃣ Explicitly check authorization
-    const auth = await E.checkEnvelopeAuthorization();
+    const auth = await SV.checkEnvelopeAuthorization();
 
     if (!auth.authorized) {
         warn("loginUI.proceedAfterPasswordSuccess", "Device not authorized to decrypt envelope");
@@ -432,13 +432,13 @@ export async function proceedAfterPasswordSuccess(pwd = null) {
     // 4️⃣ Attempt write lock escalation (optional upgrade)
     if (G.driveLockState?.mode === "read") {
         log("loginUI.proceedAfterPasswordSuccess", "Attempting write lock escalation");
-        await E.tryAcquireEnvelopeWriteLock(); // must NOT throw if fails
+        await SV.tryAcquireEnvelopeWriteLock(); // must NOT throw if fails
     }
 
     // 5️⃣ Housekeeping only if we truly have write access
     if (G.driveLockState?.mode === "write" && G.driveLockState?.self) {
         log("loginUI.proceedAfterPasswordSuccess", "Performing CEK housekeeping for all valid devices + recovery keys");
-        await E.wrapCEKForRegistryKeys();
+        await SV.wrapCEKForRegistryKeys();
     } else {
         warn("loginUI.proceedAfterPasswordSuccess", "Skipping CEK housekeeping — G.driveLockState not ready or not writable, running in read-only mode");
     }
@@ -450,7 +450,7 @@ export async function proceedAfterPasswordSuccess(pwd = null) {
 
     let vaultData;
     // 6️⃣ Load vault payload
-    await E.loadEnvelopePayloadToUI(async data => vaultData = await JSON.parse(data) /*await renderVault(data) | vaultUI.data.setText(data)*/);
+    await SV.loadEnvelopePayloadToUI(async data => vaultData = await JSON.parse(data) /*await renderVault(data) | vaultUI.data.setText(data)*/);
 
     // 7️⃣ UI mode strictly derived from lock state
     const readOnly = G.driveLockState?.mode !== "write";

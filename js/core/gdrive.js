@@ -187,10 +187,6 @@ async function _driveMultipartUploadBinary({ metadata, content, contentType = "a
     return await res.json();
 }
 
-async function ensurePubKeyFolder() {
-    return findOrCreateFolder(C.PUBKEY_FOLDER_NAME, C.ACCESS4_ROOT_ID);
-}
-
 /**
  * EXPORTED FUNCTIONS
  */
@@ -208,7 +204,7 @@ export async function readJsonByName(name, folderId = C.ACCESS4_ROOT_ID) {
     return { fileId: file.id, json };
 }
 
-// registry.js, envelope.js
+// registry.js, server.js
 export async function readJsonByFileId(fileId) {
     const res = await _driveFetchRaw(
         _buildDriveUrl(`files/${fileId}`, { alt: "media" })
@@ -224,7 +220,7 @@ export async function readBinaryByFileId(fileId) {
     return await res.arrayBuffer();
 }
 
-// auth.js, envelope.js, loader.js
+// auth.js, server.js, loader.js
 export async function upsertJsonFile({ name, parentId, json, overwrite = false }) {
 
     if (overwrite) {
@@ -319,7 +315,7 @@ export async function trashFileById(fileId) {
     });
 }
 
-// envelope.js
+// server.js
 export async function drivePatchJsonFile(fileId, json) {
     await _driveFetchRaw(
         _buildDriveUploadUrl(`files/${fileId}`, { uploadType: "media" }),
@@ -333,8 +329,7 @@ export async function drivePatchJsonFile(fileId, json) {
 
 // identity.js
 export async function ensureUserPubKeyFolder() {
-    const root = await ensurePubKeyFolder();
-    return findOrCreateFolder(G.userEmail, root);
+    return await findOrCreateFolder(G.userEmail, await findOrCreateFolder(C.PUBKEY_FOLDER_NAME, C.ACCESS4_ROOT_ID));
 }
 
 // auth.js
@@ -379,7 +374,7 @@ export async function findDriveFileByNameInFolder(name, folderId) {
     return _driveFindFileByNameInFolder(name, folderId);
 }
 
-// envelope.js
+// server.js
 export async function findDriveFileByNameInRoot(name) {
     return findDriveFileByNameInFolder(name, C.ACCESS4_ROOT_ID);
 }

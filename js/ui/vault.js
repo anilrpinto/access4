@@ -1,4 +1,4 @@
-import { C, G, inReadOnlyMode, AU, E, U, log, trace, debug, info, warn, error } from '@/shared/exports.js';
+import { C, G, inReadOnlyMode, AU, SV, U, log, trace, debug, info, warn, error } from '@/shared/exports.js';
 
 import { logout } from '@/app.js';
 import { runAdminBackup } from '@/core/backup.js';
@@ -10,8 +10,6 @@ import { showConfirmUI, showOverlayConfirmUI, showOverlayAlertUI, showOverlayPas
 import { showRecoveryRotationUI, hideRecoveryRotation } from '@/ui/recovery-rotation.js';
 import { showAddNewUI, showRenameUI, showDeleteUI, hideAddRenDel } from '@/ui/add-rename-delete.js';
 import { generateFilterMap, hideFilterUI } from '@/ui/filter.js';
-
-
 
 let idleTimer;
 let idleCallback = null;
@@ -229,7 +227,7 @@ function doDiscardChangesClick() {
 
             // 2. Nuke the "Orphaned" Uploads from Drive
             if (pendingFileUploads.length > 0) {
-                pendingFileUploads.forEach(id => E.deleteAttachmentFile(id));
+                pendingFileUploads.forEach(id => SV.deleteAttachmentFile(id));
                 pendingFileUploads = [];
             }
 
@@ -551,7 +549,7 @@ async function doSaveClick() {
 
     try {
         // 1. PERSIST THE JSON (The Source of Truth)
-        await E.encryptAndPersistPlaintext(JSON.stringify(vaultData), {
+        await SV.encryptAndPersistPlaintext(JSON.stringify(vaultData), {
             onUpdate: updateLockStatusUI
         });
 
@@ -569,7 +567,7 @@ async function doSaveClick() {
             info("vaultUI.doSaveClick", `Processing ${pendingFileDeletions.length} queued deletions...`);
 
             // We use allSettled so one 403 (Permission) doesn't stop the others
-            const cleanupResults = await Promise.allSettled(pendingFileDeletions.map(id => E.deleteAttachmentFile(id)));
+            const cleanupResults = await Promise.allSettled(pendingFileDeletions.map(id => SV.deleteAttachmentFile(id)));
 
             // Optional: Log any files that couldn't be trashed (e.g., owned by User A)
             cleanupResults.forEach((res, i) => {
@@ -1149,7 +1147,7 @@ async function handleUploadAttachment(file, label, itemObject) {
         let mimeType = file.type || (file.name.endsWith('.zip') ? 'application/zip' : '');
         log("vaultUI.handleUploadAttachment", "mimeType:", mimeType);
 
-        const attachmentEntry = await E.saveAttachment(fileName, binary, file.type);
+        const attachmentEntry = await SV.saveAttachment(fileName, binary, file.type);
 
         // attachmentEntry.val is the Google Drive File ID.
         // We add it to our 'pendingFileUploads' so we can nuke it if they hit Discard.
@@ -1181,7 +1179,7 @@ async function handleDownloadAttachment(attachment) {
         log("vaultUI.handleDownloadAttachment", `Opening: ${attachment.key}`);
 
         // 1. Get the decrypted bytes from the Envelope layer
-        const plaintext = await E.openAttachment(attachment);
+        const plaintext = await SV.openAttachment(attachment);
 
         // 2. Trigger the actual browser download
         const blob = new Blob([plaintext], { type: attachment.meta.mime });
@@ -1328,7 +1326,7 @@ async function renderVaultExplorer() {
     log("vaultUI.renderVaultExplorer", "called");
 
     // 1. Wipe transient keys/envelope before any rendering starts
-    E.flushCachedTransients();
+    SV.flushCachedTransients();
 
     // Safety check: if we still don't have data, stop here.
     if (!vaultData) {
