@@ -1,4 +1,4 @@
-import { C, G, clearGlobals, AU, BM, CR, ID, R, RG, SV, U, log, trace, debug, info, warn, error } from '@/shared/exports.js';
+import { C, G, clearGlobals, AU, BM, CR, ID, R, RG, SV, EN, U, log, trace, debug, info, warn, error } from '@/shared/exports.js';
 
 import { runAdminBackup } from '@/core/backup.js';
 import { runVaultAccessHousekeeping } from '@/core/janitor.js';
@@ -100,11 +100,6 @@ async function unlockIdentityFlow(pwd) {
 
     log("loginUI.unlockIdentityFlow", "called");
 
-    if (!pwd || pwd.length < C.PASSWORD_MIN_LEN) {
-        const e = new Error(C.UNLOCK_ERROR_DEFS.WEAK_PASSWORD.message);
-        e.code = C.UNLOCK_ERROR_DEFS.WEAK_PASSWORD.code;
-        throw e;
-    }
 
     log("loginUI.unlockIdentityFlow", "Unlock attempt started for password:", (pwd ? "***" : "(empty)"));
 
@@ -298,15 +293,23 @@ async function doUnlockClick() {
 
     log("loginUI.doUnlockClick", "called");
 
-    const pwd = loginUI.pwdInput.value;
-    showUnlockMessage(""); // clear previous
-
-    if (!pwd) {
-        showUnlockMessage("Password cannot be empty");
-        return;
-    }
-
     try {
+        const pwd = loginUI.pwdInput.value;
+        showUnlockMessage(""); // clear previous
+
+        if (!pwd) {
+            showUnlockMessage("Password cannot be empty");
+            return;
+        }
+
+        if (pwd.length < C.PASSWORD_MIN_LEN) {
+            const e = new Error(C.UNLOCK_ERROR_DEFS.WEAK_PASSWORD.message);
+            e.code = C.UNLOCK_ERROR_DEFS.WEAK_PASSWORD.code;
+            throw e;
+        }
+
+        loginUI.pwdInput.clear();
+
         await unlockIdentityFlow(pwd);
         await proceedAfterPasswordSuccess(pwd);
         G.unlockInProgress = false;
@@ -373,6 +376,9 @@ async function doCreatePasswordClick()  {
         return;
     }
 
+    loginUI.pwdInput.clear();
+    loginUI.confirmPwdInput.clear();
+
     try {
         //SAFETY: Clear any existing local identity before creating new (could be recovery or normal flow)
         await ID.removeDeviceIdentity();
@@ -420,12 +426,12 @@ export async function proceedAfterPasswordSuccess(pwd = null) {
     const deviceRecord = await SV.ensureDevicePublicKey();
 
     // 2️⃣ Initialize G.driveLockState (This happens inside ensureEnvelope)
-    const envelope = await SV.ensureEnvelope(deviceRecord);
+    const envelope = await EN.ensureEnvelope(deviceRecord);
 
     log("loginUI.proceedAfterPasswordSuccess", `G.recoverySession: ${G.recoverySession}, G.recoveryCEK exists: ${!!G.recoveryCEK}`);
 
     // 2️⃣ Explicitly check authorization
-    const auth = await SV.checkEnvelopeAuthorization(envelope);
+    const auth = await EN.checkEnvelopeAuthorization(envelope);
 
     if (!auth.authorized) {
         warn("loginUI.proceedAfterPasswordSuccess", "Device not authorized to decrypt envelope");
@@ -444,7 +450,7 @@ export async function proceedAfterPasswordSuccess(pwd = null) {
 
     let vaultData;
     // 6️⃣ Load vault payload
-    await SV.loadEnvelopePayloadToUI(envelope, async data => vaultData = await JSON.parse(data));
+    await EN.loadEnvelopePayloadToUI(envelope, async data => vaultData = await JSON.parse(data));
     await loadVault(pwd, vaultData, { readOnly: G.driveLockState?.mode !== "write" });
 
     // Immediately destroy password reference here as well if missed in vault

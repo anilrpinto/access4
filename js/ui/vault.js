@@ -1,4 +1,4 @@
-import { C, G, inReadOnlyMode, AU, SV, U, log, trace, debug, info, warn, error } from '@/shared/exports.js';
+import { C, G, inReadOnlyMode, AU, SV, AT, U, log, trace, debug, info, warn, error } from '@/shared/exports.js';
 
 import { logout } from '@/app.js';
 import { runAdminBackup } from '@/core/backup.js';
@@ -169,7 +169,7 @@ function doDiscardChangesClick() {
 
             // 2. Nuke the "Orphaned" Uploads from Drive
             if (pendingFileUploads.length > 0) {
-                pendingFileUploads.forEach(id => SV.deleteAttachmentFile(id));
+                pendingFileUploads.forEach(id => AT.deleteAttachmentFile(id));
                 pendingFileUploads = [];
             }
 
@@ -508,7 +508,7 @@ async function doSaveClick() {
             info("vaultUI.doSaveClick", `Processing ${pendingFileDeletions.length} queued deletions...`);
 
             // We use allSettled so one 403 (Permission) doesn't stop the others
-            const cleanupResults = await Promise.allSettled(pendingFileDeletions.map(id => SV.deleteAttachmentFile(id)));
+            const cleanupResults = await Promise.allSettled(pendingFileDeletions.map(id => AT.deleteAttachmentFile(id)));
 
             // Optional: Log any files that couldn't be trashed (e.g., owned by User A)
             cleanupResults.forEach((res, i) => {
@@ -1088,7 +1088,7 @@ async function handleUploadAttachment(file, label, itemObject) {
         let mimeType = file.type || (file.name.endsWith('.zip') ? 'application/zip' : '');
         log("vaultUI.handleUploadAttachment", "mimeType:", mimeType);
 
-        const attachmentEntry = await SV.saveAttachment(fileName, binary, file.type);
+        const attachmentEntry = await AT.saveAttachment(fileName, binary, file.type);
 
         // attachmentEntry.val is the Google Drive File ID.
         // We add it to our 'pendingFileUploads' so we can nuke it if they hit Discard.
@@ -1120,7 +1120,7 @@ async function handleDownloadAttachment(attachment) {
         log("vaultUI.handleDownloadAttachment", `Opening: ${attachment.key}`);
 
         // 1. Get the decrypted bytes from the Envelope layer
-        const plaintext = await SV.openAttachment(attachment);
+        const plaintext = await AT.openAttachment(attachment);
 
         // 2. Trigger the actual browser download
         const blob = new Blob([plaintext], { type: attachment.meta.mime });
@@ -1456,12 +1456,14 @@ export function stopVaultIdleCheck() {
     idleCallback = null;
 }
 
-export function updateLockStatusUI() {
+export function updateLockStatusUI(msg = "") {
+    //trace("vaultUI.updateLockStatusUI", "G.driveLockState.mode:", G.driveLockState ? G.driveLockState.mode : null);
+
     if (!G.driveLockState) return;
 
     const { expiresAt } = G.driveLockState.lock;
     //trace("updateLockStatusUI", `You hold the envelope lock (expires ${expiresAt})`);
-    //showStatusMessage(`Vault lock expires at ${expiresAt}`, null)
+    showStatusMessage(`Vault lock expires at ${U.asLocalTime(expiresAt)}`, null)
 }
 
 export function showStatusMessage(msg, type = "error") {

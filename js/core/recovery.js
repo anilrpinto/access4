@@ -1,4 +1,4 @@
-import { C, G, CR, SV, GD, log, trace, debug, info, warn, error } from '@/shared/exports.js';
+import { C, G, CR, SV, EN, GD, log, trace, debug, info, warn, error } from '@/shared/exports.js';
 
 function constantTimeEqual(a, b) {
     if (a.length !== b.length) return false;
@@ -85,7 +85,7 @@ export async function handleRecovery(pwd, onCEKSuccessCb) {
     log("R.handleRecovery", "Recovery private key decrypted");
 
     // 4️⃣ Load vault envelope (grab CEK)
-    const envelopeFile = await SV.readEnvelopeFromDrive(C.ENVELOPE_NAME);
+    const envelopeFile = await EN.readEnvelopeFromDrive();
     if (!envelopeFile) throw new Error("Vault envelope not found");
 
     const envelope = envelopeFile.json;

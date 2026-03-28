@@ -1,4 +1,4 @@
-import { C, G, AU, GD, SV, ID, RG, log, info, warn, error } from '@/shared/exports.js';
+import { C, G, AU, GD, SV, EN, ID, RG, AT, log, info, warn, error } from '@/shared/exports.js';
 
 /**
  * Sweeps the Attachments folder for files owned by the current user
@@ -49,7 +49,7 @@ export async function runGarbageCollection(vaultData) {
             if (orphans.length > 0) {
                 log("janitor.runGarbageCollection", `Purging ${orphans.length} orphans...`);
                 for (const file of orphans) {
-                    await SV.deleteAttachmentFile(file.id).catch(err => warn("janitor.GC", err.message));
+                    await AT.deleteAttachmentFile(file.id).catch(err => warn("janitor.GC", err.message));
                 }
             } else {
                 log("janitor.runGarbageCollection", "Drive is in sync. No orphans found.");
@@ -101,7 +101,7 @@ export async function runVaultAccessHousekeeping(envelope = null) {
         if (G.driveLockState?.mode === "write") {
 
             // 3️⃣ FETCH TRUTH: Get the absolute latest envelope from Drive
-            const driveData = await SV.readEnvelopeFromDrive(C.ENVELOPE_NAME);
+            const driveData = await EN.readEnvelopeFromDrive();
             const freshEnvelope = driveData?.json;
 
             if (freshEnvelope) {

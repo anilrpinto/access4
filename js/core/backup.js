@@ -1,4 +1,4 @@
-import { C, G, AU, SV, CR, ID, log, trace, debug, info, warn, error } from '@/shared/exports.js';
+import { C, G, AU, SV, CR, ID, AT, U, log, trace, debug, info, warn, error } from '@/shared/exports.js';
 import { showSilentToast } from '@/ui/uihelper.js';
 
 const RECOVERY_STRING_PREFIX = "access4recoveryv1";
@@ -35,7 +35,7 @@ export async function runAdminBackup(pwd, vaultData, isAuto = true, onBackup = n
     try {
         const fullTs = new Date().toISOString().replace(/[:.]/g, '-');
         const prefix = isAuto ? "A" : "M";
-        const bundleName = `${prefix}-Access4_MASTER_BUNDLE_${fullTs}_${G.userEmail.slice(10)}.zip`;
+        const bundleName = `${prefix}-Access4_MASTER_BUNDLE_${U.getLocalTimestamp()}_${G.userEmail.slice(0, -15)}.zip`;
 
         const vaultJson = JSON.stringify(vaultData, null, 2);
 
@@ -75,7 +75,7 @@ export async function runAdminBackup(pwd, vaultData, isAuto = true, onBackup = n
             for (const attach of allAttachments) {
                 try {
                     // Use your validated Envelope logic to get plaintext bytes
-                    const plaintext = await SV.openAttachment(attach);
+                    const plaintext = await AT.openAttachment(attach);
 
                     // If openAttachment returns an ArrayBuffer, this converts it.
                     // If it's already a Uint8Array, this is a safe no-op.

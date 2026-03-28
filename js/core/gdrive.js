@@ -370,13 +370,8 @@ export async function verifySharedRoot(root) {
 }
 
 // identity.js
-export async function findDriveFileByNameInFolder(name, folderId) {
+export async function findDriveFileByNameInFolder(name, folderId = C.ACCESS4_ROOT_ID) {
     return _driveFindFileByNameInFolder(name, folderId);
-}
-
-// server.js
-export async function findDriveFileByNameInRoot(name) {
-    return findDriveFileByNameInFolder(name, C.ACCESS4_ROOT_ID);
 }
 
 // recovery.js

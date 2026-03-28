@@ -18,9 +18,12 @@ function onLoad() {
 
     logEl.onClick(doCopyToClipboardClick);
 
-    //log("APP.onLoad", "sessionStorage sv_session_private_key exists:", !!sessionStorage.getItem("sv_session_private_key"));
-    //log("APP.onLoad", "G.unlockedIdentity:", !!G.unlockedIdentity);
-    //log("APP.onLoad", "G.currentPrivateKey:", !!G.currentPrivateKey);
+    window.addEventListener('focus', () => {
+        if (G.driveLockState && !G.driveLockState.heartbeat) {
+            log("APP.focus", "Tab focused - Attempting to restart stalled heartbeat...");
+            SV.tryAcquireEnvelopeWriteLock(); // This uses the new "Proactive" logic from earlier
+        }
+    });
 }
 
 function doCopyToClipboardClick() {
@@ -30,22 +33,30 @@ function doCopyToClipboardClick() {
 async function releaseDriveLock() {
     log("AP.releaseDriveLock", "called");
 
-    if (!G.driveLockState?.fileId) return;
+    if (!G.driveLockState) return;
 
+    // 1️⃣ Stop the heartbeat first so it doesn't try to tick during the release
     G.driveLockState.heartbeat?.stop();
 
-    const cleared = {
-        ...G.driveLockState.lock,
-        expiresAt: new Date(0).toISOString()
-    };
+    const { fileId, envelopeName, lock } = G.driveLockState;
 
-    await SV.writeLockToDrive(
-        G.driveLockState.envelopeName,
-        cleared,
-        G.driveLockState.fileId
-    );
+    if (fileId && lock) {
+        try {
+            const cleared = {
+                ...lock,
+                expiresAt: new Date(0).toISOString(), // Kill the TTL on the server
+                generation: (lock.generation || 0) + 1 // Increment to fence out late heartbeats
+            };
 
-    log("AP.releaseDriveLock", "Drive lock released");
+            // 2️⃣ MUST AWAIT this to ensure the server actually receives the "Unlock"
+            await SV.writeLockToDrive(cleared, fileId);
+            log("AP.releaseDriveLock", "Drive lock explicitly expired on server");
+        } catch (err) {
+            warn("AP.releaseDriveLock", "Failed to release on server (network?), proceeding with local wipe", err);
+        }
+    }
+
+    // 3️⃣ Finally, wipe local state
     G.driveLockState = null;
 }
 
@@ -57,19 +68,19 @@ window.onload = async () => {
 /**
  * EXPORTED FUNCTIONS
  */
-export function logout() {
-    log("APP.logout", "Logging out...");
+export async function logout() {
+    log("APP.logout", "Initiating logout...");
 
-    releaseDriveLock();
+    // 1️⃣ Wait for the lock to be released properly
+    await releaseDriveLock();
 
-    // Release Drive lock if held
-    SV.handleDriveLockLost(); // stops heartbeat & clears local G.driveLockState
-
-    // Clear user-specific memory
+    // 2️⃣ Clear the rest of the app state
     clearGlobals();
     sessionStorage.removeItem("sv_session_private_key");
+
+    // 3️⃣ Redirect to login
     loadLogin();
 
     G.biometricIntent = false;
-    log("APP.logout", "completed");
+    log("APP.logout", "Logout complete.");
 }
