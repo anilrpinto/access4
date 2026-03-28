@@ -1,4 +1,4 @@
-import { C, AU, SV, CR, ID, log, trace, debug, info, warn, error } from '@/shared/exports.js';
+import { C, G, AU, SV, CR, ID, log, trace, debug, info, warn, error } from '@/shared/exports.js';
 import { showSilentToast } from '@/ui/uihelper.js';
 
 const RECOVERY_STRING_PREFIX = "access4recoveryv1";
@@ -10,9 +10,11 @@ export async function runAdminBackup(pwd, vaultData, isAuto = true, onBackup = n
 
     const today = new Date().toISOString().split('T')[0];
 
+    const scopedKey = `${G.userEmail}::${C.LAST_AUTO_BACKUP_KEY}`;
+
     if (isAuto) {
         // Daily Throttling Logic
-        const lastBackup = localStorage.getItem(C.LAST_AUTO_BACKUP_KEY);
+        const lastBackup = localStorage.getItem(scopedKey);
         if (lastBackup === today) {
             info("backup.runAdminBackup", "Auto-backup skipped: already ran today.");
             if (onSkip) onSkip();
@@ -33,7 +35,7 @@ export async function runAdminBackup(pwd, vaultData, isAuto = true, onBackup = n
     try {
         const fullTs = new Date().toISOString().replace(/[:.]/g, '-');
         const prefix = isAuto ? "A" : "M";
-        const bundleName = `${prefix}-Access4_MASTER_BUNDLE_${fullTs}.zip`;
+        const bundleName = `${prefix}-Access4_MASTER_BUNDLE_${fullTs}_${G.userEmail.slice(10)}.zip`;
 
         const vaultJson = JSON.stringify(vaultData, null, 2);
 
@@ -120,7 +122,7 @@ export async function runAdminBackup(pwd, vaultData, isAuto = true, onBackup = n
 
         // 3. SUCCESS STATE
         if (isAuto) {
-            localStorage.setItem(C.LAST_AUTO_BACKUP_KEY, today);
+            localStorage.setItem(scopedKey, today);
             showSilentToast("Daily recovery bundle saved.");
         }
 
@@ -138,7 +140,8 @@ export async function runAdminBackup(pwd, vaultData, isAuto = true, onBackup = n
 }
 
 export async function logBackupEvent(timestamp, autoRun) {
-    let manifest = JSON.parse(localStorage.getItem(C.BACKUP_MANIFEST_KEY) || "[]");
+    const scopedKeyManifest = `${G.userEmail}::${C.BACKUP_MANIFEST_KEY}`;
+    let manifest = JSON.parse(localStorage.getItem(scopedKeyManifest) || "[]");
     manifest.push({ timestamp, type: autoRun ? 'auto' : 'manual' });
 
     // Keep only last 20 entries to prevent local storage bloat
@@ -146,12 +149,13 @@ export async function logBackupEvent(timestamp, autoRun) {
         warn("backup.logBackupEvent", "Manifest threshold reached. Removing oldest entry.");
         manifest = manifest.slice(-C.MAX_BACKUP_MANIFEST_ENTRIES);
     }
-    localStorage.setItem(C.BACKUP_MANIFEST_KEY, JSON.stringify(manifest));
+    localStorage.setItem(scopedKeyManifest, JSON.stringify(manifest));
 
+    const scopedKeyCounter = `${G.userEmail}::${C.BACKUP_CLEANUP_COUNTER_KEY}`;
     // THE INCREMENTER (This is what the Pill tracks)
-    let counter = parseInt(localStorage.getItem(C.BACKUP_CLEANUP_COUNTER_KEY) || 0);
+    let counter = parseInt(localStorage.getItem(scopedKeyCounter) || 0);
     counter++;
-    localStorage.setItem(C.BACKUP_CLEANUP_COUNTER_KEY, counter);
+    localStorage.setItem(scopedKeyCounter, counter);
     log("backup.logBackupEvent", `Event logged. New cleanup count: ${counter}`);
 }
 

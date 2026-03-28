@@ -1409,7 +1409,7 @@ export function handleSearchInput(query) {
 export function refreshCleanupPill() {
     log("vaultUI.refreshCleanupPill", "called");
 
-    const count = parseInt(localStorage.getItem(C.BACKUP_CLEANUP_COUNTER_KEY) || 0);
+    const count = parseInt(localStorage.getItem(`${G.userEmail}::${C.BACKUP_CLEANUP_COUNTER_KEY}`) || 0);
     const header = vaultUI.headerRightSide;
     if (!header) return;
 
@@ -1434,7 +1434,7 @@ export function refreshCleanupPill() {
                 message: `You have <b>${count}</b> backup bundles saved on this device. Clear from storage manually and click <b>Cleared</b>.`,
                 okText: "Cleared",
                 onConfirm: () => {
-                    localStorage.setItem(C.BACKUP_CLEANUP_COUNTER_KEY, 0);
+                    localStorage.setItem(`${G.userEmail}::${C.BACKUP_CLEANUP_COUNTER_KEY}`, 0);
                     pill.remove();
                     showSilentToast("Storage tracking counter reset.");
                 }

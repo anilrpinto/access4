@@ -1,13 +1,5 @@
 import { C, G, CR, ID, GD, log, trace, debug, info, warn, error, isTraceEnabled } from '@/shared/exports.js';
 
-/*import { C } from '@/shared/constants.js';
-import { G } from '@/shared/global.js';
-import * as CR from '@/core/crypto.js';
-import * as ID from '@/core/identity.js';
-import * as GD from '@/core/gdrive.js';
-
-import { log, trace, debug, info, warn, error } from '@/shared/log.js';*/
-
 import { updateLockStatusUI }  from '@/ui/vault.js';
 
 let _transientCEK = null;

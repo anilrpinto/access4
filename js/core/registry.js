@@ -1,11 +1,5 @@
 import { C, G, GD, log, trace, debug, info, warn, error } from '@/shared/exports.js';
 
-/*import { C } from '@/shared/constants.js';
-import { G } from '@/shared/global.js';
-import * as GD from '@/core/gdrive.js';
-
-import { log, trace, debug, info, warn, error } from '@/shared/log.js';*/
-
 function resetKeyRegistry() {
     log("RG.resetKeyRegistry", "called");
 
@@ -249,7 +243,7 @@ export function saveRegistryToCache() {
             version: "1.0" // Good practice for future migrations
         };
 
-        localStorage.setItem("access4_registry_cache", JSON.stringify(cacheData));
+        localStorage.setItem(`${G.userEmail}::${C.REGISTRY_CACHE_KEY}`, JSON.stringify(cacheData));
         log("RG.saveRegistryToCache", `Cached ${activeDevices.length} active devices.`);
     } catch (err) {
         // Handle QuotaExceededError (rare for this small JSON, but safe)
@@ -264,7 +258,7 @@ export function saveRegistryToCache() {
 
 export function loadRegistryFromCache() {
     try {
-        const raw = localStorage.getItem("access4_registry_cache");
+        const raw = localStorage.getItem(`${G.userEmail}::${C.REGISTRY_CACHE_KEY}`);
         if (!raw) {
             log("RG.loadRegistryFromCache", "No cache found, initializing empty registry");
             resetKeyRegistry(); // Ensure G.keyRegistry structure exists
@@ -289,10 +283,17 @@ export function loadRegistryFromCache() {
 /**
  * Background Janitor Task: Syncs the Registry using metadata deltas.
  */
-export async function syncRegistryDeltas() {
+export async function syncRegistryDeltas(forceFullScan = false) {
     log("RG.syncRegistryDeltas", "Checking for key updates...");
 
     let updateFound = false;
+
+    // If we are doing a full scan, we should reset our "Active" list
+    // to ensure we don't keep local "ghost" devices that were deleted from Drive.
+    if (forceFullScan) {
+        G.keyRegistry.flat.activeDevices = [];
+        G.keyRegistry.flat.recoveryKeys = [];
+    }
 
     // 1️⃣ SYNC USER DEVICE KEYS (pub-keys/email/file.json)
     const pubKeysRoot = await GD.findOrCreateFolder(C.PUBKEY_FOLDER_NAME, C.ACCESS4_ROOT_ID);
@@ -309,9 +310,10 @@ export async function syncRegistryDeltas() {
                 ...G.keyRegistry.flat.deprecatedDevices
             ].find(k => k.fileId === file.id);
 
-            // Sync if: It's new OR it's been modified since our last sync
-            if (!existing || new Date(file.modifiedTime) > new Date(existing.syncedAt)) {
-                log("RG.syncRegistryDeltas", `Fetching device key: ${file.name}`);
+            const isModified = !existing || new Date(file.modifiedTime) > new Date(existing.syncedAt);
+
+            if (forceFullScan || isModified) {
+                log("RG.syncRegistryDeltas", `Authoritative fetch: ${file.name}`);
                 const raw = await GD.readJsonByFileId(file.id);
                 const normalized = normalizePublicKey(raw);
 
@@ -334,7 +336,9 @@ export async function syncRegistryDeltas() {
         if (recFile) {
             const existingRec = G.keyRegistry.flat.recoveryKeys.find(k => k.fileId === recFile.id);
 
-            if (!existingRec || new Date(recFile.modifiedTime) > new Date(existingRec.syncedAt)) {
+            const isModifiedRec = !existingRec || new Date(recFile.modifiedTime) > new Date(existingRec.syncedAt);
+
+            if (forceFullScan || isModifiedRec) {
                 log("RG.syncRegistryDeltas", "Fetching updated Recovery Public Key");
                 const rawRec = await GD.readJsonByFileId(recFile.id);
                 const normalizedRec = normalizePublicKey(rawRec);
@@ -348,12 +352,13 @@ export async function syncRegistryDeltas() {
         }
     }
 
-    // 3️⃣ CACHE & SNAPSHOT
-    if (updateFound) {
-        saveRegistryToCache(); // Persist to LocalStorage
-        // Update the UI's effective list
+    // 3️⃣ FINALIZE
+    // If we did a full scan, we MUST resolve the snapshot even if no "new" files were found,
+    // because the "Full Scan" itself is the update.
+    if (updateFound || forceFullScan) {
+        saveRegistryToCache();
         G.activeDevicesSnapshot = resolveEffectiveActiveDevices(G.keyRegistry.flat);
-        log("RG.syncRegistryDeltas", "Registry sync complete.");
+        log("RG.syncRegistryDeltas", "Registry sync complete (Authoritative).");
     } else {
         log("RG.syncRegistryDeltas", "No updates found on Drive.");
     }

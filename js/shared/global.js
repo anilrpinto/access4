@@ -43,9 +43,10 @@ const _G = {
         gisPrompt: false,
         minifyJson: false,
         clearBioDbOnLoad: false,
-        clearLocalStorageOnLoad: false,
+        clearLocalStorageOnLoad: true,
         clearLastAutoBackupKey: false,
-        ignore24hBackupCheck: true
+        ignore24hBackupCheck: true,
+        preAuthMembers: ["avitapinto@gmail.com", "allisonpintosd@gmail.com", "myemailinbox1234@gmail.com"]
 
     },
 };

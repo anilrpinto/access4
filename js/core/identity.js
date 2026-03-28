@@ -1,17 +1,7 @@
 import { C, G, CR, GD, log, trace, debug, info, warn, error } from '@/shared/exports.js';
 
-//WARN: MUST be defined before the barrel import from exports or there could be circular dependency crashes
-//import { CR_ALG } from '@/shared/crypto-constants.js'; <---- was commented out regardless
-
-/*import { G } from '@/shared/global.js';
-import { C } from '@/shared/constants.js';
-import * as GD from '@/core/gdrive.js';
-import * as CR from '@/core/crypto.js';
-
-import { log, trace, debug, info, warn, error } from '@/shared/log.js';*/
-
 function identityKey() {
-    return `access4.identity::${G.userEmail}::${getDeviceId()}`;
+    return `${G.userEmail}::${C.IDENTITY_KEY}`;
 }
 
 function saveIdentity(id) {
@@ -89,11 +79,20 @@ async function createPasswordVerifier(key) {
  * EXPORTED FUNCTIONS
  */
 export function getDeviceId() {
-    let id = localStorage.getItem(C.DEVICE_ID_KEY);
+    // If no email is loaded yet, we can't reliably get a scoped ID
+    if (!G.userEmail) {
+        const err = "CRITICAL: getDeviceId called before G.userEmail was established.";
+        error("ID.getDeviceId", err);
+        throw new Error(err);
+    }
+
+    const scopedKey = `${G.userEmail}::${C.DEVICE_ID_KEY}`;
+    let id = localStorage.getItem(scopedKey);
+
     if (!id) {
         id = CR.generateUUID();
-        localStorage.setItem(C.DEVICE_ID_KEY, id);
-        log("ID.getDeviceId", "New device ID generated: " + id);
+        localStorage.setItem(scopedKey, id);
+        log("ID.getDeviceId", `New unique device ID generated for ${G.userEmail}: ${id}`);
     }
     return id;
 }

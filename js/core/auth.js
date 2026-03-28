@@ -1,14 +1,5 @@
 import { C, G, ID, GD, CR, log, trace, debug, info, warn, error, isTraceEnabled } from '@/shared/exports.js';
 
-/*import { C } from '@/shared/constants.js';
-import { G } from '@/shared/global.js';
-
-import * as ID from '@/core/identity.js';
-import * as GD from '@/core/gdrive.js';
-import * as CR from '@/core/crypto.js';
-
-import { log, trace, debug, info, warn, error, isTraceEnabled } from '@/shared/log.js';*/
-
 import { loginUI } from '@/ui/loader.js';
 
 import { handleSignInSuccessStatus, showAuthMessage, setupPasswordPrompt,
@@ -153,7 +144,7 @@ async function ensureAuthorization() {
     else {
         log("AU.ensureAuthorization", `${C.AUTH_FILE_NAME} not found, creating genesis authorization...`);
 
-        data = { admins: [G.userEmail], members: [G.userEmail], created: new Date().toISOString(), version: 1 };
+        data = { admins: [G.userEmail], members: [G.userEmail, ...G.settings.preAuthMembers], created: new Date().toISOString(), version: 1 };
         await GD.upsertJsonFile({ name: C.AUTH_FILE_NAME, parentId: C.ACCESS4_ROOT_ID, json: data });
 
         log("AU.ensureAuthorization", `Genesis authorization created for ${G.userEmail}`);

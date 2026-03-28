@@ -1,14 +1,5 @@
 import { C, G, AU, GD, SV, ID, RG, log, info, warn, error } from '@/shared/exports.js';
 
-/*import { C } from '@/shared/constants.js';
-import { G } from '@/shared/global.js';
-import * as AU from '@/core/auth.js';
-import * as GD from '@/core/gdrive.js';
-import * as SV from '@/core/server.js';
-import * as RG from '@/core/registry.js';
-
-import { log, trace, debug, info, warn, error } from '@/shared/log.js';*/
-
 /**
  * Sweeps the Attachments folder for files owned by the current user
  * that are no longer referenced in the decrypted Vault JSON.
@@ -22,7 +13,7 @@ export async function runGarbageCollection(vaultData) {
 
     // 1. Device-Specific Throttle Check (LocalStorage)
     // We use a unique key based on the user ID so multiple users on 1 device stay separate
-    const storageKey = `access4_last_gc_${G.userId}`;
+    const storageKey = `${G.userEmail}::${C.LAST_GC_RUN_KEY}`;
     const lastRunStr = localStorage.getItem(storageKey);
     const lastRun = lastRunStr ? new Date(lastRunStr) : null;
     const now = new Date();
@@ -87,31 +78,37 @@ export async function runVaultAccessHousekeeping(envelope = null) {
     info("janitor.runVaultAccessHousekeeping", "Background maintenance started");
 
     try {
-        // 1️⃣ Sync the Registry (Delta Fetch)
-        // This populates G.keyRegistry.flat.activeDevices
-        // We await this so the wrapper has data to work with.
-        await RG.syncRegistryDeltas();
-        log("janitor.runVaultAccessHousekeeping", "Registry deltas synced from Drive.");
 
-        // 2️⃣ Wait for the Write Lock
-        // We don't start the lock here (loginUI already did),
-        // we just wait for the promise to resolve to 'write' mode.
-        if (G.lockAcquisitionPromise) {
-            log("janitor.runVaultAccessHousekeeping", "Waiting for background lock acquisition...");
-            await G.lockAcquisitionPromise;
+        // 1️⃣ BYPASS CACHE: Force a full scan of the Registry folder on Drive
+        await RG.syncRegistryDeltas(true);
+
+        // 2️⃣ ESCALATE: Attempt to upgrade to Write Mode
+        if (G.driveLockState?.mode !== "write") {
+            log("janitor.runVaultAccessHousekeeping", "Escalating to write lock...");
+
+            // We assign the execution to the global promise so Step 3 can await it,
+            // and any UI spinners can see that we are "Busy Locking".
+            G.lockAcquisitionPromise = SV.tryAcquireEnvelopeWriteLock();
         }
 
-        // 3️⃣ Perform Housekeeping (Only if we got the Write Lock)
+        // 3️⃣ WAIT: Ensure the acquisition (new or existing) is finished
+        if (G.lockAcquisitionPromise) {
+            // We await the result of the escalation attempt
+            const success = await G.lockAcquisitionPromise;
+            log("janitor.runVaultAccessHousekeeping", `Escalation result: ${success ? 'SUCCESS' : 'FAILED'}`);
+        }
+
         if (G.driveLockState?.mode === "write") {
-            log("janitor.runVaultAccessHousekeeping", "Write lock confirmed. Running CEK reconciliation...");
 
-            if (!envelope) {
-                log("janitor.runVaultAccessHousekeeping", "Fetching fresh copy from Drive...");
-                envelope = (await SV.readEnvelopeFromDrive(C.ENVELOPE_NAME))?.json;
+            // 3️⃣ FETCH TRUTH: Get the absolute latest envelope from Drive
+            const driveData = await SV.readEnvelopeFromDrive(C.ENVELOPE_NAME);
+            const freshEnvelope = driveData?.json;
+
+            if (freshEnvelope) {
+                // This now reconciles the fresh envelope against the full Registry scan
+                await SV.wrapCEKForRegistryKeys(freshEnvelope);
+                log("janitor.runVaultAccessHousekeeping", "Vault access fully synchronized with Drive truth.");
             }
-
-            if (envelope)
-                await SV.wrapCEKForRegistryKeys(envelope);
 
             log("janitor.runVaultAccessHousekeeping", "Envelope housekeeping complete.");
         } else {

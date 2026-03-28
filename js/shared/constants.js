@@ -5,7 +5,8 @@ export const C = deepFreeze({
     CLIENT_ID: "738922366916-ppn1c24mp9qamr6pdmjqss3cqjmvqljv.apps.googleusercontent.com",
     SCOPES: "https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/userinfo.email",
     ACCESS4_ROOT_ID: "1zQPiXTCDlPjzgD1YZiVKsRB2s4INUS_g",
-    DEVICE_ID_KEY: "access4.device.id",
+    IDENTITY_KEY: "identity",
+    DEVICE_ID_KEY: "device_id",
     ATTACHMENT_FILEKEY_SALT: "access4.attachment.v1",
 
     AUTH_FILE_NAME: "authorized.json",
@@ -16,16 +17,18 @@ export const C = deepFreeze({
     RECOVERY_FOLDER_NAME: "recovery",
     ATTACHMENTS_FOLDER_NAME: "attachments",
 
-    BACKUP_MANIFEST_KEY: "access4.backup.manifest",
-    LAST_AUTO_BACKUP_KEY: "access4.last.auto.backup",
-    BACKUP_CLEANUP_COUNTER_KEY: "access4.cleanup.counter",
+    BACKUP_MANIFEST_KEY: "backup_manifest",
+    LAST_AUTO_BACKUP_KEY: "last_auto_backup",
+    LAST_GC_RUN_KEY: "last_gc_run",
+    REGISTRY_CACHE_KEY: "registry_cache",
+    BACKUP_CLEANUP_COUNTER_KEY: "cleanup_counter",
     MAX_BACKUP_MANIFEST_ENTRIES: 10,
 
     HEARTBEAT_INTERVAL: 10_000, // 10 seconds
     LOCK_TTL_MS: 60_000,        // must be > heartbeat
-    IDLE_TIMEOUT_MS: 300000,    // 5 mins
+    IDLE_TIMEOUT_MS: 900000,    // 5 mins
 
-    BIO_DB_NAME: "access4_bio_db",
+    BIO_DB_NAME: "bio_db",
     BIO_STORE: "pwk_store",
 
     PASSWORD_MIN_LEN: 7,

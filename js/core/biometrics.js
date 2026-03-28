@@ -3,7 +3,7 @@ import { C, G, ID, log, trace, debug, info, warn, error } from '@/shared/exports
 const DB_VERSION = 1;
 
 function bioScopeKey(type) {
-    return `access4.bio::${type}::${G.userEmail}::${ID.getDeviceId()}`;
+    return `${G.userEmail}::${ID.getDeviceId()}::${type}::bio`;
 }
 
 async function openDB({ write = false } = {}) {
