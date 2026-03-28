@@ -1,4 +1,10 @@
-import { C, G, SV, GD, log, trace, debug, info, warn, error } from '@/shared/exports.js';
+import { C, G, GD, log, trace, debug, info, warn, error } from '@/shared/exports.js';
+
+/*import { C } from '@/shared/constants.js';
+import { G } from '@/shared/global.js';
+import * as GD from '@/core/gdrive.js';
+
+import { log, trace, debug, info, warn, error } from '@/shared/log.js';*/
 
 function resetKeyRegistry() {
     log("RG.resetKeyRegistry", "called");
@@ -150,9 +156,15 @@ function normalizePublicKey(raw) {
     if (!raw.keyId || !raw.fingerprint || !raw.publicKey) {
         throw new Error("Missing required public key fields (keyId, fingerprint, publicKey)");
     }
-    trace("SV.normalizePublicKey", "fingerprint:", raw.fingerprint);
+    trace("RG.normalizePublicKey", "fingerprint:", raw.fingerprint);
 
     return {
+
+        // --- SYNC METADATA (CRITICAL FOR JANITOR) ---
+        // We preserve these if they were already attached by the sync logic
+        fileId: raw.fileId || null,
+        syncedAt: raw.syncedAt || null,
+
         version: Number(raw.version) || 1,
 
         account: raw.account || null,
@@ -224,9 +236,135 @@ export async function buildKeyRegistryFromDrive() {
     return snapshot; // assign to local var if needed, not G.keyRegistry
 }
 
+export function saveRegistryToCache() {
+    try {
+        // 1️⃣ Ensure we are saving the most recent resolved state
+        const activeDevices = resolveEffectiveActiveDevices(G.keyRegistry.flat);
+
+        const cacheData = {
+            registry: G.keyRegistry,
+            // 2️⃣ Save the snapshot so the UI can render instantly on reload
+            snapshot: activeDevices,
+            timestamp: new Date().getTime(),
+            version: "1.0" // Good practice for future migrations
+        };
+
+        localStorage.setItem("access4_registry_cache", JSON.stringify(cacheData));
+        log("RG.saveRegistryToCache", `Cached ${activeDevices.length} active devices.`);
+    } catch (err) {
+        // Handle QuotaExceededError (rare for this small JSON, but safe)
+        warn("RG.saveRegistryToCache", "Failed to cache registry:", err.message);
+    }
+}
+
+/**
+ * Loads the registry from local storage into G.keyRegistry.
+ */
+// registry.js
+
+export function loadRegistryFromCache() {
+    try {
+        const raw = localStorage.getItem("access4_registry_cache");
+        if (!raw) {
+            log("RG.loadRegistryFromCache", "No cache found, initializing empty registry");
+            resetKeyRegistry(); // Ensure G.keyRegistry structure exists
+            return false;
+        }
+
+        const cache = JSON.parse(raw);
+        G.keyRegistry = cache.registry;
+
+        // Re-resolve snapshots so UI-bound variables are ready
+        G.activeDevicesSnapshot = cache.snapshot ||  resolveEffectiveActiveDevices(G.keyRegistry.flat);
+
+        log("RG.loadRegistryFromCache", `Restored ${G.keyRegistry.flat.activeDevices.length} keys from cache`);
+        return true;
+    } catch (err) {
+        warn("RG.loadRegistryFromCache", "Cache load failed:", err.message);
+        resetKeyRegistry();
+        return false;
+    }
+}
+
+/**
+ * Background Janitor Task: Syncs the Registry using metadata deltas.
+ */
+export async function syncRegistryDeltas() {
+    log("RG.syncRegistryDeltas", "Checking for key updates...");
+
+    let updateFound = false;
+
+    // 1️⃣ SYNC USER DEVICE KEYS (pub-keys/email/file.json)
+    const pubKeysRoot = await GD.findOrCreateFolder(C.PUBKEY_FOLDER_NAME, C.ACCESS4_ROOT_ID);
+    const accountFolders = await GD.listFolders(pubKeysRoot);
+
+    for (const folder of accountFolders) {
+        // We only ask for ID, Name, and ModifiedTime (Very small network footprint)
+        const driveFiles = await GD.listJsonFiles(folder.id, "files(id, name, modifiedTime)");
+
+        for (const file of driveFiles) {
+            // Find if we already have this file in our flat list
+            const existing = [
+                ...G.keyRegistry.flat.activeDevices,
+                ...G.keyRegistry.flat.deprecatedDevices
+            ].find(k => k.fileId === file.id);
+
+            // Sync if: It's new OR it's been modified since our last sync
+            if (!existing || new Date(file.modifiedTime) > new Date(existing.syncedAt)) {
+                log("RG.syncRegistryDeltas", `Fetching device key: ${file.name}`);
+                const raw = await GD.readJsonByFileId(file.id);
+                const normalized = normalizePublicKey(raw);
+
+                // Attach sync metadata so we don't fetch it again next time
+                normalized.fileId = file.id;
+                normalized.syncedAt = file.modifiedTime;
+
+                registerPublicKey(normalized);
+                updateFound = true;
+            }
+        }
+    }
+
+    // 2️⃣ SYNC RECOVERY PUBLIC KEY (recovery/recovery.public.json)
+    const recoveryFolder = await GD.findDriveFileByNameInFolder("recovery", C.ACCESS4_ROOT_ID);
+    if (recoveryFolder) {
+        // We look for the specific public file
+        const recFile = await GD.findDriveFileByNameInFolder(C.RECOVERY_KEY_PUBLIC_FILE, recoveryFolder.id);
+
+        if (recFile) {
+            const existingRec = G.keyRegistry.flat.recoveryKeys.find(k => k.fileId === recFile.id);
+
+            if (!existingRec || new Date(recFile.modifiedTime) > new Date(existingRec.syncedAt)) {
+                log("RG.syncRegistryDeltas", "Fetching updated Recovery Public Key");
+                const rawRec = await GD.readJsonByFileId(recFile.id);
+                const normalizedRec = normalizePublicKey(rawRec);
+
+                normalizedRec.fileId = recFile.id;
+                normalizedRec.syncedAt = recFile.modifiedTime;
+
+                registerPublicKey(normalizedRec);
+                updateFound = true;
+            }
+        }
+    }
+
+    // 3️⃣ CACHE & SNAPSHOT
+    if (updateFound) {
+        saveRegistryToCache(); // Persist to LocalStorage
+        // Update the UI's effective list
+        G.activeDevicesSnapshot = resolveEffectiveActiveDevices(G.keyRegistry.flat);
+        log("RG.syncRegistryDeltas", "Registry sync complete.");
+    } else {
+        log("RG.syncRegistryDeltas", "No updates found on Drive.");
+    }
+}
 
 
-/*async function markPreviousDriveKeyDeprecated(oldFingerprint, newFingerprint) {
+
+/*  //Referenced within ID.rotateDeviceIdentity() -
+    //DO NOT DELETE but may need refinement in the current context when uncommented
+
+    async function markPreviousDriveKeyDeprecated(oldFingerprint, newFingerprint) {
     log("GD.markPreviousDriveKeyDeprecated", "called");
 
     const folder = await findOrCreateUserFolder();

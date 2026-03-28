@@ -10,8 +10,8 @@ export const loginUI = loadUI(['title', 'signinBtn', 'signinStatus', 'welcomeSpa
 
 export const vaultUI = loadUI(['title', 'toggleSecureBtn', 'mainSection', 'headerRightSide', 'addBtn', 'renameBtn',
     'deleteBtn', 'menuBtn', 'menuDropdown', 'saveMenu', 'toggleEditMenu', 'rawDataMenu',
-    'discardChangesMenu', 'copyLogsMenu', 'toggleLogsMenu', 'runBackupMenu', 'recoveryRotationMenu', 'selectMenu',
-    'cutMenu', 'pasteMenu', 'logoutMenu', 'explorer', 'statusMsg'], 'vault_', 'vaultView');
+    'discardChangesMenu', 'copyLogsMenu', 'toggleLogsMenu', 'syncAccessMenu', 'runBackupMenu', 'recoveryRotationMenu',
+    'selectMenu', 'cutMenu', 'pasteMenu', 'logoutMenu', 'explorer', 'statusMsg'], 'vault_', 'vaultView');
 
 export const vaultRawDataUI = loadUI(['mainSection', 'content', 'closeBtn'], 'vaultRawData_', 'vaultView');
 

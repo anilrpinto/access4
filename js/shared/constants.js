@@ -1,9 +1,7 @@
 "use strict";
 
-import { U } from '@/shared/exports.js';
-
-export const C = U.deepFreeze({
-    APP_VERSION: "15",
+export const C = deepFreeze({
+    APP_VERSION: "16",
     CLIENT_ID: "738922366916-ppn1c24mp9qamr6pdmjqss3cqjmvqljv.apps.googleusercontent.com",
     SCOPES: "https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/userinfo.email",
     ACCESS4_ROOT_ID: "1zQPiXTCDlPjzgD1YZiVKsRB2s4INUS_g",
@@ -64,3 +62,20 @@ export const C = U.deepFreeze({
         }
     }
 });
+
+function deepFreeze(obj) {
+    // 1. Retrieve the property names defined on obj
+    const propNames = Object.getOwnPropertyNames(obj);
+
+    // 2. Freeze properties before freezing self
+    for (const name of propNames) {
+        const value = obj[name];
+
+        // 3. If value is an object, freeze it recursively
+        if (value && typeof value === "object") {
+            deepFreeze(value);
+        }
+    }
+
+    return Object.freeze(obj);
+}

@@ -5,6 +5,7 @@ import { C, G, clearGlobals, SV, log, trace, debug, info, warn, error,
 
 import { rootUI } from '@/ui/loader.js';
 import { loadLogin }  from '@/ui/login.js';
+import { copyToClipboard } from '@/ui/uihelper.js';
 
 export let logEl = rootUI.log;
 
@@ -15,9 +16,15 @@ function onLoad() {
     log("APP.onLoad", `called for [v${C.APP_VERSION}]`);
     loadLogin();
 
+    logEl.onClick(doCopyToClipboardClick);
+
     //log("APP.onLoad", "sessionStorage sv_session_private_key exists:", !!sessionStorage.getItem("sv_session_private_key"));
     //log("APP.onLoad", "G.unlockedIdentity:", !!G.unlockedIdentity);
     //log("APP.onLoad", "G.currentPrivateKey:", !!G.currentPrivateKey);
+}
+
+function doCopyToClipboardClick() {
+    copyToClipboard(logEl.innerText);
 }
 
 async function releaseDriveLock() {

@@ -1,7 +1,14 @@
-//WARN: MUST be defined before the barrel import from exports or there could be circular dependency crashes
-import { CR_ALG } from '@/core/crypto.js';
-
 import { C, G, CR, GD, log, trace, debug, info, warn, error } from '@/shared/exports.js';
+
+//WARN: MUST be defined before the barrel import from exports or there could be circular dependency crashes
+//import { CR_ALG } from '@/shared/crypto-constants.js'; <---- was commented out regardless
+
+/*import { G } from '@/shared/global.js';
+import { C } from '@/shared/constants.js';
+import * as GD from '@/core/gdrive.js';
+import * as CR from '@/core/crypto.js';
+
+import { log, trace, debug, info, warn, error } from '@/shared/log.js';*/
 
 function identityKey() {
     return `access4.identity::${G.userEmail}::${getDeviceId()}`;
@@ -45,11 +52,6 @@ async function generateDeviceKeypair() {
 async function buildIdentityFromKeypair({privateKeyPkcs8, publicKeySpki}, pwd, opts = {}) {
     log("ID.buildIdentityFromKeypair", "called");
 
-    // Note: Consider CR.bufToB64(publicKeySpki) in case of overflow error because of String.fromCharCode
-    //const pubB64 = btoa(String.fromCharCode(...new Uint8Array(publicKeySpki)));
-
-    // Actually faced a silent error that resulted in an empty base64 key data being written and had to switch to the helper method
-    // TODO: Change similar code that's commented above to the below implementation throughout the app
     const pubB64 = CR.bufToB64(publicKeySpki);
 
     if (pubB64.length < 300) {
@@ -58,8 +60,8 @@ async function buildIdentityFromKeypair({privateKeyPkcs8, publicKeySpki}, pwd, o
 
     const fingerprint = await CR.computePublicKeyFingerprint(publicKeySpki);
 
-    const saltBytes = CR.randomBytes(CR_ALG.SALT_LENGTH);
-    const kdf = { salt: CR.bufToB64(saltBytes), iterations: CR_ALG.PBKDF2_ITERATIONS };
+    const saltBytes = CR.randomBytes(CR.CR_ALG.SALT_LENGTH);
+    const kdf = { salt: CR.bufToB64(saltBytes), iterations: CR.CR_ALG.PBKDF2_ITERATIONS };
 
     const key = await CR.deriveKey(pwd, kdf);
     const passwordVerifier = await createPasswordVerifier(key);
@@ -134,59 +136,6 @@ export function removeDeviceIdentity() {
     }
 }
 
-export async function ensureDevicePublicKey() {
-    log("ID.ensureDevicePublicKey", "called");
-
-    const id = await loadIdentity();
-    if (!id) throw new Error("Local identity missing");
-
-    const deviceId = getDeviceId();
-
-    const folder = await GD.ensureUserPubKeyFolder();
-
-    const filename = `${G.userEmail}_${deviceId}.json`;
-    const file = await GD.findDriveFileByNameInFolder(filename, folder);
-
-    if (file?.id) {
-        info("ID.ensureDevicePublicKey", `Device public key ...${filename.slice(-30)} exists on drive`);
-        return;
-    }
-
-    const pubBytes = CR.b64ToBuf(id.publicKey);
-    const fingerprint = await CR.computePublicKeyFingerprint(pubBytes);
-
-    const pubData = {
-        version:"1",
-        account: G.userEmail,
-        deviceId,
-        keyId: fingerprint,
-        fingerprint,
-        state:"active",
-        role:"device",
-        supersedes: id.supersedes || null,
-        created: new Date().toISOString(),
-        algorithm: {
-            type: CR_ALG.RSA.DEFAULT,
-            usage: ["wrapKey"],
-            modulusLength: CR_ALG.RSA_MODULUS_LENGTH,
-            hash: CR_ALG.HASH.SHA256
-        },
-        publicKey: {
-            format:"spki",
-            encoding:"base64",
-            data: id.publicKey
-        },
-        deviceName: `${navigator.platform} - ${navigator.userAgent}`.substring(0, 64),
-        browser: navigator.userAgentData?.brands?.map(b => b.brand).join(",") || navigator.userAgent,
-        os: navigator.platform
-    };
-
-    //File doesn't exist → create new
-    await GD.upsertJsonFile({ name: filename, parentId: folder, json: pubData });
-
-    log("ID.ensureDevicePublicKey", `Device public key UPLOADED to ${filename.slice(-30)}`);
-}
-
 export async function migrateIdentityWithVerifier(id, pwd) {
     log("ID.migrateIdentityWithVerifier", "called - Migrating identity to add password verifier");
 
@@ -244,7 +193,7 @@ export async function rotateDeviceIdentity(pwd) {
     // --- Drive updates (best effort) ---
     try {
         await GD.markPreviousDriveKeyDeprecated(oldIdentity.fingerprint, newIdentity.fingerprint); // updates old key JSON
-        await ensureDevicePublicKey();        // uploads NEW active key
+        await SV.ensureDevicePublicKey();        // uploads NEW active key
         log("ID.rotateDeviceIdentity", "Drive key lifecycle updated");
     } catch (e) {
         warn("ID.rotateDeviceIdentity", "Drive update failed (local rotation preserved):", e.message);

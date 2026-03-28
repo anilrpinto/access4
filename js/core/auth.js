@@ -1,4 +1,13 @@
-import { C, G, ID, GD, log, trace, debug, info, warn, error, isTraceEnabled } from '@/shared/exports.js';
+import { C, G, ID, GD, CR, log, trace, debug, info, warn, error, isTraceEnabled } from '@/shared/exports.js';
+
+/*import { C } from '@/shared/constants.js';
+import { G } from '@/shared/global.js';
+
+import * as ID from '@/core/identity.js';
+import * as GD from '@/core/gdrive.js';
+import * as CR from '@/core/crypto.js';
+
+import { log, trace, debug, info, warn, error, isTraceEnabled } from '@/shared/log.js';*/
 
 import { loginUI } from '@/ui/loader.js';
 
@@ -59,10 +68,6 @@ async function onAuthReady(email) {
 
         showUnlockMessage("Checking for active session...", "info");
 
-        // Temporarily commented as not sure it is needed because of the below check anyways - 03/18/2026
-/*        if (!isSessionAuthenticated())
-            promptUnlockPasword();*/
-
         // Attempt session restore first
         if (await attemptSessionRestore()) {
             info("AU.onAuthReady", "Found an active authenticated browser session — skipping password prompt");
@@ -70,8 +75,6 @@ async function onAuthReady(email) {
             log("AU.onAuthReady", "G.driveLockState after session restore:" + (G.driveLockState ? { mode: G.driveLockState.mode, self: G.driveLockState.self } : null));
             showUnlockMessage("Authentication succeeded, proceeding to vault", "success");
 
-            // Commented as it's already being called in proceedAfterPasswordSuccess()
-            //await ID.ensureDevicePublicKey();
             await proceedAfterPasswordSuccess();
             return;
         } else
@@ -79,7 +82,6 @@ async function onAuthReady(email) {
 
         // Returning user → unlock
         setAuthMode("unlock");
-        //log("AU.onAuthReady", "Existing device detected, prompting unlock");
 
     } catch (e) {
         error("AU.onAuthReady", "Error loading identity:", e.message);
@@ -95,36 +97,23 @@ function setAuthMode(mode, options = {}) {
     setupPasswordPrompt(mode, options);
 }
 
-// Temporarily commented as not sure it is needed, was referenced previously - 03/18/2026
-/*function isSessionAuthenticated() {
-    return !!sessionStorage.getItem("sv_session_private_key");
-}*/
-
 async function attemptSessionRestore() {
     log("AU.attemptSessionRestore", "called");
 
     try {
-        const storedSessionKey = sessionStorage.getItem("sv_session_private_key");
+        const storedSessionKeyB64 = sessionStorage.getItem("sv_session_private_key");
 
-        if (!storedSessionKey) {
+        if (!storedSessionKeyB64) {
             warn("AU.attemptSessionRestore", "No session private key found in memory (sessionStorage)");
             return false;
         }
 
         log("AU.attemptSessionRestore", "Restoring session private key...");
 
-        const bytes = Uint8Array.from(atob(storedSessionKey), c => c.charCodeAt(0));
-
-        G.currentPrivateKey = await crypto.subtle.importKey(
-            "pkcs8",
-            bytes,
-            { name:"RSA-OAEP", hash:"SHA-256" },
-            false,
-            ["decrypt", "unwrapKey"]
-        );
+        G.currentPrivateKey = await CR.importRSAPrivateKeyFromB64(storedSessionKeyB64, ["decrypt", "unwrapKey"]);
 
         // Load identity from localStorage
-        const id = await ID.loadIdentity(); // gets raw identity
+        const id = await ID.loadIdentity();
         log("AU.attemptSessionRestore", "loadIdentity returned:", !!id);
 
         if (!id) {
@@ -132,23 +121,21 @@ async function attemptSessionRestore() {
             return false;
         }
 
-        // Attach session key
+        // Attach session key and update Global State
         id._sessionPrivateKey = G.currentPrivateKey;
-
-        // Store as unlocked identity for ID.loadIdentity()
         G.unlockedIdentity = id;
-
         G.sessionUnlocked = true;
-        log("AU.attemptSessionRestore", "Session restored from sessionStorage");
+
+        log("AU.attemptSessionRestore", "Session restored successfully.");
 
         log("AU.attemptSessionRestore", `G.unlockedIdentity exists: ${!!G.unlockedIdentity}, fingerprint: ${G.unlockedIdentity?.fingerprint},
             deviceId: ${G.unlockedIdentity?.deviceId}, G.currentPrivateKey exists: ${!!G.currentPrivateKey}`);
-        trace("AU.attemptSessionRestore", `privateKey type: ${G.currentPrivateKey?.type}, algorithm: ${JSON.stringify(G.currentPrivateKey?.algorithm)}`);
+        trace("AU.attemptSessionRestore", `Fingerprint: ${id.fingerprint}`);
 
         return true;
 
     } catch (err) {
-        warn("AU.attemptSessionRestore", "Session restore failed, clearing");
+        error("AU.attemptSessionRestore", "Session restore failed, clearing storage:", err.message);
         sessionStorage.removeItem("sv_session_private_key");
         return false;
     }
@@ -184,7 +171,7 @@ async function ensureAuthorization() {
     if (!G.auth.admins.includes(G.userEmail) && !G.auth.members.includes(G.userEmail))
         throw new Error("Unauthorized user");
 
-    log("AU.ensureAuthorization", "Signed in user is authorized to proceed");
+    log("AU.ensureAuthorization", "Signed in user is authorized to proceed, admin:", isAdmin());
 }
 
 /**

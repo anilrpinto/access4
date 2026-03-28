@@ -1,5 +1,13 @@
 import { C, G, CR, SV, GD, log, trace, debug, info, warn, error } from '@/shared/exports.js';
 
+/*import { C } from '@/shared/constants.js';
+import { G } from '@/shared/global.js';
+import * as CR from '@/core/crypto.js';
+import * as SV from '@/core/server.js';
+import * as GD from '@/core/gdrive.js';
+
+import { log, trace, debug, info, warn, error } from '@/shared/log.js';*/
+
 function constantTimeEqual(a, b) {
     if (a.length !== b.length) return false;
     let result = 0;

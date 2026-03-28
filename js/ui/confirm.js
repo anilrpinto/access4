@@ -155,18 +155,3 @@ export function showOverlayPasswordUI({ title = "Security Check", message = "Ple
 export function hideConfirmUI() {
     swapVisibility(confirmUI.mainSection, vaultUI.mainSection);
 }
-
-export function showSilentToast(msg) {
-    let toast = document.getElementById('vault_silentToast');
-    if (!toast) {
-        toast = document.createElement('div');
-        toast.id = 'vault_silentToast';
-        toast.className = 'silent-toast'; // Styles from previous step
-        document.body.appendChild(toast);
-    }
-    toast.textContent = msg;
-    toast.classList.add('show');
-
-    // Auto-hide after 4 seconds
-    setTimeout(() => toast.classList.remove('show'), 4000);
-}

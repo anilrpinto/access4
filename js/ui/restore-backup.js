@@ -3,7 +3,7 @@ import { U, log, trace, debug, info, warn, error } from '@/shared/exports.js';
 import { restoreFromRawString } from '@/core/backup.js';
 
 import { rootUI, backupRestoreUI } from '@/ui/loader.js';
-import { swapVisibility, showSilentToast } from '@/ui/uihelper.js';
+import { swapVisibility, showSilentToast, copyToClipboard } from '@/ui/uihelper.js';
 
 /**
  * Reset and show the recovery modal
@@ -31,7 +31,7 @@ export function openRecoveryModal() {
     backupRestoreUI.outputTxa.setText('');
 }
 
-async function decrypt() {
+async function doDecryptClick() {
     log("backupRestoreUI.decrypt", "called");
 
     // 1. Capture and Deep Clean the string
@@ -57,25 +57,17 @@ async function decrypt() {
     }
 }
 
-async function copyToClipboard() {
+async function doCopyToClipboardClick() {
     backupRestoreUI.outputTxa.select();
     backupRestoreUI.outputTxa.setSelectionRange(0, 99999); // For mobile
-
-    try {
-        navigator.clipboard.writeText(backupRestoreUI.outputTxa.value);
-        showSilentToast("JSON copied to clipboard!");
-    } catch (err) {
-        // Fallback for older browsers
-        document.execCommand('copy');
-        showSilentToast("Copied to clipboard");
-    }
+    copyToClipboard(backupRestoreUI.outputTxa.getText());
 }
 
 // 1. Decrypt Action
-backupRestoreUI.decryptBtn.onClick(decrypt);
+backupRestoreUI.decryptBtn.onClick(doDecryptClick);
 
 // 2. Copy Action
-backupRestoreUI.copyBtn.onClick(copyToClipboard);
+backupRestoreUI.copyBtn.onClick(doCopyToClipboardClick);
 
 // 3. Close Action
 backupRestoreUI.closeBtn.onClick(() => {

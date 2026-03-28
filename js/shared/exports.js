@@ -1,8 +1,7 @@
 export { C } from '@/shared/constants.js';
 export { G, clearGlobals, inReadOnlyMode } from '@/shared/global.js';
-export * from '@/shared/log.js';
 
-import { CR_ALG } from '@/core/crypto.js';
+export * from '@/shared/log.js';
 
 export * as AU from '@/core/auth.js';
 export * as BM from '@/core/biometrics.js';

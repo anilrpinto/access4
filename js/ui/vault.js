@@ -2,7 +2,7 @@ import { C, G, inReadOnlyMode, AU, SV, U, log, trace, debug, info, warn, error }
 
 import { logout } from '@/app.js';
 import { runAdminBackup } from '@/core/backup.js';
-import { runGarbageCollection } from '@/core/janitor.js';
+import { runGarbageCollection, runVaultAccessHousekeeping } from '@/core/janitor.js';
 
 import { loadUI, swapVisibility, showSilentToast } from '@/ui/uihelper.js';
 import { rootUI, vaultUI, vaultNavBarUI, vaultRawDataUI, copyLogsToClipboard } from '@/ui/loader.js';
@@ -95,7 +95,8 @@ async function init() {
     vaultUI.rawDataMenu.onClick(doShowRawDataClick);
     vaultUI.discardChangesMenu.onClick(doDiscardChangesClick);
 
-    vaultUI.runBackupMenu.onClick(doRunBackupUI);
+    vaultUI.syncAccessMenu.onClick(doSyncAccessClick);
+    vaultUI.runBackupMenu.onClick(doRunBackupClick);
     vaultUI.recoveryRotationMenu.onClick(showRecoveryRotationUI);
 
     vaultUI.title.onClick(doToggleSecureClick);
@@ -119,74 +120,15 @@ async function init() {
     //vaultUI.mainSection.setFlex();
 }
 
-/**
- * Triggered by the Input Event on your search bar
- */
-export function handleSearchInput(query) {
-    currentSearchQuery = query;
-    clearTimeout(searchDebounceTimer);
-
-    searchDebounceTimer = setTimeout(() => {
-        // 💡 CRITICAL: If query is empty, reset to null
-        if (!query || query.trim() === "") {
-            currentFilterMap = null;
-        } else {
-            currentFilterMap = generateFilterMap(vaultData, query);
-        }
-
-        // FORCE HOME: Reset the navigation path to the root
-        // This ensures the user sees the top-level filtered groups immediately.
-        sessionState.path = ['root'];
-
-        // Re-run the existing master render flow
-        renderVaultExplorer();
-
-        // Log for your debugging
-        console.log(`[Search] Query: "${query}" | Map Active: ${!!currentFilterMap}`);
-    }, 150);
+async function doSyncAccessClick() {
+    log("vaultUI.doSyncAccessClick", "called");
+    showSilentToast("Consolidating vault access...");
+    await runVaultAccessHousekeeping();
+    showSilentToast("Sync complete!");
 }
 
-export function refreshCleanupPill() {
-    log("vaultUI.refreshCleanupPill", "called");
-
-    const count = parseInt(localStorage.getItem(C.BACKUP_CLEANUP_COUNTER_KEY) || 0);
-    const header = vaultUI.headerRightSide;
-    if (!header) return;
-
-    let pill = document.getElementById('admin_cleanup_pill');
-
-    if (count >= 2) {
-        if (!pill) {
-            pill = document.createElement('div');
-            pill.id = 'admin_cleanup_pill';
-            pill.className = 'admin-cleanup-pill';
-
-            // prepend() puts it at the start of the right-side actions
-            header.prepend(pill);
-        }
-
-        pill.innerHTML = `<span class="icon">⚠️</span> <span>${count}</span>`;
-        pill.title = `${count} backups generated. Click to acknowledge.`;
-
-        pill.onclick = () => {
-            showOverlayConfirmUI({
-                title: "Storage Cleanup",
-                message: `You have <b>${count}</b> backup bundles saved on this device. Clear from storage manually and click <b>Cleared</b>.`,
-                okText: "Cleared",
-                onConfirm: () => {
-                    localStorage.setItem(C.BACKUP_CLEANUP_COUNTER_KEY, 0);
-                    pill.remove();
-                    showSilentToast("Storage tracking counter reset.");
-                }
-            });
-        };
-    } else if (pill) {
-        pill.remove();
-    }
-}
-
-async function doRunBackupUI() {
-    log("vaultUI.doRunBackupUI", "called");
+async function doRunBackupClick() {
+    log("vaultUI.doRunBackupClick", "called");
 
     // 1. Prompt for password
     const pwd = await showOverlayPasswordUI({
@@ -385,13 +327,12 @@ async function showVaultUI({ readOnly = false, onIdle = () => { doLogout() } } =
 
     log("vaultUI.showVaultUI", "called");
 
-    // Hide login section
-    rootUI.loginView.setVisible(false);
+    if (readOnly) {
+        warn("vaultUI.showVaultUI", "Showing vault read-only mode");
+    }
 
-    handleReadonlyState(readOnly);
-
-    // Show main unlocked view
-    rootUI.vaultView.setVisible(true);
+    swapVisibility(rootUI.loginView, rootUI.vaultView);
+    refreshVaultView(readOnly);
 
     // Events that "wake up" the timer
     // Clean up old listeners to prevent memory leaks/duplicate triggers
@@ -1360,13 +1301,6 @@ async function renderVaultExplorer() {
     }
 }
 
-function handleReadonlyState(readOnly) {
-    if (readOnly)
-        warn("vaultUI.handleReadonlyState", "Read-Only mode, app will be limited to view info only!");
-    manageActionableItems(readOnly);
-    applyReadOnlyTheme(readOnly);
-}
-
 function manageActionableItems(readOnly) {
     log("vaultUI.manageActionableItems", "called");
 
@@ -1377,6 +1311,8 @@ function manageActionableItems(readOnly) {
     vaultUI.saveMenu.setVisible(visible);
     vaultUI.toggleEditMenu.setVisible(visible);
     vaultUI.rawDataMenu.setVisible(visible && admin);
+
+    vaultUI.syncAccessMenu.setVisible(visible && admin);
     vaultUI.runBackupMenu.setVisible(admin);
     vaultUI.recoveryRotationMenu.setVisible(visible && admin);
 
@@ -1429,10 +1365,84 @@ export async function loadVault(pwd, data, options) {
     }
     pwd = null;
 
-    await renderVaultExplorer();
     await showVaultUI(options);
 
     setTimeout(async () => await runGarbageCollection(vaultData), 5000); // 5-second delay to prioritize the initial UI render
+}
+
+export function refreshVaultView(readOnly) {
+    if (readOnly)
+        warn("vaultUI.refreshVaultView", "Read-Only mode, app will be limited to view info only!");
+
+    renderVaultExplorer();
+    manageActionableItems(readOnly);
+    applyReadOnlyTheme(readOnly);
+}
+
+/**
+ * Triggered by the Input Event on the search bar
+ */
+export function handleSearchInput(query) {
+    currentSearchQuery = query;
+    clearTimeout(searchDebounceTimer);
+
+    searchDebounceTimer = setTimeout(() => {
+        // 💡 CRITICAL: If query is empty, reset to null
+        if (!query || query.trim() === "") {
+            currentFilterMap = null;
+        } else {
+            currentFilterMap = generateFilterMap(vaultData, query);
+        }
+
+        // FORCE HOME: Reset the navigation path to the root
+        // This ensures the user sees the top-level filtered groups immediately.
+        sessionState.path = ['root'];
+
+        // Re-run the existing master render flow
+        renderVaultExplorer();
+
+        // Log for your debugging
+        console.log(`[Search] Query: "${query}" | Map Active: ${!!currentFilterMap}`);
+    }, 150);
+}
+
+export function refreshCleanupPill() {
+    log("vaultUI.refreshCleanupPill", "called");
+
+    const count = parseInt(localStorage.getItem(C.BACKUP_CLEANUP_COUNTER_KEY) || 0);
+    const header = vaultUI.headerRightSide;
+    if (!header) return;
+
+    let pill = document.getElementById('admin_cleanup_pill');
+
+    if (count >= 2) {
+        if (!pill) {
+            pill = document.createElement('div');
+            pill.id = 'admin_cleanup_pill';
+            pill.className = 'admin-cleanup-pill';
+
+            // prepend() puts it at the start of the right-side actions
+            header.prepend(pill);
+        }
+
+        pill.innerHTML = `<span class="icon">⚠️</span> <span>${count}</span>`;
+        pill.title = `${count} backups generated. Click to acknowledge.`;
+
+        pill.onclick = () => {
+            showOverlayConfirmUI({
+                title: "Storage Cleanup",
+                message: `You have <b>${count}</b> backup bundles saved on this device. Clear from storage manually and click <b>Cleared</b>.`,
+                okText: "Cleared",
+                onConfirm: () => {
+                    localStorage.setItem(C.BACKUP_CLEANUP_COUNTER_KEY, 0);
+                    pill.remove();
+                    showSilentToast("Storage tracking counter reset.");
+                }
+            });
+        };
+    } else if (pill) {
+        pill.remove();
+    }
 }
 
 export function stopVaultIdleCheck() {

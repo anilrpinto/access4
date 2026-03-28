@@ -1,23 +1,6 @@
 import { G } from '@/shared/global.js';
 import { log, trace, debug, info, warn, error } from '@/shared/log.js';
 
-export function deepFreeze(obj) {
-    // 1. Retrieve the property names defined on obj
-    const propNames = Object.getOwnPropertyNames(obj);
-
-    // 2. Freeze properties before freezing self
-    for (const name of propNames) {
-        const value = obj[name];
-
-        // 3. If value is an object, freeze it recursively
-        if (value && typeof value === "object") {
-            deepFreeze(value);
-        }
-    }
-
-    return Object.freeze(obj);
-}
-
 export function format(json) {
     // Determine indentation: undefined (minified), other wise indent by 2 spaces
     return JSON.stringify(json, null, (G.settings?.minifyJson ? undefined : 2));
@@ -51,4 +34,27 @@ export function getCurrentTime() {
         minute: '2-digit',
         hour12: true
     }).toLowerCase();
+}
+
+/**
+ * Converts an ISO string (UTC) to a local, readable format.
+ * Example: "2026-03-27T19:14:52Z" -> "3/27/2026, 12:14:52 PM"
+ */
+export function formatLocalTime(isoString) {
+    if (!isoString) return "N/A";
+    try {
+        const date = new Date(isoString);
+        return date.toLocaleString(); // Uses the browser's local timezone and format
+    } catch (e) {
+        return isoString;
+    }
+}
+
+/**
+ * Returns a "clean" local ISO-like string without the 'Z' for logging.
+ */
+export function getLocalTimestamp() {
+    const now = new Date();
+    const offset = now.getTimezoneOffset() * 60000;
+    return new Date(now - offset).toISOString().slice(0, -1).replace('T', ' ');
 }

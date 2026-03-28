@@ -1,5 +1,11 @@
 import { C, G, U, log, trace, debug, info, warn, error } from '@/shared/exports.js';
 
+/*import { C } from '@/shared/constants.js';
+import { G } from '@/shared/global.js';
+import * as U from '@/core/utils.js';
+
+import { log, trace, debug, info, warn, error } from '@/shared/log.js';*/
+
 /**
  * IMPORTANT:
  * Drive has separate endpoints for metadata vs file content.
@@ -407,24 +413,26 @@ export async function findOrCreateFolder(name, parentId = C.ACCESS4_ROOT_ID) {
 }
 
 // registry.js
-export async function listFolders(parentId) {
+export async function listFolders(parentId, fields = "files(id, name)") {
     return await _driveList({
         q: _buildDriveQuery({
             parent: parentId,
             mimeType: "application/vnd.google-apps.folder"
         }),
-        pageSize: 100
+        pageSize: 100,
+        fields: fields
     });
 }
 
 // registry.js
-export async function listJsonFiles(parentId) {
+export async function listJsonFiles(parentId, fields = "files(id, name)") {
     return await _driveList({
         q: _buildDriveQuery({
             parent: parentId,
             mimeType: "application/json"
         }),
-        pageSize: 100
+        pageSize: 100,
+        fields: fields
     });
 }
 

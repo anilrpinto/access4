@@ -1,11 +1,12 @@
-import { C, G, clearGlobals, AU, BM, CR, ID, R, SV, U, log, trace, debug, info, warn, error } from '@/shared/exports.js';
+import { C, G, clearGlobals, AU, BM, CR, ID, R, RG, SV, U, log, trace, debug, info, warn, error } from '@/shared/exports.js';
 
 import { runAdminBackup } from '@/core/backup.js';
+import { runVaultAccessHousekeeping } from '@/core/janitor.js';
 
 import { rootUI, loginUI, vaultUI } from '@/ui/loader.js';
 import { openRecoveryModal } from '@/ui/restore-backup.js';
 import { loadUI, swapVisibility } from '@/ui/uihelper.js';
-import { loadVault, stopVaultIdleCheck } from '@/ui/vault.js';
+import { loadVault, refreshVaultView, stopVaultIdleCheck } from '@/ui/vault.js';
 
 function init() {
     log("loginUI.init", "called");
@@ -412,36 +413,29 @@ export async function proceedAfterPasswordSuccess(pwd = null) {
     log("loginUI.proceedAfterPasswordSuccess", "G.driveLockState:", G.driveLockState ? { mode: G.driveLockState.mode, self: G.driveLockState.self } : null);
 
     log("loginUI.proceedAfterPasswordSuccess", "Proceeding to device public key check on drive");
-    await ID.ensureDevicePublicKey();
 
-    // 1️⃣ Ensure envelope exists (read-only init only)
-    await SV.ensureEnvelope();      // guarantees CEK + envelope
+    RG.loadRegistryFromCache();
+
+    // 1️⃣ Initialize the identity and device record first (Local/Fast)
+    const deviceRecord = await SV.ensureDevicePublicKey();
+
+    // 2️⃣ Initialize G.driveLockState (This happens inside ensureEnvelope)
+    const envelope = await SV.ensureEnvelope(deviceRecord);
 
     log("loginUI.proceedAfterPasswordSuccess", `G.recoverySession: ${G.recoverySession}, G.recoveryCEK exists: ${!!G.recoveryCEK}`);
 
     // 2️⃣ Explicitly check authorization
-    const auth = await SV.checkEnvelopeAuthorization();
+    const auth = await SV.checkEnvelopeAuthorization(envelope);
 
     if (!auth.authorized) {
         warn("loginUI.proceedAfterPasswordSuccess", "Device not authorized to decrypt envelope");
         setupPasswordPrompt("unlock");
-        showUnlockMessage("This device is not authorized to access vault. Ask for access", "error");
+        showUnlockMessage("This device is not authorized to access vault yet. Ask for access", "error");
         return;
     }
 
-    // 4️⃣ Attempt write lock escalation (optional upgrade)
-    if (G.driveLockState?.mode === "read") {
-        log("loginUI.proceedAfterPasswordSuccess", "Attempting write lock escalation");
-        await SV.tryAcquireEnvelopeWriteLock(); // must NOT throw if fails
-    }
-
-    // 5️⃣ Housekeeping only if we truly have write access
-    if (G.driveLockState?.mode === "write" && G.driveLockState?.self) {
-        log("loginUI.proceedAfterPasswordSuccess", "Performing CEK housekeeping for all valid devices + recovery keys");
-        await SV.wrapCEKForRegistryKeys();
-    } else {
-        warn("loginUI.proceedAfterPasswordSuccess", "Skipping CEK housekeeping — G.driveLockState not ready or not writable, running in read-only mode");
-    }
+    // 3️⃣ NOW start the background lock (Now that driveLockState exists!)
+    G.lockAcquisitionPromise = SV.tryAcquireEnvelopeWriteLock();
 
     if (G.recoverySession) {
         G.recoverySession = false;
@@ -450,24 +444,30 @@ export async function proceedAfterPasswordSuccess(pwd = null) {
 
     let vaultData;
     // 6️⃣ Load vault payload
-    await SV.loadEnvelopePayloadToUI(async data => vaultData = await JSON.parse(data) /*await renderVault(data) | vaultUI.data.setText(data)*/);
-
-    // 7️⃣ UI mode strictly derived from lock state
-    const readOnly = G.driveLockState?.mode !== "write";
-
-    if (readOnly) {
-        warn("loginUI.proceedAfterPasswordSuccess", "Showing unlocked UI in read-only mode");
-    }
-
-    await loadVault(pwd, vaultData, { readOnly });
+    await SV.loadEnvelopePayloadToUI(envelope, async data => vaultData = await JSON.parse(data));
+    await loadVault(pwd, vaultData, { readOnly: G.driveLockState?.mode !== "write" });
 
     // Immediately destroy password reference here as well if missed in vault
     pwd = null;
 
-    log("loginUI.proceedAfterPasswordSuccess", "IndexedDB dbs:", JSON.stringify(await indexedDB.databases()));
+    // 5️⃣ AUTO-UPGRADE UI (When the 4s lock finishes)
+    G.lockAcquisitionPromise.then((success) => {
+        if (success && G.driveLockState?.mode === "write") {
+            log("loginUI.proceedAfterPasswordSuccess", "Background lock acquired. Upgrading UI to WRITE mode.");
+            refreshVaultView(false);
+        }
+        G.lockAcquisitionPromise = null;
+    }).catch(err => {
+        warn("loginUI.proceedAfterPasswordSuccess", "Background lock failed:", err.message);
+        G.lockAcquisitionPromise = null;
+    });
 
-    U.dumpLocalStorageForDebug();
-    log("loginUI.proceedAfterPasswordSuccess", "Unlock successful!@");
+    //log("loginUI.proceedAfterPasswordSuccess", "IndexedDB dbs:", JSON.stringify(await indexedDB.databases()));
+    //U.dumpLocalStorageForDebug();
+
+    runVaultAccessHousekeeping(envelope);
+
+    log("loginUI.proceedAfterPasswordSuccess", "Initial unlock successful! (Background tasks continuing)");
 }
 
 export async function setupPasswordPrompt(mode, options = {}) {

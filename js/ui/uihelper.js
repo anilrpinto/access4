@@ -186,6 +186,17 @@ export function showSilentToast(msg) {
     setTimeout(() => toast.classList.remove('show'), 4000);
 }
 
+export async function copyToClipboard(text) {
+    try {
+        navigator.clipboard.writeText(text);
+        showSilentToast("Copied to clipboard!");
+    } catch (err) {
+        // Fallback for older browsers
+        document.execCommand('copy');
+        showSilentToast("Copied to clipboard");
+    }
+}
+
 /*
     //Pro-Tip on setVisible
     //If you find that your div containers (like mainSection) look weird with inline-block, you can always override just that one after loading:

@@ -1,5 +1,25 @@
 import { log, trace, debug, info, warn, error } from '@/shared/log.js';
 
+export const CR_ALG = {
+    RSA: {
+        DEFAULT: "RSA",
+        OAEP: "RSA-OAEP"
+    },
+    HASH: {
+        SHA256: "SHA-256"
+    },
+    AES: {
+        GCM: "AES-GCM"
+    },
+    PBKDF2: "PBKDF2",
+    HKDF: "HKDF",
+
+    SALT_LENGTH: 16,
+    PBKDF2_ITERATIONS: 100000,
+    AES_GCM_IV_LENGTH: 12,
+    RSA_MODULUS_LENGTH: 2048,
+};
+
 // Helpers
 function normalizeBytes(data) {
     if (data instanceof Uint8Array) {
@@ -30,25 +50,6 @@ function assertKeyUsage(key, requiredUsage) {
 /**
  * EXPORTED FUNCTIONS
  */
-export const CR_ALG = {
-    RSA: {
-        DEFAULT: "RSA",
-        OAEP: "RSA-OAEP"
-    },
-    HASH: {
-        SHA256: "SHA-256"
-    },
-    AES: {
-        GCM: "AES-GCM"
-    },
-    PBKDF2: "PBKDF2",
-    HKDF: "HKDF",
-
-    SALT_LENGTH: 16,
-    PBKDF2_ITERATIONS: 100000,
-    AES_GCM_IV_LENGTH: 12,
-    RSA_MODULUS_LENGTH: 2048,
-};
 
 export function randomBytes(len = CR_ALG.SALT_LENGTH) {
     return crypto.getRandomValues(new Uint8Array(len));
