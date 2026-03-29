@@ -24,24 +24,35 @@ export function showConfirmUI({title = "Confirm", message = "Are you sure?", okT
 
     confirmUI.cancelBtn.onClick(() => {
         hideConfirmUI();
+        if (onCancel) onCancel();
     });
 
     swapVisibility(vaultUI.mainSection, confirmUI.mainSection);
 }
 
-export function showOverlayConfirmUI({ title, message, okText = "Delete", onConfirm }) {
+export function showOverlayChoiceUI({ title, message, okText = "Choice 1", cancelText = "Choice 2", onConfirm, onCancel }) {
+    showOverlayConfirmUI({ title,message, okText, cancelText, onConfirm, onCancel });
+}
+
+export function showOverlayConfirmUI({ title, message, okText = "Delete", cancelText = "Cancel", onConfirm, onCancel }) {
     const section = confirmUI.mainSection;
 
     // 1. Setup Content
     confirmUI.title.setText(title);
     confirmUI.message.innerHTML = message;
+
     confirmUI.okBtn.setText(okText);
+    confirmUI.cancelBtn.setText(cancelText);
+
     confirmUI.okBtn.classList.remove('success-btn'); // Remove green if present
     confirmUI.okBtn.classList.add('danger-btn');
 
     // 2. Apply Overlay Style
     section.classList.add('confirm-floating-overlay');
     section.setVisible(true);
+
+    confirmUI.okBtn.onClick(null);
+    confirmUI.cancelBtn.onClick(null);
 
     // 3. Setup Listeners
     confirmUI.okBtn.onClick(() => {
@@ -53,6 +64,8 @@ export function showOverlayConfirmUI({ title, message, okText = "Delete", onConf
     confirmUI.cancelBtn.onClick(() => {
         section.setVisible(false);
         section.classList.remove('confirm-floating-overlay');
+
+        if (onCancel) onCancel();
     });
 
     const handleEsc = (e) => {

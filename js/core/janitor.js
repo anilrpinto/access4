@@ -66,66 +66,51 @@ export async function runGarbageCollection(vaultData) {
     }
 }
 
+
 /**
  * Runs silently after login to ensure the
  * Registry is fresh and the Envelope is fully wrapped.
  */
 export async function runVaultAccessHousekeeping(envelope = null) {
+    if (!AU.isAdmin() && !G.recoverySession) return;
 
-    if (!AU.isAdmin() && !G.recoverySession)
-        return;
-
-    info("janitor.runVaultAccessHousekeeping", "Vault access housekeeping started", G.recoverySession? "for recovery run (non admin included)" : "");
+    info("janitor.runVaultAccessHousekeeping", "Vault access housekeeping started");
 
     try {
-
-        // 1️⃣ BYPASS CACHE: Force a full scan of the Registry folder on Drive
+        // 1️⃣ Sync the Registry first
         await RG.syncRegistryDeltas(true);
 
-        // 2️⃣ ESCALATE: Attempt to upgrade to Write Mode
+        // 2️⃣ Escalate ONLY if needed
         if (G.driveLockState?.mode !== "write") {
             log("janitor.runVaultAccessHousekeeping", "Escalating to write lock...");
 
-            // We assign the execution to the global promise so Step 3 can await it,
-            // and any UI spinners can see that we are "Busy Locking".
-            G.lockAcquisitionPromise = SV.tryAcquireEnvelopeWriteLock();
-        }
+            // We use the 'try' version because we want a boolean, not an exception
+            const success = await SV.tryAcquireEnvelopeWriteLock();
 
-        // 3️⃣ WAIT: Ensure the acquisition (new or existing) is finished
-        if (G.lockAcquisitionPromise) {
-            // We await the result of the escalation attempt
-            const success = await G.lockAcquisitionPromise;
             log("janitor.runVaultAccessHousekeeping", `Escalation result: ${success ? 'SUCCESS' : 'FAILED'}`);
-        }
 
-        if (G.driveLockState?.mode === "write") {
-
-            // 3️⃣ FETCH TRUTH: Get the absolute latest envelope from Drive
-            const driveData = await EN.readEnvelopeFromDrive();
-            const freshEnvelope = driveData?.json;
-
-            if (freshEnvelope) {
-                // This now reconciles the fresh envelope against the full Registry scan
-                await SV.wrapCEKForRegistryKeys(freshEnvelope);
-
-                // Only clear recovery once we have successfully written the
-                // new device's wrapped key into the envelope on Drive.
-                if (G.recoverySession) {
-                    log("janitor.housekeeping", "Recovery maintenance complete. Wiping session CEK.");
-                    G.recoverySession = false;
-                    G.recoveryCEK = null;
-                }
-
-                log("janitor.runVaultAccessHousekeeping", "Vault access fully synchronized with Drive truth.");
+            if (!success) {
+                warn("janitor.runVaultAccessHousekeeping", "Maintenance deferred: Lock held by another device.");
+                return; // Exit early; we can't do maintenance in Read-Only
             }
-
-            log("janitor.runVaultAccessHousekeeping", "Envelope housekeeping complete.");
-        } else {
-            warn("janitor.runVaultAccessHousekeeping", "App is in Read-Only mode. Skipping CEK wrapping.");
         }
 
-        // 4️⃣ Trigger optional Garbage Collection (Old backups/temp files)
-        // await SV.runGarbageCollection();
+        // 3️⃣ Perform Maintenance (We definitely have a write lock now)
+        // 3️⃣ FETCH TRUTH: Get the absolute latest envelope from Drive
+        const driveData = await EN.readEnvelopeFromDrive();
+        const freshEnvelope = driveData?.json;
+
+        if (freshEnvelope) {
+            // Reconcile and write back to Drive
+            await SV.wrapCEKForRegistryKeys(freshEnvelope);
+
+            if (G.recoverySession) {
+                log("janitor.housekeeping", "Recovery complete. Wiping session transients.");
+                G.recoverySession = false;
+                G.recoveryCEK = null;
+            }
+            log("janitor.runVaultAccessHousekeeping", "Vault access fully synchronized.");
+        }
 
     } catch (err) {
         error("janitor.runVaultAccessHousekeeping", "Background maintenance failed:", err.message);

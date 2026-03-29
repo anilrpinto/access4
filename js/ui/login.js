@@ -457,10 +457,8 @@ export async function proceedAfterPasswordSuccess(pwd = null) {
             log("loginUI.proceedAfterPasswordSuccess", "Background lock acquired. Upgrading UI to WRITE mode.");
             refreshVaultView(false);
         }
-        G.lockAcquisitionPromise = null;
     }).catch(err => {
         warn("loginUI.proceedAfterPasswordSuccess", "Background lock failed:", err.message);
-        G.lockAcquisitionPromise = null;
     });
 
     //log("loginUI.proceedAfterPasswordSuccess", "IndexedDB dbs:", JSON.stringify(await indexedDB.databases()));

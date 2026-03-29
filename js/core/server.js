@@ -1,9 +1,12 @@
 import { C, G, CR, ID, GD, EN, log, trace, debug, info, warn, error, isTraceEnabled } from '@/shared/exports.js';
 
-import { updateLockStatusUI }  from '@/ui/vault.js';
+import { updateLockStatusUI, refreshVaultView }  from '@/ui/vault.js';
+import { showOverlayChoiceUI }  from '@/ui/confirm.js';
+import { showSilentToast } from '@/ui/uihelper.js';
 
 let _transientCEK = null;
 let _transientEnvelope = null;
+let _pendingLockAcquisition = null;
 
 export async function getDriveLockSelf() {
     log("SV.getDriveLockSelf", "called");
@@ -35,74 +38,6 @@ function createLockPayload(self, generation) {
     };
 }
 
-function startLockHeartbeat({self, readLockFromDrive, writeLockToDrive, onLost}) {
-
-    log("SV.startLockHeartbeat", "called - args:", { readLockFromDrive, writeLockToDrive, onLost });
-
-    let stopped = false;
-
-    const tick = async () => {
-        if (stopped || !G.driveLockState) return;
-
-        const activeState = G.driveLockState;
-
-        try {
-
-            const lockFile = await readLockFromDrive();
-
-            if (stopped || !G.driveLockState) return;
-
-            const diskLock = lockFile?.json;
-            const evalResult = evaluateEnvelopeLock(diskLock, self);
-
-            if (evalResult.status !== "owned") {
-                // If we were throttled, we might see 'expired' here.
-                // But our new evaluateEnvelopeLock above will return 'owned'
-                // if the deviceId still matches, so this block won't even trigger!
-                stopped = true;
-                onLost?.(evalResult);
-                return;
-            }
-
-            const currentGen = activeState.lock?.generation ?? 0;
-
-            // MERGE: never allow generation to move backwards
-            const mergedLock = {
-                ...diskLock,
-                generation: Math.max(diskLock?.generation ?? 0, currentGen)
-            };
-
-            const extended = extendLock(mergedLock, C.LOCK_TTL_MS);
-
-            if (extended.generation < G.driveLockState.lock.generation) {
-                throw new Error("Heartbeat attempted to regress generation");
-            }
-
-            await writeLockToDrive(extended, lockFile.fileId);
-
-            if (G.driveLockState) {
-                G.driveLockState.lock = extended;   // keep local state authoritative
-                trace("SV.startLockHeartbeat.tick", `Heartbeat OK (gen=${extended.generation}, expires ${extended.expiresAt})`);
-                updateLockStatusUI();
-            }
-        } catch (err) {
-            const errorMessage = err instanceof Error ? err.stack : JSON.stringify(err, Object.getOwnPropertyNames(err));
-            error("SV.startLockHeartbeat.tick", "CRITICAL FAILURE:", errorMessage);
-
-            stopped = true;
-            onLost?.({ reason:"heartbeat-failed", error: err });
-        }
-    };
-
-    const timer = setInterval(tick, C.HEARTBEAT_INTERVAL);
-
-    return {
-        stop() {
-            stopped = true;
-            clearInterval(timer);
-        }
-    };
-}
 
 export function evaluateEnvelopeLock(lock, self) {
     //trace("EN.evaluateEnvelopeLock", "called");
@@ -124,19 +59,24 @@ export function evaluateEnvelopeLock(lock, self) {
 export async function tryAcquireEnvelopeWriteLock(options = {}) {
     log("SV.tryAcquireEnvelopeWriteLock", "called");
 
-    // 1️⃣ Already have it? Success.
-    if (G.driveLockState?.mode === "write") return true;
+    // 1️⃣ Check for an existing, healthy write lock
+    // Added check: is the heartbeat actually still running?
+    if (G.driveLockState?.mode === "write" && !G.driveLockState.heartbeat?.isStopped?.()) {
+        return true;
+    }
 
-    // 2️⃣ State is null or Read-Only? Try to get/promote it.
     log("SV.tryAcquireEnvelopeWriteLock", "No active write lock. Attempting re-acquisition...");
     try {
+        // This will now use your Singleton Guard/Pending Promise logic!
         await acquireDriveWriteLock(options);
         return true;
     } catch (err) {
+        // Silently handle "stolen" locks for background tasks
         if (err.message?.includes("locked-by-other")) {
-            warn("SV.tryAcquireEnvelopeWriteLock", "Locked by another device.");
+            warn("SV.tryAcquireEnvelopeWriteLock", "Lock held by another device. Background task skipping escalation.");
             return false;
         }
+        // Re-throw genuine errors (Network down, Auth expired, etc.)
         throw err;
     }
 }
@@ -212,47 +152,153 @@ export async function wrapContentKeyForDevice(cek, devicePublicKeyBase64) {
 }
 
 export async function acquireDriveWriteLock({ onUpdate = () => {} } = {}) {
-    log("SV.acquireDriveWriteLock", "called");
-
-    const identity = await ID.loadIdentity();
-    const self = { account: G.userEmail, deviceId: identity.deviceId };
-
-    const lockFile = await readLockFromDrive().catch(() => null);
-    const evalResult = evaluateEnvelopeLock(lockFile?.json, self);
-
-    if (evalResult.status === "locked") {
-        throw new Error("Failed to acquire lock: locked-by-other");
+    // 1. If we already have a healthy write lock, just exit.
+    if (G.driveLockState?.mode === "write" && !G.driveLockState.heartbeat.isStopped()) {
+        log("SV.acquireDriveWriteLock", "Already holding active write lock. Skipping.");
+        return G.driveLockState;
     }
 
-    const envelope = await EN.readEnvelopeFromDrive().catch(() => null);
-    const generation = envelope?.generation ?? 0;
+    // 2. If an acquisition is ALREADY in progress, join that promise.
+    if (_pendingLockAcquisition) {
+        log("SV.acquireDriveWriteLock", "Acquisition already in progress, joining pending promise...");
+        return await _pendingLockAcquisition;
+    }
 
-    const lock = createLockPayload(self, generation);
+    // 3. Start the acquisition process and store the promise globally
+    _pendingLockAcquisition = (async () => {
 
-    log("SV.acquireDriveWriteLock", "writing lock to Drive...");
-    const fileId = await writeLockToDrive(lock, lockFile?.fileId);
+        G.lockAcquisitionPromise = _pendingLockAcquisition;
 
-    log("SV.acquireDriveWriteLock", "lock written, fileId:", fileId);
+        try {
+            log("SV.acquireDriveWriteLock", "Starting new acquisition...");
 
-    // ✅ Initialize G.driveLockState safely
-    G.driveLockState = {
-        envelopeName: C.ENVELOPE_NAME,
-        fileId: fileId || null,
-        lock,
-        self,
-        mode:"write",
-        heartbeat: startLockHeartbeat({
-            self,
-            readLockFromDrive: () => readLockFromDrive(),
-            writeLockToDrive: (lock, id) => writeLockToDrive(lock, id),
-            onLost: info => handleDriveLockLost(info)
-        })
+            const identity = await ID.loadIdentity();
+            const self = { account: G.userEmail, deviceId: identity.deviceId };
+
+            const lockFile = await readLockFromDrive().catch(() => null);
+            const evalResult = evaluateEnvelopeLock(lockFile?.json, self);
+
+            if (evalResult.status === "locked") {
+                throw new Error("Failed to acquire lock: locked-by-other");
+            }
+
+            const envelope = await EN.readEnvelopeFromDrive().catch(() => null);
+            const generation = envelope?.generation ?? 0;
+
+            const lock = createLockPayload(self, generation);
+
+            log("SV.acquireDriveWriteLock", "writing lock to Drive...");
+            const fileId = await writeLockToDrive(lock, lockFile?.fileId);
+
+            // 🛑 CRITICAL: Stop the old heartbeat before overwriting the state
+            if (G.driveLockState?.heartbeat) {
+                log("SV.acquireDriveWriteLock", "Stopping previous heartbeat instance.");
+                G.driveLockState.heartbeat.stop();
+            }
+
+            // Initialize the new state
+            G.driveLockState = {
+                envelopeName: C.ENVELOPE_NAME,
+                fileId: fileId || null,
+                lock,
+                self,
+                mode: "write",
+                heartbeat: startLockHeartbeat({
+                    self,
+                    readLockFromDrive: () => readLockFromDrive(),
+                    writeLockToDrive: (lock, id) => writeLockToDrive(lock, id),
+                    onLost: info => handleDriveLockLost(info)
+                })
+            };
+
+            onUpdate();
+            log("SV.acquireDriveWriteLock", "completed successfully.");
+            return G.driveLockState;
+
+        } finally {
+            // Always clear the pending promise so future attempts can run
+            _pendingLockAcquisition = null;
+            G.lockAcquisitionPromise = null;
+        }
+    })();
+
+    return await _pendingLockAcquisition;
+}
+
+function startLockHeartbeat({self, readLockFromDrive, writeLockToDrive, onLost}) {
+    log("SV.startLockHeartbeat", "called");
+
+    let stopped = false;
+
+    const tick = async () => {
+
+        //const now = new Date().toLocaleTimeString();
+        //trace("SV.startLockHeartbeat.tick", `[PROBE] ${now} - Mode: ${G.driveLockState?.mode} - Gen: ${G.driveLockState?.generation || 0}`);
+
+        if (stopped || !G.driveLockState) return;
+
+        const activeState = G.driveLockState;
+
+        try {
+
+            const lockFile = await readLockFromDrive();
+
+            if (stopped || !G.driveLockState) return;
+
+            const diskLock = lockFile?.json;
+            const evalResult = evaluateEnvelopeLock(diskLock, self);
+
+            if (evalResult.status !== "owned") {
+                // If we were throttled, we might see 'expired' here.
+                // But our new evaluateEnvelopeLock above will return 'owned'
+                // if the deviceId still matches, so this block won't even trigger!
+                stopped = true;
+                onLost?.(evalResult);
+                return;
+            }
+
+            const currentGen = activeState.lock?.generation ?? 0;
+
+            // MERGE: never allow generation to move backwards
+            const mergedLock = {
+                ...diskLock,
+                generation: Math.max(diskLock?.generation ?? 0, currentGen)
+            };
+
+            const extended = extendLock(mergedLock, C.LOCK_TTL_MS);
+
+            if (extended.generation < G.driveLockState.lock.generation) {
+                throw new Error("Heartbeat attempted to regress generation");
+            }
+
+            await writeLockToDrive(extended, lockFile.fileId);
+
+            if (G.driveLockState) {
+                G.driveLockState.lock = extended;   // keep local state authoritative
+                //trace("SV.startLockHeartbeat.tick", `Heartbeat OK (gen=${extended.generation}, expires ${extended.expiresAt})`);
+                updateLockStatusUI();
+            }
+        } catch (err) {
+            const errorMessage = err instanceof Error ? err.stack : JSON.stringify(err, Object.getOwnPropertyNames(err));
+            error("SV.startLockHeartbeat.tick", "CRITICAL FAILURE:", errorMessage);
+
+            stopped = true;
+            onLost?.({ reason:"heartbeat-failed", error: err });
+        }
     };
 
-    onUpdate();
+    const timer = setInterval(tick, C.HEARTBEAT_INTERVAL);
 
-    log("SV.acquireDriveWriteLock", "completed");
-    return G.driveLockState;
+    return {
+        stop() {
+            stopped = true;
+            clearInterval(timer);
+            log("SV.heartbeat.stop", "Heartbeat stopped.");
+        },
+        isStopped() {
+            return stopped;
+        }
+    };
 }
 
 export async function readLockFromDrive() {
@@ -321,12 +367,41 @@ export async function ensureDevicePublicKey() {
 export function handleDriveLockLost(info) {
     warn("SV.handleDriveLockLost", "Reason:", info?.reason || "Timed out");
 
-    if (G.driveLockState?.heartbeat) {
+    const wasWriteMode = G.driveLockState?.mode === "write";
+
+    refreshVaultView(wasWriteMode);
+
+    if (G.driveLockState?.heartbeat?.stop) {
         G.driveLockState.heartbeat.stop();
     }
 
     G.driveLockState = null;
     updateLockStatusUI("Lock lost!");
+
+    showOverlayChoiceUI({
+        title: "Write lock lost",
+        message: `Exclusive lock over vault data has been lost. Vault set to read-only mode. 'Re-acquire' to save changes`,
+        okText: "Re-acquire",
+        cancelText: "Read-only",
+        onConfirm: async () => {
+            try {
+                log("UI.lockLost", "User requested re-acquisition...");
+                await acquireDriveWriteLock();
+
+                // Success! The heartbeat is back, UI stays in write mode.
+                showSilentToast("Lock re-acquired successfully, save your changes first");
+                refreshVaultView(false);
+            } catch (err) {
+                error("UI.lockLost", "Re-acquisition failed:", err.message);
+                showSilentToast("Failed to re-acquire lock, downgrading to read-only mode");
+                refreshVaultView(true);
+            }
+        },
+        onCancel: async () => {
+            showSilentToast("Continuing in read only mode");
+            refreshVaultView(true);
+        }
+    });
 }
 
 export async function writeLockToDrive(lockJson, existingFileId = null) {

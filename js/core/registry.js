@@ -314,8 +314,8 @@ export async function syncRegistryDeltas(forceFullScan = false) {
 
             if (forceFullScan || isModified) {
                 log("RG.syncRegistryDeltas", `Authoritative fetch: ${file.name}`);
-                const raw = await GD.readJsonByFileId(file.id);
-                const normalized = normalizePublicKey(raw);
+                const data = await GD.readJsonByFileId(file.id);
+                const normalized = normalizePublicKey(data.json);
 
                 // Attach sync metadata so we don't fetch it again next time
                 normalized.fileId = file.id;
@@ -340,8 +340,8 @@ export async function syncRegistryDeltas(forceFullScan = false) {
 
             if (forceFullScan || isModifiedRec) {
                 log("RG.syncRegistryDeltas", "Fetching updated Recovery Public Key");
-                const rawRec = await GD.readJsonByFileId(recFile.id);
-                const normalizedRec = normalizePublicKey(rawRec);
+                const dataRec = await GD.readJsonByFileId(recFile.id);
+                const normalizedRec = normalizePublicKey(dataRec.json);
 
                 normalizedRec.fileId = recFile.id;
                 normalizedRec.syncedAt = recFile.modifiedTime;

@@ -199,9 +199,7 @@ export async function readJsonByName(name, folderId = C.ACCESS4_ROOT_ID) {
     if (!file)
         return null;
 
-    const json = await readJsonByFileId(file.id);
-
-    return { fileId: file.id, json };
+    return await readJsonByFileId(file.id);
 }
 
 // registry.js, server.js
@@ -209,7 +207,8 @@ export async function readJsonByFileId(fileId) {
     const res = await _driveFetchRaw(
         _buildDriveUrl(`files/${fileId}`, { alt: "media" })
     );
-    return await res.json();
+    const json = await res.json();
+    return { fileId, json };
 }
 
 export async function readBinaryByFileId(fileId) {
@@ -434,8 +433,8 @@ export async function readJsonFilesFromFolder(parentId) {
 
     for (const file of files) {
         try {
-            const json = await readJsonByFileId(file.id);
-            results.push(json);
+            const data = await readJsonByFileId(file.id);
+            results.push(data.json);
         } catch (err) {
             error("readJsonFilesFromFolder", `Failed reading ${file.name}`);
         }

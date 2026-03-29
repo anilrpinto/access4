@@ -135,17 +135,34 @@ async function attemptSessionRestore() {
 async function ensureAuthorization() {
     log("AU.ensureAuthorization", `called - verifying against ${C.AUTH_FILE_NAME}`);
 
-    const existing = await GD.readJsonByName(C.AUTH_FILE_NAME);
+    // 1️⃣ Try to get the ID from cache first
+    let fileId = localStorage.getItem('cache_auth_file_id');
+    let existing;
+
+    if (fileId) {
+        // FAST PATH: Direct ID lookup (No search/cold start)
+        existing = await GD.readJsonByFileId(fileId).catch(() => null);
+    }
+
+    // 2️⃣ Fallback to Name search only if ID is missing or dead
+    if (!existing) {
+        warn("AU.ensureAuthorization", "Cache miss or file moved. Falling back to Name search...");
+        existing = await GD.readJsonByName(C.AUTH_FILE_NAME);
+
+        if (existing?.fileId) {
+            localStorage.setItem('cache_auth_file_id', existing.fileId);
+        }
+    }
 
     let data;
-
-    if (existing)
+    if (existing) {
         data = existing.json;
-    else {
-        log("AU.ensureAuthorization", `${C.AUTH_FILE_NAME} not found, creating genesis authorization...`);
-
+    } else {
+        log("AU.ensureAuthorization", "Creating genesis authorization...");
         data = { admins: [G.userEmail], members: [G.userEmail, ...G.settings.preAuthMembers], created: new Date().toISOString(), version: 1 };
-        await GD.upsertJsonFile({ name: C.AUTH_FILE_NAME, parentId: C.ACCESS4_ROOT_ID, json: data });
+        const fileId = await GD.upsertJsonFile({ name: C.AUTH_FILE_NAME, parentId: C.ACCESS4_ROOT_ID, json: data });
+
+        if (fileId) localStorage.setItem('cache_auth_file_id', result.fileId);
 
         log("AU.ensureAuthorization", `Genesis authorization created for ${G.userEmail}`);
     }
@@ -160,7 +177,7 @@ async function ensureAuthorization() {
         trace("AU.ensureAuthorization", `G.auth: ${JSON.stringify(G.auth)}`);
 
     if (!G.auth.admins.includes(G.userEmail) && !G.auth.members.includes(G.userEmail))
-        throw new Error("Unauthorized user");
+    throw new Error("Unauthorized user");
 
     log("AU.ensureAuthorization", "Signed in user is authorized to proceed, admin:", isAdmin());
 }

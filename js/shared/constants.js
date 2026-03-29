@@ -25,8 +25,8 @@ export const C = deepFreeze({
     MAX_BACKUP_MANIFEST_ENTRIES: 10,
 
     HEARTBEAT_INTERVAL: 10_000, // 10 seconds
-    LOCK_TTL_MS: 60_000,        // must be > heartbeat
-    IDLE_TIMEOUT_MS: 300000,    // 5 mins
+    LOCK_TTL_MS: 30_000,        // 30 secconds (must be > heartbeat)
+    IDLE_TIMEOUT_MS: 900000,    // 15 mins
 
     BIO_DB_NAME: "bio_db",
     BIO_STORE: "pwk_store",
