@@ -349,10 +349,10 @@ export async function writeLockToDrive(lockJson, existingFileId = null) {
 export async function wrapCEKForRegistryKeys(envelope = null, forceWrite = false) {
 
     log("SV.wrapCEKForRegistryKeys", "called");
-    log("SV.wrapCEKForRegistryKeys", `G.unlockedIdentity: ${!!G.unlockedIdentity}, G.currentPrivateKey: ${!!G.currentPrivateKey}`);
+    log("SV.wrapCEKForRegistryKeys", `G.unlockedIdentity: ${!!G.unlockedIdentity}, G.currentPrivateKey: ${!!G.currentPrivateKey}, G.recoverySession: ${G.recoverySession}`);
 
     // HARD GUARD — must have private key loaded
-    if (!G.currentPrivateKey) {
+    if (!G.currentPrivateKey && !(G.recoverySession && G.recoveryCEK)) {
         throw new Error("wrapCEKForRegistryKeys called without private key loaded");
     }
 
@@ -434,7 +434,7 @@ export async function wrapCEKForRegistryKeys(envelope = null, forceWrite = false
     if (G.recoverySession === true && G.recoveryCEK) {
         log("SV.wrapCEKForRegistryKeys", "Using recovery CEK (recovery mode)");
         cek = G.recoveryCEK;
-        G.recoveryCEK = null;   // null it immediately as it's role is done
+        //G.recoveryCEK = null;   // null it immediately as it's role is done
     } else {
         const currentDeviceKeyEntry = await EN.selectDecryptableKey(envelope);
 
@@ -487,7 +487,6 @@ export async function wrapCEKForRegistryKeys(envelope = null, forceWrite = false
 
     return envelope;
 }
-
 
 export async function encryptAndPersistPlaintext(plainText, options = {}) {
     log("SV.encryptAndPersistPlaintext", "called");

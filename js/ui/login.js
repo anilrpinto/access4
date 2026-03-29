@@ -443,11 +443,6 @@ export async function proceedAfterPasswordSuccess(pwd = null) {
     // 3️⃣ NOW start the background lock (Now that driveLockState exists!)
     G.lockAcquisitionPromise = SV.tryAcquireEnvelopeWriteLock();
 
-    if (G.recoverySession) {
-        G.recoverySession = false;
-        G.recoveryCEK = null;
-    }
-
     let vaultData;
     // 6️⃣ Load vault payload
     await EN.loadEnvelopePayloadToUI(envelope, async data => vaultData = await JSON.parse(data));

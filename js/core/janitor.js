@@ -72,10 +72,10 @@ export async function runGarbageCollection(vaultData) {
  */
 export async function runVaultAccessHousekeeping(envelope = null) {
 
-    if (!AU.isAdmin())
+    if (!AU.isAdmin() && !G.recoverySession)
         return;
 
-    info("janitor.runVaultAccessHousekeeping", "Background maintenance started");
+    info("janitor.runVaultAccessHousekeeping", "Vault access housekeeping started", G.recoverySession? "for recovery run (non admin included)" : "");
 
     try {
 
@@ -107,6 +107,15 @@ export async function runVaultAccessHousekeeping(envelope = null) {
             if (freshEnvelope) {
                 // This now reconciles the fresh envelope against the full Registry scan
                 await SV.wrapCEKForRegistryKeys(freshEnvelope);
+
+                // Only clear recovery once we have successfully written the
+                // new device's wrapped key into the envelope on Drive.
+                if (G.recoverySession) {
+                    log("janitor.housekeeping", "Recovery maintenance complete. Wiping session CEK.");
+                    G.recoverySession = false;
+                    G.recoveryCEK = null;
+                }
+
                 log("janitor.runVaultAccessHousekeeping", "Vault access fully synchronized with Drive truth.");
             }
 

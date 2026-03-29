@@ -24,7 +24,7 @@ async function loadRecoveryPrivateBlob() {
     const result = await GD.readJsonByName(C.RECOVERY_KEY_PRIVATE_FILE, recoveryFolderId);
 
     if (!result)
-    throw new Error(`${C.RECOVERY_KEY_PRIVATE_FILE} not found`);
+        throw new Error(`${C.RECOVERY_KEY_PRIVATE_FILE} not found`);
 
     return result.json;
 }
@@ -60,17 +60,17 @@ async function decryptRecoveryPassword(pwd) {
  * EXPORTED FUNCTIONS
  */
 
-// Referenced in loader.js AND internally by loadRecoveryPrivateBlob and [hasRecoveryKeyOnDrive]
+// Referenced in login.js AND internally by loadRecoveryPrivateBlob and [hasRecoveryKeyOnDrive]
 export async function ensureRecoveryFolder() {
     return GD.findOrCreateFolder(C.RECOVERY_FOLDER_NAME, C.ACCESS4_ROOT_ID);
 }
 
-// Only referenced by loader.js
+// Only referenced by login.js
 export async function verifyRecoveryPassword(pwd) {
     return !!(await decryptRecoveryPassword(pwd));
 }
 
-// Only referenced by loader.js
+// Only referenced by login.js
 export async function handleRecovery(pwd, onCEKSuccessCb) {
 
     log("R.handleRecovery", "called");
@@ -109,7 +109,7 @@ export async function handleRecovery(pwd, onCEKSuccessCb) {
         await onCEKSuccessCb();
 }
 
-// Only referenced by loader.js
+// Only referenced by login.js
 export async function hasRecoveryKeyOnDrive() {
     log("R.hasRecoveryKeyOnDrive", "called");
 

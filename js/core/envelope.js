@@ -44,10 +44,17 @@ async function openEnvelope(envelope) {
 
     validateEnvelope(envelope);
 
-    const entry = await selectDecryptableKey(envelope);
-    log("EN.openEnvelope", `Using keyId: ${entry.keyId}`);
+    let cek = null;
 
-    const cek = await SV.unwrapContentKey(entry.wrappedKey, entry.keyId);
+    // ✅ Use the recovery CEK if it's there, otherwise do the standard unwrap
+    if (G.recoverySession && G.recoveryCEK) {
+        cek = G.recoveryCEK;
+    } else {
+        const entry = await selectDecryptableKey(envelope);
+        log("EN.openEnvelope", `Using keyId: ${entry.keyId}`);
+        cek = await SV.unwrapContentKey(entry.wrappedKey, entry.keyId);
+    }
+
     const decrypted = await CR.decrypt(envelope.payload, cek);
 
     return new TextDecoder().decode(decrypted);
@@ -220,7 +227,8 @@ export async function checkEnvelopeAuthorization(envelope) {
             throw new Error("No decryptable key entry found");
         }
 
-        // CRITICAL: actually try to unwrap CEK
+        // CRITICAL: verify the device can actually unwrap the CEK
+        // This ensures the local private key matches what's in the envelope
         const cek = await SV.unwrapContentKey(entry.wrappedKey, entry.keyId);
 
         if (!cek) {
