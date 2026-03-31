@@ -9,6 +9,31 @@ import { copyToClipboard } from '@/ui/uihelper.js';
 
 export let logEl = rootUI.log;
 
+const IdleManager = {
+    timer: null,
+    lastReset: 0,
+    boundHandler: null,
+    threshold: 5000,
+    events: ['mousedown', 'mousemove', 'keydown', 'keypress', 'click', 'scroll', 'touchstart']
+};
+
+const resetTimer = (force = false) => {
+    const now = Date.now();
+
+    if (!force && (now - IdleManager.lastReset < IdleManager.threshold)) {
+        return;
+    }
+
+    log("APP.resetTimer", "Refreshing idle timeout");
+    IdleManager.lastReset = now;
+
+    clearTimeout(IdleManager.timer);
+
+    IdleManager.timer = setTimeout(async () => {
+        logout("Auto logout");
+    }, C.IDLE_TIMEOUT_MS);
+};
+
 function onLoad() {
 
     //setLogLevel(INFO);
@@ -24,6 +49,19 @@ function onLoad() {
             SV.tryAcquireEnvelopeWriteLock(); // This uses the new "Proactive" logic from earlier
         }
     });
+}
+
+function deactivateAutoLogout() {
+    log("vaultUI.deactivateAutoLogout", "called");
+
+    IdleManager.events.forEach(evt => {
+        document.removeEventListener(evt, IdleManager.boundHandler);
+    });
+
+    clearTimeout(IdleManager.timer);
+    IdleManager.callback = null;
+    IdleManager.boundHandler = null;
+    IdleManager.lastReset = 0;
 }
 
 function doCopyToClipboardClick() {
@@ -68,8 +106,24 @@ window.onload = async () => {
 /**
  * EXPORTED FUNCTIONS
  */
-export async function logout() {
-    log("APP.logout", "Initiating logout...");
+export function activateAutoLogout() {
+    log("APP.activateAutoLogout", "called");
+
+    // 1. Create a clean wrapper that doesn't pass the Event object
+    IdleManager.boundHandler = () => resetTimer(false);
+
+    // Events that "wake up" the timer
+    // Clean up old listeners to prevent memory leaks/duplicate triggers
+    IdleManager.events.forEach(evt => {
+        document.removeEventListener(evt, IdleManager.boundHandler);
+        document.addEventListener(evt, IdleManager.boundHandler, { passive: true });
+    });
+
+    resetTimer(true);
+}
+
+export async function logout(reason = "User initiated") {
+    log("APP.logout", "Initiating logout... reason:", reason);
 
     // 1️⃣ Wait for the lock to be released properly
     await releaseDriveLock();
@@ -77,6 +131,8 @@ export async function logout() {
     // 2️⃣ Clear the rest of the app state
     clearGlobals();
     sessionStorage.removeItem("sv_session_private_key");
+
+    deactivateAutoLogout();
 
     // 3️⃣ Redirect to login
     loadLogin();

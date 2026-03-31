@@ -4,7 +4,7 @@ import { runVaultAccessHousekeeping } from '@/core/janitor.js';
 
 import { rootUI, loginUI, vaultUI } from '@/ui/loader.js';
 import { openRecoveryModal } from '@/ui/restore-backup.js';
-import { loadVault, refreshVaultView, stopVaultIdleCheck } from '@/ui/vault.js';
+import { loadVault, refreshVaultView } from '@/ui/vault.js';
 
 function init() {
     log("loginUI.init", "called");
@@ -397,7 +397,7 @@ export async function loadLogin() {
     init();
 
     updateBiometricIndicator();
-    stopVaultIdleCheck();
+    //stopVaultIdleCheck();
     setupTitleGesture();
 
     loginUI.signinBtn.onClick(() => AU.initGIS());

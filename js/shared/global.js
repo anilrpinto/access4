@@ -63,3 +63,15 @@ export function clearGlobals() {
 export function inReadOnlyMode() {
     return G.driveLockState?.mode !== "write";
 }
+
+export function isRecoveryAuthorizedSession() {
+    return (G.recoverySession === true && G.recoveryCEK);
+}
+
+export function isAuthorizedSession() {
+    return G.currentPrivateKey || isRecoveryAuthorizedSession();
+}
+
+export function isActiveSession(id) {
+    return G.sessionUnlocked === true && id._sessionPrivateKey === G.currentPrivateKey && G.unlockedIdentity === id;
+}

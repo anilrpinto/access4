@@ -1,6 +1,6 @@
 import { C, G, inReadOnlyMode, AU, SV, AT, U, log, trace, debug, info, warn, error } from '@/shared/exports.js';
 
-import { logout } from '@/app.js';
+import { activateAutoLogout, logout } from '@/app.js';
 import { runAdminBackup } from '@/core/backup.js';
 import { runGarbageCollection, runVaultAccessHousekeeping } from '@/core/janitor.js';
 
@@ -11,23 +11,6 @@ import { showRecoveryRotationUI, hideRecoveryRotation } from '@/ui/recovery-rota
 import { showUsersUI } from '@/ui/users.js';
 import { showAddNewUI, showRenameUI, showDeleteUI, hideAddRenDel } from '@/ui/add-rename-delete.js';
 import { generateFilterMap, hideFilterUI } from '@/ui/filter.js';
-
-let idleTimer;
-let idleCallback = null;
-
-const idleEvents = ['mousedown', 'mousemove', 'keydown', 'keypress', 'click', 'scroll', 'touchstart'];
-
-const resetTimer = () => {
-    clearTimeout(idleTimer);
-
-    if (!idleCallback) return;
-
-    idleTimer = setTimeout(async () => {
-        if (typeof idleCallback === 'function') {
-            await idleCallback('idle.timeout');
-        }
-    }, C.IDLE_TIMEOUT_MS);
-};
 
 let originalVaultData = null;
 let vaultData = null;
@@ -290,7 +273,6 @@ async function doPasteClick() {
 }
 
 function doLogout() {
-
     log("vaultUI.doLogout", "called");
 
     showStatusMessage("");
@@ -324,8 +306,7 @@ function doSecure() {
     swapVisibility(vaultUI.mainSection, rootUI.loginView);
 }
 
-async function showVaultUI({ readOnly = false, onIdle = () => { doLogout() } } = {}) {
-
+async function showVaultUI({ readOnly = false } = {}) {
     log("vaultUI.showVaultUI", "called");
 
     if (readOnly) {
@@ -334,16 +315,7 @@ async function showVaultUI({ readOnly = false, onIdle = () => { doLogout() } } =
 
     swapVisibility(rootUI.loginView, rootUI.vaultView);
     refreshVaultView(readOnly);
-
-    // Events that "wake up" the timer
-    // Clean up old listeners to prevent memory leaks/duplicate triggers
-    idleEvents.forEach(evt => {
-        document.removeEventListener(evt, resetTimer);
-        document.addEventListener(evt, resetTimer, { passive: true });
-    });
-
-    idleCallback = onIdle;
-    resetTimer();
+    activateAutoLogout();
 }
 
 function doToggleSecureClick() {
@@ -1355,6 +1327,7 @@ function applyReadOnlyTheme(readOnly) {
  * EXPORTED FUNCTIONS
  */
 export async function loadVault(pwd, data, options) {
+    log("vaultUI.loadVault", "called options:", JSON.stringify(options));
 
     init();
 
@@ -1444,17 +1417,6 @@ export function refreshCleanupPill() {
     } else if (pill) {
         pill.remove();
     }
-}
-
-export function stopVaultIdleCheck() {
-    log("vaultUI.stopVaultIdleCheck", "called");
-
-    idleEvents.forEach(evt => {
-        document.removeEventListener(evt, resetTimer);
-    });
-
-    clearTimeout(idleTimer);
-    idleCallback = null;
 }
 
 export function updateLockStatusUI(msg = "") {
