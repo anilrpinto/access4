@@ -107,30 +107,31 @@
         </div>
 
         <div id="vault_headerRightSide" class="header-side-right">
-            <button id="vault_addBtn" class="icon-button" title="Add">➕</button>
-            <button id="vault_renameBtn" class="icon-button" title="Rename">✏️</button>
-            <button id="vault_deleteBtn" class="icon-button danger-text" title="Delete">🗑️</button>
+            <button id="vaultMenuBar_addBtn" class="icon-button" title="Add">➕</button>
+            <button id="vaultMenuBar_renameBtn" class="icon-button" title="Rename">✏️</button>
+            <button id="vaultMenuBar_deleteBtn" class="icon-button danger-text" title="Delete">🗑️</button>
 
             <div class="menu-container">
-                <button id="vault_menuBtn" class="icon-button" aria-label="Options">⋮</button>
-                <div id="vault_menuDropdown" class="menuDropdown-content">
-                    <button id="vault_saveMenu">Save</button>
-                    <button id="vault_discardChangesMenu">Discard changes</button>
-                    <button id="vault_toggleEditMenu">Toggle Edit</button>
+                <button id="vaultMenu_menuBtn" class="icon-button" aria-label="Options">⋮</button>
+                <div id="vaultMenu_menuDropdown" class="menuDropdown-content">
+                    <button id="vaultMenu_saveMenu">Save</button>
+                    <button id="vaultMenu_discardChangesMenu">Discard changes</button>
+                    <button id="vaultMenu_toggleEditMenu">Toggle Edit</button>
                     <hr>
-                    <button id="vault_rawDataMenu">Raw data</button>
-                    <button id="vault_copyLogsMenu">Copy logs</button>
-                    <button id="vault_toggleLogsMenu" style="display: none;">Toggle logs</button>
+                    <button id="vaultMenu_rawDataMenu">Raw data</button>
+                    <button id="vaultMenu_copyLogsMenu">Copy logs</button>
+                    <button id="vaultMenu_toggleLogsMenu" style="display: none;">Toggle logs</button>
                     <hr>
-                    <button id="vault_syncAccessMenu">Sync Access</button>
-                    <button id="vault_runBackupMenu">Run Backup</button>
-                    <button id="vault_recoveryRotationMenu">Recovery Rotation</button>
+                    <button id="vaultMenu_usersMenu">Users</button>
+                    <button id="vaultMenu_syncAccessMenu">Sync Access</button>
+                    <button id="vaultMenu_runBackupMenu">Run Backup</button>
+                    <button id="vaultMenu_recoveryRotationMenu">Recovery Rotation</button>
                     <hr>
-                    <button id="vault_selectMenu">Select</button>
-                    <button id="vault_cutMenu" style="display:none;">Cut</button>
-                    <button id="vault_pasteMenu" style="display:none;">Paste</button>
+                    <button id="vaultMenu_selectMenu">Select</button>
+                    <button id="vaultMenu_cutMenu" style="display:none;">Cut</button>
+                    <button id="vaultMenu_pasteMenu" style="display:none;">Paste</button>
                     <hr>
-                    <button id="vault_logoutMenu" class="danger-text">Logout</button>
+                    <button id="vaultMenu_logoutMenu" class="danger-text">Logout</button>
                 </div>
             </div>
         </div>
@@ -210,6 +211,59 @@
             </div>
             <div id="vaultRecoveryKey_statusMsg" class="unlock-message"></div>
         </div>
+
+        <div id="vaultUsers_mainSection" class="inline-ui-view" style="display: none;">
+            <div class="inline-view-header">
+                <h3 id="vaultUsers_title">Member Administration</h3>
+                <button id="vaultUsers_closeBtn" class="close-x-btn" title="Close">✕</button>
+            </div>
+
+            <div class="input-group">
+                <label>Select Member</label>
+                <select id="vaultUsers_userSelect">
+                    <option value="">-- Choose a member --</option>
+                </select>
+            </div>
+
+            <div id="vaultUsers_formFields" style="display: none; margin-top: 20px;">
+                <div class="input-group">
+                    <label>Role</label>
+                    <select id="vaultUsers_roleSelect">
+                        <option value="member">Member</option>
+                        <option value="admin">Admin</option>
+                    </select>
+                </div>
+                <div class="checkbox-group">
+                    <label class="checkbox-container">
+                        Read Only Access
+                        <input type="checkbox" id="vaultUsers_readonlyCheck">
+                    </label>
+                </div>
+                <div class="checkbox-group">
+                    <label class="checkbox-container">
+                        Allow Attachments
+                        <input type="checkbox" id="vaultUsers_attachmentsCheck">
+                    </label>
+                </div>
+                <div class="checkbox-group">
+                    <label class="checkbox-container">
+                        Force Password Change
+                        <input type="checkbox" id="vaultUsers_forcePwdCheck">
+                    </label>
+                </div>
+                <div class="button-group-admin" style="margin-top: 30px; padding-top: 15px; border-top: 1px solid #eee;">
+
+                    <button id="vaultUsers_removeBtn" class="danger-btn">Revoke Access</button>
+
+                    <div class="action-group-right">
+                        <button id="vaultUsers_cancelBtn" class="secondary-btn">Cancel</button>
+                        <button id="vaultUsers_saveBtn">Save</button>
+                    </div>
+                </div>
+            </div>
+            <div id="vaultUsers_statusMsg" class="unlock-message"></div>
+        </div>
+
     </main>
 </div>
 <pre id="log" style="display: none;"></pre>

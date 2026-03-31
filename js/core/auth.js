@@ -159,25 +159,32 @@ async function ensureAuthorization() {
         data = existing.json;
     } else {
         log("AU.ensureAuthorization", "Creating genesis authorization...");
-        data = { admins: [G.userEmail], members: [G.userEmail, ...G.settings.preAuthMembers], created: new Date().toISOString(), version: 1 };
+
+        const preAuth = G.settings.preAuthMembers || {};
+
+        data = {
+            version: 1,
+            created: new Date().toISOString(),
+            members: {
+                [G.userEmail]: { role: "genesis", readonly: false, allowAttachments: true, forcePasswordChange: false },
+                ...preAuth
+            }
+        };
+
         const fileId = await GD.upsertJsonFile({ name: C.AUTH_FILE_NAME, parentId: C.ACCESS4_ROOT_ID, json: data });
 
-        if (fileId) localStorage.setItem('cache_auth_file_id', result.fileId);
+        if (fileId) localStorage.setItem('cache_auth_file_id', fileId);
 
         log("AU.ensureAuthorization", `Genesis authorization created for ${G.userEmail}`);
     }
 
-    // Cache authorization structure for use in the app
-    G.auth = {
-        admins: data.admins || [],
-        members: data.members || []
-    };
+    G.auth = data;
 
     if (isTraceEnabled())
         trace("AU.ensureAuthorization", `G.auth: ${JSON.stringify(G.auth)}`);
 
-    if (!G.auth.admins.includes(G.userEmail) && !G.auth.members.includes(G.userEmail))
-    throw new Error("Unauthorized user");
+    if (!isMember())
+        throw new Error("Unauthorized user");
 
     log("AU.ensureAuthorization", "Signed in user is authorized to proceed, admin:", isAdmin());
 }
@@ -204,12 +211,37 @@ export function initGIS() {
     }
 }
 
+export function isGenesisUser() {
+    const user = G.auth?.members?.[G.userEmail];
+    return user?.role === "genesis";
+}
+
 export function isAdmin() {
-    return G.auth?.admins?.includes(G.userEmail);
+    const user = G.auth?.members?.[G.userEmail];
+    const role = user?.role;
+    // Usually, Genesis has all Admin powers + more
+    return role === "admin" || role === "genesis";
 }
 
 export function isMember() {
-    return G.auth?.members?.includes(G.userEmail);
+    return !!G.auth?.members?.[G.userEmail];
+}
+
+export function canWrite() {
+    const user = G.auth?.members?.[G.userEmail];
+    // If the user isn't in the list, or 'readonly' is explicitly true, return false.
+    // If 'readonly' is missing, we assume they are NOT allowed to write (Safe Default).
+    return user?.role === "genesis" || user?.readonly === false;
+}
+
+export function attachmentsAllowed() {
+    const user = G.auth?.members?.[G.userEmail];
+    return user?.role === "genesis" || user?.allowAttachments === true;
+}
+
+export function needsPasswordChange() {
+    const user = G.auth?.members?.[G.userEmail];
+    return user?.forcePasswordChange === true;
 }
 
 export function requireAdmin() {

@@ -59,6 +59,11 @@ export function evaluateEnvelopeLock(lock, self) {
 export async function tryAcquireEnvelopeWriteLock(options = {}) {
     log("SV.tryAcquireEnvelopeWriteLock", "called");
 
+    if (!G.currentPrivateKey && !G.recoveryCEK) {
+        warn("SV.tryAcquireEnvelopeWriteLock", "Blocking lock attempt: No decrypted key available for this session.");
+        return false;
+    }
+
     // 1️⃣ Check for an existing, healthy write lock
     // Added check: is the heartbeat actually still running?
     if (G.driveLockState?.mode === "write" && !G.driveLockState.heartbeat?.isStopped?.()) {

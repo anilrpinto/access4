@@ -1,15 +1,15 @@
 import { log, trace, debug, info, warn, error } from '@/shared/exports.js';
 
-import { vaultUI, vaultAddNewUI } from '@/ui/loader.js';
+import { vaultMenuBar, vaultAddNewUI } from '@/ui/loader.js';
 import { showConfirmUI, hideConfirmUI } from '@/ui/confirm.js';
 
 // Function to handle the Add Button click in the header
 export function showAddNewUI(depth, toParentId, vaultData, {onAdd = () => {},  onCancel = () => {}} = {}) {
     log("vaultAddRenDel.showAddNewUI", "called - depth:", depth);
 
-    vaultUI.addBtn.setVisible(false);
-    vaultUI.renameBtn.setVisible(false);
-    vaultUI.deleteBtn.setVisible(false);
+    vaultMenuBar.addBtn.setVisible(false);
+    vaultMenuBar.renameBtn.setVisible(false);
+    vaultMenuBar.deleteBtn.setVisible(false);
 
     const title = vaultAddNewUI.title;
     const input = vaultAddNewUI.input;
@@ -60,9 +60,9 @@ export function showAddNewUI(depth, toParentId, vaultData, {onAdd = () => {},  o
 export function showRenameUI(depth, vaultData, path, {onRename = () => {}, onCancel = () => {}} = {}) {
     log("vaultAddRenDel.showRenameUI", "called - depth:", depth);
 
-    vaultUI.addBtn.setVisible(false);
-    vaultUI.renameBtn.setVisible(false);
-    vaultUI.deleteBtn.setVisible(false);
+    vaultMenuBar.addBtn.setVisible(false);
+    vaultMenuBar.renameBtn.setVisible(false);
+    vaultMenuBar.deleteBtn.setVisible(false);
 
     const title = vaultAddNewUI.title;
     const input = vaultAddNewUI.input;
@@ -112,9 +112,9 @@ export function showRenameUI(depth, vaultData, path, {onRename = () => {}, onCan
 export function showDeleteUI(depth, groupId, itemId, vaultData, {onConfirm = () => {}, onCancel = () => {}} = {}) {
     log("vaultAddRenDel.showDeleteUI", "transitioned to showConfirmUI - depth:", depth);
 
-    vaultUI.addBtn.setVisible(false);
-    vaultUI.renameBtn.setVisible(false);
-    vaultUI.deleteBtn.setVisible(false);
+    vaultMenuBar.addBtn.setVisible(false);
+    vaultMenuBar.renameBtn.setVisible(false);
+    vaultMenuBar.deleteBtn.setVisible(false);
 
     const group = vaultData.groups.find(g => g.id === groupId);
     const groupName = group ? group.name : "this group";

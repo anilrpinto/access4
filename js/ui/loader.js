@@ -8,10 +8,7 @@ export const loginUI = loadUI(['title', 'signinBtn', 'signinStatus', 'welcomeSpa
     'authMsg', 'pwdSection', 'confirmPwdSection', 'pwdInput', 'confirmPwdInput',
     'unlockBtn', 'recoverBtn', 'recoveryLnk', 'statusMsg', 'restoreBackupLnk'], 'login_', 'loginView');
 
-export const vaultUI = loadUI(['title', 'toggleSecureBtn', 'mainSection', 'headerRightSide', 'addBtn', 'renameBtn',
-    'deleteBtn', 'menuBtn', 'menuDropdown', 'saveMenu', 'toggleEditMenu', 'rawDataMenu',
-    'discardChangesMenu', 'copyLogsMenu', 'toggleLogsMenu', 'syncAccessMenu', 'runBackupMenu', 'recoveryRotationMenu',
-    'selectMenu', 'cutMenu', 'pasteMenu', 'logoutMenu', 'explorer', 'statusMsg'], 'vault_', 'vaultView');
+export const vaultUI = loadUI(['title', 'toggleSecureBtn', 'mainSection', 'headerRightSide', 'explorer', 'statusMsg'], 'vault_', 'vaultView');
 
 export const vaultRawDataUI = loadUI(['mainSection', 'content', 'closeBtn'], 'vaultRawData_', 'vaultView');
 
@@ -26,6 +23,16 @@ export const backupRestoreUI = loadUI(['title' , 'closeBtn', 'inputSection', 'en
     'restoreBackup_', 'restoreBackup_mainSection');
 
 export const vaultNavBarUI = loadUI(['mainSection', 'breadcrumbs', 'filterSection', 'filterInput', 'filterToggle'], 'vaultNavBar_', 'vault_mainSection');
+
+export const vaultUsersUI = loadUI(['mainSection', 'title', 'closeBtn', 'userSelect', 'formFields', 'roleSelect', 'readonlyCheck',
+        'attachmentsCheck', 'forcePwdCheck', 'cancelBtn', 'saveBtn', 'removeBtn'], 'vaultUsers_', 'vaultBody');
+//vaultUsersUI.formFields.setFlex();
+
+export const vaultMenuBar = loadUI(['addBtn', 'renameBtn', 'deleteBtn'], 'vaultMenuBar_', 'vault_headerRightSide');
+
+export const vaultMenu = loadUI(['menuBtn', 'menuDropdown', 'saveMenu', 'toggleEditMenu', 'rawDataMenu',
+    'discardChangesMenu', 'copyLogsMenu', 'toggleLogsMenu', 'usersMenu', 'syncAccessMenu', 'runBackupMenu', 'recoveryRotationMenu',
+    'selectMenu', 'cutMenu', 'pasteMenu', 'logoutMenu'], 'vaultMenu_', 'vault_headerRightSide');
 
 export async function copyLogsToClipboard() {
     if (!logEl) return;

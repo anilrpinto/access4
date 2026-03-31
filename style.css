@@ -1341,3 +1341,162 @@ body.vault-frozen .list-row:active {
     opacity: 0.6;
     pointer-events: none; /* Prevent double-clicks */
 }
+
+/** Users Menu **/
+
+/* Base structural class (Shared by Confirm modals and Admin screens) */
+.inline-ui-view {
+    width: 100%;
+}
+
+/* SPECIFIC STYLING FOR EMBEDDED CARDS
+   Targeting by ID ensures vaultConfirm (Lock Lost) stays transparent
+*/
+#vaultUsers_mainSection,
+#restoreBackup_mainSection {
+    background: #ffffff;
+    border: 1px solid #e0e0e0;
+    border-radius: 12px;
+    padding: 20px;
+    margin-top: 10px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}
+
+#vaultUsers_formFields {
+    display: flex;
+    flex-direction: column; /* This prevents the horizontal squishing */
+    width: 100%;
+}
+
+/* Header inside the Admin/Restore cards */
+.inline-view-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+    border-bottom: 1px solid #eee;
+    padding-bottom: 10px;
+}
+
+/* Ensure the H3 looks consistent but loses its old border if inside a header */
+.inline-ui-view h3,
+.inline-view-header h3 {
+    font-size: 1.1rem;
+    font-weight: 700;
+    margin: 0 !important;
+    padding-bottom: 0 !important;
+    border-bottom: none !important;
+    color: var(--header-bg);
+}
+
+/* --- MOBILE CHECKBOX ALIGNMENT --- */
+.checkbox-group {
+    width: 100%;
+    margin-bottom: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid #f9f9f9;
+}
+
+.checkbox-container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    font-size: 0.95rem;
+    font-weight: 500;
+    color: #444;
+    cursor: pointer;
+}
+
+.checkbox-container input[type="checkbox"] {
+    width: 20px;
+    height: 20px;
+    margin: 0;
+    accent-color: var(--primary-color);
+}
+
+/* Reset for the select dropdown */
+select#vaultUsers_userSelect,
+select#vaultUsers_roleSelect {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    background-color: white;
+    font-size: 1rem;
+    margin-bottom: 15px;
+    appearance: none;
+    background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    background-size: 1em;
+}
+
+/* The "X" Button */
+.close-x-btn {
+    background: #f0f2f5 !important;
+    color: #666 !important;
+    border-radius: 50% !important;
+    width: 32px !important;
+    height: 32px !important;
+    min-width: 32px !important;
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px !important;
+    font-weight: bold !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+    cursor: pointer;
+}
+
+.close-x-btn:hover {
+    background: #e0e4e8 !important;
+    color: #000 !important;
+}
+
+.close-x-btn:active {
+    transform: scale(0.9);
+}
+
+/* --- ADMIN BUTTON ALIGNMENT --- */
+.button-group-admin {
+    display: flex;
+    justify-content: space-between; /* Pushes the left and right groups apart */
+    align-items: center;
+    width: 100%;
+}
+
+.action-group-right {
+    display: flex;
+    gap: 10px; /* Space between Cancel and Save */
+    margin-left: auto;
+}
+
+/* Ensure the solid buttons match your size */
+.button-group-admin button {
+    flex: 0; /* Let them be their own size, don't fill 100% */
+    padding: 10px 18px !important; /* Touch-friendly and clean */
+    margin: 0 !important;
+    white-space: nowrap; /* Prevents text wrap on small screens */
+}
+
+/* Specific Style for the Destructive Action (SOFT DANGER RED) */
+button.danger-btn {
+    background-color: #ffebee !important; /* Soft Red background */
+    color: #c62828 !important;          /* Strong Red text */
+    border: 1px solid #f5c6cb !important;
+    font-weight: 600;
+}
+
+button.danger-btn:hover {
+    background-color: #f8d7da !important; /* Subtle hover effect */
+}
+
+button.danger-btn:active {
+    background-color: #f1b0b7 !important; /* Active tap state */
+    transform: scale(0.98);
+}

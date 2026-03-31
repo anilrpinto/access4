@@ -4,10 +4,11 @@ import { logout } from '@/app.js';
 import { runAdminBackup } from '@/core/backup.js';
 import { runGarbageCollection, runVaultAccessHousekeeping } from '@/core/janitor.js';
 
-import { loadUI, swapVisibility, showSilentToast } from '@/ui/uihelper.js';
-import { rootUI, vaultUI, vaultNavBarUI, vaultRawDataUI, copyLogsToClipboard } from '@/ui/loader.js';
+import { swapVisibility, showSilentToast } from '@/ui/uihelper.js';
+import { rootUI, vaultUI, vaultNavBarUI, vaultRawDataUI, copyLogsToClipboard, vaultMenuBar, vaultMenu } from '@/ui/loader.js';
 import { showConfirmUI, showOverlayConfirmUI, showOverlayAlertUI, showOverlayPasswordUI } from '@/ui/confirm.js';
 import { showRecoveryRotationUI, hideRecoveryRotation } from '@/ui/recovery-rotation.js';
+import { showUsersUI } from '@/ui/users.js';
 import { showAddNewUI, showRenameUI, showDeleteUI, hideAddRenDel } from '@/ui/add-rename-delete.js';
 import { generateFilterMap, hideFilterUI } from '@/ui/filter.js';
 
@@ -65,55 +66,55 @@ async function init() {
     hideRecoveryRotation();
     hideAddRenDel();
 
-    vaultUI.menuBtn.onClick((e) => {
+    vaultMenu.menuBtn.onClick((e) => {
         // 1. Prevent the 'window' or 'body' from seeing this click
         e.stopPropagation();
 
-        const menu = vaultUI.menuDropdown;
+        const menu = vaultMenu.menuDropdown;
         const isVisible = menu.classList.contains('show-menu');
 
-        console.log(`[Menu Debug] Clicked. Currently visible: ${isVisible}`);
+        //log(`[Menu Debug] Clicked. Currently visible: ${isVisible}`);
 
         // 2. Toggle the class
         menu.classList.toggle('show-menu');
 
         // 3. Final check
-        console.log(`[Menu Debug] New classList:`, menu.classList.value);
+        //log(`[Menu Debug] New classList:`, menu.classList.value);
     });
 
     // Add this to your global window listener to see what's CLOSING it
     window.addEventListener('click', (e) => {
-        if (vaultUI.menuDropdown.classList.contains('show-menu')) {
-            console.log(`[Menu Debug] Window click detected on:`, e.target);
-            vaultUI.menuDropdown.classList.remove('show-menu');
+        if (vaultMenu.menuDropdown.classList.contains('show-menu')) {
+            //log(`[Menu Debug] Window click detected on:`, e.target);
+            vaultMenu.menuDropdown.classList.remove('show-menu');
         }
     });
 
-    vaultUI.saveMenu.onClick(doSaveClick);
-    vaultUI.toggleEditMenu.onClick(doToggleEditClick);
+    vaultMenu.saveMenu.onClick(doSaveClick);
+    vaultMenu.toggleEditMenu.onClick(doToggleEditClick);
 
-    vaultUI.rawDataMenu.onClick(doShowRawDataClick);
-    vaultUI.discardChangesMenu.onClick(doDiscardChangesClick);
+    vaultMenu.rawDataMenu.onClick(doShowRawDataClick);
+    vaultMenu.discardChangesMenu.onClick(doDiscardChangesClick);
 
-    vaultUI.syncAccessMenu.onClick(doSyncAccessClick);
-    vaultUI.runBackupMenu.onClick(doRunBackupClick);
-    vaultUI.recoveryRotationMenu.onClick(showRecoveryRotationUI);
+    vaultMenu.syncAccessMenu.onClick(doSyncAccessClick);
+    vaultMenu.runBackupMenu.onClick(doRunBackupClick);
+    vaultMenu.recoveryRotationMenu.onClick(showRecoveryRotationUI);
 
     vaultUI.title.onClick(doToggleSecureClick);
     vaultUI.toggleSecureBtn.onClick(doToggleSecureClick);
-    vaultUI.addBtn.onClick(doAddClick);
-    vaultUI.renameBtn.onClick(doRenameClick);
-    vaultUI.deleteBtn.onClick(doDeleteClick);
+    vaultMenuBar.addBtn.onClick(doAddClick);
+    vaultMenuBar.renameBtn.onClick(doRenameClick);
+    vaultMenuBar.deleteBtn.onClick(doDeleteClick);
 
-    vaultUI.selectMenu.onClick(doSelectClick);
-    vaultUI.cutMenu.onClick(doCutClick);
-    vaultUI.pasteMenu.onClick(doPasteClick);
+    vaultMenu.selectMenu.onClick(doSelectClick);
+    vaultMenu.cutMenu.onClick(doCutClick);
+    vaultMenu.pasteMenu.onClick(doPasteClick);
 
-    vaultUI.logoutMenu.onClick(doLogout);
+    vaultMenu.logoutMenu.onClick(doLogout);
 
     // temporary menu
-    vaultUI.copyLogsMenu.onClick(copyLogsToClipboard);
-    vaultUI.toggleLogsMenu.onClick(toggleLogs);
+    vaultMenu.copyLogsMenu.onClick(copyLogsToClipboard);
+    vaultMenu.toggleLogsMenu.onClick(toggleLogs);
 
     // Ensure these containers always use flex when shown
     //vaultRawDataUI.mainSection.setFlex();
@@ -458,9 +459,9 @@ function refreshAddRenDelBtnVisibility() {
     }
 
     // 4. Apply: Must be logically possible AND the vault must be writeable
-    vaultUI.addBtn.setVisible(canAdd && writeable);
-    vaultUI.renameBtn.setVisible(canRenameDelete && writeable);
-    vaultUI.deleteBtn.setVisible(canRenameDelete && writeable);
+    vaultMenuBar.addBtn.setVisible(canAdd && writeable);
+    vaultMenuBar.renameBtn.setVisible(canRenameDelete && writeable);
+    vaultMenuBar.deleteBtn.setVisible(canRenameDelete && writeable);
 
     //log("vaultUI.refreshAddRenDelBtnVisibility", `depth:${depth} add:${canAdd} renDel:${canRenameDelete} writeable:${writeable}`);
 }
@@ -474,7 +475,7 @@ async function doToggleEditClick() {
     }
 
     sessionState.isEditable = !sessionState.isEditable;
-    vaultUI.toggleEditMenu.setText(sessionState.isEditable ? "Exit Edit Mode" : "Edit Item");
+    vaultMenu.toggleEditMenu.setText(sessionState.isEditable ? "Exit Edit Mode" : "Edit Item");
     renderVaultExplorer();
 }
 
@@ -660,21 +661,21 @@ function refreshMenuUI() {
     // --- SECTION 3: MENU VISIBILITY (Updated for UX) ---
 
     // 1. Only show 'Cut' if we are selecting AND not already in 'Cut' mode
-    vaultUI.cutMenu.setVisible(isSelecting && count > 0 && !isCutting);
+    vaultMenu.cutMenu.setVisible(isSelecting && count > 0 && !isCutting);
 
     const inGroup = sessionState.path.length === 2;
-    vaultUI.pasteMenu.setVisible(isCutting && inGroup);
+    vaultMenu.pasteMenu.setVisible(isCutting && inGroup);
 
     // 2. Update the "Select Multiple" toggle text to handle 'Cancel Move'
     if (isSelecting || isCutting) {
-        vaultUI.selectMenu.setText(isCutting ? "Cancel Move" : "Cancel Selection");
-        vaultUI.selectMenu.classList.add('active-mode-text');
+        vaultMenu.selectMenu.setText(isCutting ? "Cancel Move" : "Cancel Selection");
+        vaultMenu.selectMenu.classList.add('active-mode-text');
     } else {
-        vaultUI.selectMenu.setText("Select Multiple");
-        vaultUI.selectMenu.classList.remove('active-mode-text');
+        vaultMenu.selectMenu.setText("Select Multiple");
+        vaultMenu.selectMenu.classList.remove('active-mode-text');
     }
 
-    vaultUI.discardChangesMenu.setVisible(JSON.stringify(vaultData) !== JSON.stringify(originalVaultData));
+    vaultMenu.discardChangesMenu.setVisible(JSON.stringify(vaultData) !== JSON.stringify(originalVaultData));
 }
 
 async function toggleLogs() {
@@ -1308,13 +1309,13 @@ function manageActionableItems(readOnly) {
     const admin = AU.isAdmin();
 
     // These only care about read-only/admin status, not depth
-    vaultUI.saveMenu.setVisible(visible);
-    vaultUI.toggleEditMenu.setVisible(visible);
-    vaultUI.rawDataMenu.setVisible(visible && admin);
+    vaultMenu.saveMenu.setVisible(visible);
+    vaultMenu.toggleEditMenu.setVisible(visible);
+    vaultMenu.rawDataMenu.setVisible(visible && admin);
 
-    vaultUI.syncAccessMenu.setVisible(visible && admin);
-    vaultUI.runBackupMenu.setVisible(admin);
-    vaultUI.recoveryRotationMenu.setVisible(visible && admin);
+    vaultMenu.syncAccessMenu.setVisible(visible && admin);
+    vaultMenu.runBackupMenu.setVisible(admin);
+    vaultMenu.recoveryRotationMenu.setVisible(visible && admin);
 
     // NOTE: addBtn, renameBtn, and deleteBtn are intentionally removed from here
     // as they are handled by the render loop.

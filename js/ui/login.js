@@ -1,11 +1,9 @@
 import { C, G, clearGlobals, AU, BM, CR, ID, R, RG, SV, EN, U, log, trace, debug, info, warn, error } from '@/shared/exports.js';
 
-import { runAdminBackup } from '@/core/backup.js';
 import { runVaultAccessHousekeeping } from '@/core/janitor.js';
 
 import { rootUI, loginUI, vaultUI } from '@/ui/loader.js';
 import { openRecoveryModal } from '@/ui/restore-backup.js';
-import { loadUI, swapVisibility } from '@/ui/uihelper.js';
 import { loadVault, refreshVaultView, stopVaultIdleCheck } from '@/ui/vault.js';
 
 function init() {
