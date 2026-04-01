@@ -1,14 +1,13 @@
 import { C, G, inReadOnlyMode, AU, SV, AT, U, log, trace, debug, info, warn, error } from '@/shared/exports.js';
 
-import { activateAutoLogout, logout } from '@/app.js';
+import { activateIdleChecker, logout } from '@/app.js';
 import { runAdminBackup } from '@/core/backup.js';
 import { runGarbageCollection, runVaultAccessHousekeeping } from '@/core/janitor.js';
 
+import { ScreenManager } from '@/ui/screen-manager.js';
 import { swapVisibility, showSilentToast } from '@/ui/uihelper.js';
 import { rootUI, vaultUI, vaultNavBarUI, vaultRawDataUI, copyLogsToClipboard, vaultMenuBar, vaultMenu } from '@/ui/loader.js';
 import { showConfirmUI, showOverlayConfirmUI, showOverlayAlertUI, showOverlayPasswordUI } from '@/ui/confirm.js';
-import { showRecoveryRotationUI, hideRecoveryRotation } from '@/ui/recovery-rotation.js';
-import { showUsersUI } from '@/ui/users.js';
 import { showAddNewUI, showRenameUI, showDeleteUI, hideAddRenDel } from '@/ui/add-rename-delete.js';
 import { generateFilterMap, hideFilterUI } from '@/ui/filter.js';
 
@@ -46,23 +45,12 @@ async function init() {
     //vaultUI.mainSection.setVisible(true);
 
     vaultRawDataUI.mainSection.setVisible(false);
-    hideRecoveryRotation();
     hideAddRenDel();
 
     vaultMenu.menuBtn.onClick((e) => {
         // 1. Prevent the 'window' or 'body' from seeing this click
         e.stopPropagation();
-
-        const menu = vaultMenu.menuDropdown;
-        const isVisible = menu.classList.contains('show-menu');
-
-        //log(`[Menu Debug] Clicked. Currently visible: ${isVisible}`);
-
-        // 2. Toggle the class
-        menu.classList.toggle('show-menu');
-
-        // 3. Final check
-        //log(`[Menu Debug] New classList:`, menu.classList.value);
+        vaultMenu.menuDropdown.classList.toggle('show-menu');
     });
 
     // Add this to your global window listener to see what's CLOSING it
@@ -79,9 +67,10 @@ async function init() {
     vaultMenu.rawDataMenu.onClick(doShowRawDataClick);
     vaultMenu.discardChangesMenu.onClick(doDiscardChangesClick);
 
+    vaultMenu.usersMenu.onClick(doUsersClick);
     vaultMenu.syncAccessMenu.onClick(doSyncAccessClick);
     vaultMenu.runBackupMenu.onClick(doRunBackupClick);
-    vaultMenu.recoveryRotationMenu.onClick(showRecoveryRotationUI);
+    vaultMenu.recoveryRotationMenu.onClick(doRecoveryKeyRotationClick);
 
     vaultUI.title.onClick(doToggleSecureClick);
     vaultUI.toggleSecureBtn.onClick(doToggleSecureClick);
@@ -102,6 +91,30 @@ async function init() {
     // Ensure these containers always use flex when shown
     //vaultRawDataUI.mainSection.setFlex();
     //vaultUI.mainSection.setFlex();
+}
+
+async function doUsersClick() {
+    log("vaultUI.doUsersClick", "Lazy loading module...");
+
+    try {
+        const { showUsersUI } = await import('@/ui/users.js');
+        await showUsersUI();
+    } catch (err) {
+        error("vaultUI.doUsersClick", "Failed to load Users module:", err);
+        showSilentToast("Error loading component", true);
+    }
+}
+
+async function doRecoveryKeyRotationClick() {
+    log("vaultUI.doRecoveryKeyRotationClick", "called");
+
+    try {
+        const { showRecoveryRotationUI } = await import('@/ui/recovery-rotation.js');
+        await showRecoveryRotationUI();
+    } catch (err) {
+        error("vaultUI.doUsersClick", "Failed to load Users module:", err);
+        showSilentToast("Error loading component", true);
+    }
 }
 
 async function doSyncAccessClick() {
@@ -315,7 +328,7 @@ async function showVaultUI({ readOnly = false } = {}) {
 
     swapVisibility(rootUI.loginView, rootUI.vaultView);
     refreshVaultView(readOnly);
-    activateAutoLogout();
+    activateIdleChecker();
 }
 
 function doToggleSecureClick() {
@@ -340,9 +353,18 @@ function doToggleSecureClick() {
 
 function doShowRawDataClick() {
     log("vaultUI.doShowRawDataClick", "called");
-    refreshRawDisplay();
-    swapVisibility(vaultUI.mainSection, vaultRawDataUI.mainSection);
-    vaultRawDataUI.closeBtn.onClick(() => swapVisibility(vaultRawDataUI.mainSection, vaultUI.mainSection));
+
+    window.ScreenManager.register(window.ScreenManager.RAW_DATA_SCREENKEY, vaultRawDataUI.mainSection, {
+        onShow: async () => {
+            log("doShowRawDataClick.show", "Loading raw vault data");
+            if (vaultRawDataUI.content && vaultData) {
+                vaultRawDataUI.content.setText(U.format(vaultData));
+            }
+        }
+    });
+    ScreenManager.switchView(window.ScreenManager.RAW_DATA_SCREENKEY);
+
+    vaultRawDataUI.closeBtn.onClick(() => window.ScreenManager.goHome());
 }
 
 async function doAddClick() {
@@ -1228,12 +1250,6 @@ function getCurrentItem() {
     return group?.items.find(i => i.id === itemId) || null;
 }
 
-function refreshRawDisplay() {
-    log("vaultUI.refreshRawDisplay", "called");
-    if (vaultRawDataUI.content && vaultData) {
-        vaultRawDataUI.content.setText(U.format(vaultData));
-    }
-}
 
 // --- Main Render Entry Point ---
 async function renderVaultExplorer() {
@@ -1329,6 +1345,9 @@ function applyReadOnlyTheme(readOnly) {
 export async function loadVault(pwd, data, options) {
     log("vaultUI.loadVault", "called options:", JSON.stringify(options));
 
+    // ✅ 1. WIPE THE SESSION STATE
+    window.ScreenManager.reset();
+
     init();
 
     vaultData = data;
@@ -1339,7 +1358,27 @@ export async function loadVault(pwd, data, options) {
     }
     pwd = null;
 
-    await showVaultUI(options);
+    window.ScreenManager.register('explorer', vaultUI.mainSection, {
+        onShow: async () => {
+            log("Explorer", "Refreshing file list from Drive...");
+
+            // 1. Create a fresh copy of all original options
+            // 2. Overwrite 'readOnly' with the ACTUAL current status
+            const currentContext = {
+                ...options,
+                readOnly: inReadOnlyMode()
+            };
+
+            // Now 'currentContext' has all the original properties
+            // (theme, language, flags, etc.) but the CORRECT read-only status.
+            await showVaultUI(currentContext);
+        },
+        onHide: () => true
+    });
+
+    // --- THE STARTING PISTOL ---
+    // This is what actually triggers the UI transition!
+    ScreenManager.switchView('explorer');
 
     setTimeout(async () => await runGarbageCollection(vaultData), 5000); // 5-second delay to prioritize the initial UI render
 }

@@ -1,6 +1,26 @@
 import { C, AU, CR, ID, R, EN, RG, GD, log, trace, debug, info, warn, error } from '@/shared/exports.js';
 
-import { vaultRecoveryKeyUI, vaultUI } from '@/ui/loader.js';
+import { vaultRecoveryKeyUI  } from '@/ui/loader.js';
+
+async function load() {
+    log("vaultRecoveryKeyUI.load", "called");
+
+    const rotateMode = await R.hasRecoveryKeyOnDrive();
+
+    vaultRecoveryKeyUI.currentPwdSection.setVisible(rotateMode);
+    vaultRecoveryKeyUI.rotateBtn.setText(rotateMode ? "Rotate recovery" : "Create recovery");
+
+    vaultRecoveryKeyUI.rotateBtn.onClick((e) => doRotateRecoveryKeyClick(rotateMode));
+    vaultRecoveryKeyUI.cancelBtn.onClick((e) => doCancelRecoveryRotationClick());
+
+    showRecoveryRotationStatusMessage(rotateMode ? "Rotate the recovery key regularly for tightened security, memorize the new password!"
+        : "Create a recovery key. This allows account recovery if all devices are lost.", "status-message");
+}
+
+async function unload() {
+    log("vaultRecoveryKeyUI.unload", "called");
+    showRecoveryRotationStatusMessage("");
+}
 
 function showRecoveryRotationStatusMessage(msg, type = "error") {
     if (!vaultRecoveryKeyUI.statusMsg) return;
@@ -10,13 +30,11 @@ function showRecoveryRotationStatusMessage(msg, type = "error") {
 }
 
 function doCancelRecoveryRotationClick() {
-    log("recKeyRotUI.doCancelRecoveryRotationClick", "called");
-    vaultRecoveryKeyUI.mainSection.setVisible(false);
-    vaultUI.mainSection.setVisible(true);
+    window.ScreenManager.goHome();
 }
 
 async function doRotateRecoveryKeyClick(rotateMode) {
-    log("recKeyRotUI.doRotateRecoveryKeyClick", "called - Starting recovery key creation in rotateMode:", rotateMode);
+    log("vaultRecoveryKeyUI.doRotateRecoveryKeyClick", "called - Starting recovery key creation in rotateMode:", rotateMode);
 
     try {
 
@@ -90,7 +108,6 @@ async function doRotateRecoveryKeyClick(rotateMode) {
         });
 
         log("recKeyRotUI.doRotateRecoveryKeyClick", "Recovery key successfully established");
-        //showRecoveryRotationStatusMessage("Recovery key created!", "status-message success");
 
         vaultRecoveryKeyUI.rotateBtn.setEnabled(true);
         doCancelRecoveryRotationClick();
@@ -106,21 +123,11 @@ async function doRotateRecoveryKeyClick(rotateMode) {
  * EXPORTED FUNCTIONS
  */
 export async function showRecoveryRotationUI() {
-    log("recKeyRotUI.showRecoveryRotationUI", "called");
+    const screenKey = window.ScreenManager.RECOVERY_KEY_ROTATION_SCREENKEY;
+    window.ScreenManager.register(screenKey, vaultRecoveryKeyUI.mainSection, {
+        onShow: load,
+        onHide: unload
+    });
 
-    const rotateMode = await R.hasRecoveryKeyOnDrive();
-
-    vaultRecoveryKeyUI.currentPwdSection.setVisible(rotateMode);
-    vaultRecoveryKeyUI.rotateBtn.setText(rotateMode ? "Rotate recovery" : "Create recovery");
-    vaultRecoveryKeyUI.mainSection.setVisible(true);
-    vaultUI.mainSection.setVisible(false);
-
-    vaultRecoveryKeyUI.rotateBtn.onClick((e) => doRotateRecoveryKeyClick(rotateMode));
-    vaultRecoveryKeyUI.cancelBtn.onClick((e) => doCancelRecoveryRotationClick());
-
-    showRecoveryRotationStatusMessage("Create a recovery password. This allows account recovery if all devices are lost.", "status-message");
-}
-
-export function hideRecoveryRotation() {
-    vaultRecoveryKeyUI.mainSection.setVisible(false);
+    window.ScreenManager.switchView(screenKey);
 }

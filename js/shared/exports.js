@@ -1,5 +1,5 @@
 export { C } from '@/shared/constants.js';
-export { G, clearGlobals, inReadOnlyMode } from '@/shared/global.js';
+export { G, clearGlobals, inReadOnlyMode, inWriteMode } from '@/shared/global.js';
 
 export * from '@/shared/log.js';
 

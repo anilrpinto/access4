@@ -1,20 +1,39 @@
 import { G, GD, inReadOnlyMode, log, trace, debug, info, warn, error } from '@/shared/exports.js';
 
-import { swapVisibility, showSilentToast } from '@/ui/uihelper.js';
-import { vaultUI, vaultUsersUI, vaultMenu } from '@/ui/loader.js';
+import { ScreenManager } from '@/ui/screen-manager.js';
+import { showSilentToast } from '@/ui/uihelper.js';
+import { vaultUsersUI, vaultMenu } from '@/ui/loader.js';
 
 let originalAuthSnapshot = null; // To track changes
 
-/**
- * EXPORTED FUNCTIONS
- */
-export async function showUsersUI() {
-    log("users.showUsersUI", "called");
+async function unload() {
+    log("users.unload", "called");
+
+    const currentAuthSnapshot = JSON.stringify(G.auth);
+
+    if (currentAuthSnapshot !== originalAuthSnapshot) {
+        if (!confirm("You have unsaved changes. Discard them?")) {
+            return false; // ✋ Veto! ScreenManager stops here.
+        }
+        // User said OK to discard: Revert G.auth so it's not "dirty"
+        G.auth = JSON.parse(originalAuthSnapshot);
+    }
+
+    // --- UI CLEANUP ---
+    // Hide sub-elements so they are fresh for the next time the screen is opened
+    vaultUsersUI.formFields.setVisible(false);
+    vaultUsersUI.userSelect.value = ""; // Clear selection
+
+    return true; // ✅ Proceed with the switch
+}
+
+async function load() {
+    log("users.load", "called");
 
     // Capture the state before any edits happen
     originalAuthSnapshot = JSON.stringify(G.auth);
 
-    swapVisibility(vaultUI.mainSection, vaultUsersUI.mainSection);
+    //swapVisibility(vaultUI.mainSection, vaultUsersUI.mainSection);
 
     // --- READ-ONLY GUARD FOR BUTTONS ---
     if (inReadOnlyMode()) {
@@ -28,8 +47,6 @@ export async function showUsersUI() {
     }
 
     const select = vaultUsersUI.userSelect;
-
-
 
     // Clear and Fill the dropdown from G.auth.members
     select.innerHTML = '<option value="">-- Choose a member --</option>';
@@ -52,7 +69,7 @@ export async function showUsersUI() {
 
     // Attach "Live Update" listeners to all form fields
     vaultUsersUI.formFields.onchange = (e) => {
-        log("users.showUsersUI.onchange", "Field change detected via delegation");
+        log("users.load.onchange", "Field change detected via delegation");
         updateLocalMemberState();
     };
 
@@ -78,20 +95,11 @@ function updateLocalMemberState() {
 }
 
 async function exitUsersUI() {
-    // 🛡️ Change Detection Guard
-    const currentAuthSnapshot = JSON.stringify(G.auth);
-    if (currentAuthSnapshot !== originalAuthSnapshot) {
-        if (!confirm("You have unsaved changes. Discard them?")) {
-            return; // Stay on screen
-        }
-        // If they click OK, we should revert G.auth to the original snapshot
-        // so the app state doesn't stay "dirty"
-        G.auth = JSON.parse(originalAuthSnapshot);
-    }
+    log("users.exitUsersUI", "Requesting return to explorer");
 
-    vaultUsersUI.formFields.setVisible(false);
-    vaultUsersUI.userSelect.clear();
-    swapVisibility(vaultUsersUI.mainSection, vaultUI.mainSection);
+    // The ScreenManager will run 'unload' before this happens.
+    // If 'unload' returns false, this switch will never complete.
+    window.ScreenManager.goHome();
 }
 
 function selectUser() {
@@ -170,4 +178,15 @@ async function persistUserChanges() {
     log("users.persistUserChanges", "authorized.json updated successfully.");
 }
 
-vaultMenu.usersMenu.onClick(showUsersUI);
+/**
+ * EXPORTED FUNCTIONS
+ */
+export async function showUsersUI() {
+    const screenKey = window.ScreenManager.USERS_SCREENKEY;
+    window.ScreenManager.register(screenKey, vaultUsersUI.mainSection, {
+        onShow: load,
+        onHide: unload
+    });
+
+    window.ScreenManager.switchView(screenKey);
+}

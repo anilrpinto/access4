@@ -106,8 +106,8 @@ window.onload = async () => {
 /**
  * EXPORTED FUNCTIONS
  */
-export function activateAutoLogout() {
-    log("APP.activateAutoLogout", "called");
+export function activateIdleChecker() {
+    log("APP.activateIdleChecker", "called");
 
     // 1. Create a clean wrapper that doesn't pass the Event object
     IdleManager.boundHandler = () => resetTimer(false);

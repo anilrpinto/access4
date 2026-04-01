@@ -60,6 +60,10 @@ export function clearGlobals() {
     G = structuredClone(_G);
 }
 
+export function inWriteMode() {
+    return G.driveLockState?.mode === "write";
+}
+
 export function inReadOnlyMode() {
     return G.driveLockState?.mode !== "write";
 }

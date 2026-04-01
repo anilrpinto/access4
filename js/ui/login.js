@@ -1,10 +1,10 @@
-import { C, G, clearGlobals, AU, BM, CR, ID, R, RG, SV, EN, U, log, trace, debug, info, warn, error } from '@/shared/exports.js';
+import { C, G, inReadOnlyMode, inWriteMode, clearGlobals, AU, BM, CR, ID, R, RG, SV, EN, U,
+    log, trace, debug, info, warn, error } from '@/shared/exports.js';
 
 import { runVaultAccessHousekeeping } from '@/core/janitor.js';
 
-import { rootUI, loginUI, vaultUI } from '@/ui/loader.js';
+import { rootUI, loginUI } from '@/ui/loader.js';
 import { openRecoveryModal } from '@/ui/restore-backup.js';
-import { loadVault, refreshVaultView } from '@/ui/vault.js';
 
 function init() {
     log("loginUI.init", "called");
@@ -17,7 +17,6 @@ function init() {
     loginUI.title.setText(`Login [v${C.APP_VERSION}]`);
 
     loginUI.signinBtn.setVisible(true);
-    //showAuthorizedName();
     handleSignOut();
 
     // Clear password inputs
@@ -34,12 +33,6 @@ function init() {
     loginUI.unlockBtn.setEnabled(true);
 
     log("loginUI.init", "G.authMode:", G.authMode)
-
-    //TODO: Figure out the purpose of this check - temporarily removed - 03/18/2026
-    /*    if (G.authMode !== "create" && G.authMode !== "unlock") {
-            showAuthorizedName();
-            //loginUI.signinBtn.setEnabled(true);
-        }*/
 }
 
 // attach gesture logic
@@ -95,11 +88,7 @@ async function doHiddenGesture() {
 }
 
 async function unlockIdentityFlow(pwd) {
-
-    log("loginUI.unlockIdentityFlow", "called");
-
-
-    log("loginUI.unlockIdentityFlow", "Unlock attempt started for password:", (pwd ? "***" : "(empty)"));
+    log("loginUI.unlockIdentityFlow", "called - Unlock attempt started for password:", (pwd ? "***" : "(empty)"));
 
     if (!G.accessToken) {
         const e = new Error(C.UNLOCK_ERROR_DEFS.NO_ACCESS_TOKEN.message);
@@ -288,7 +277,6 @@ async function updateBiometricIndicator() {
  * Click handlers
  */
 async function doUnlockClick() {
-
     log("loginUI.doUnlockClick", "called");
 
     try {
@@ -323,8 +311,8 @@ async function doUnlockClick() {
 
 function doNeedRecoveryClick() {
     log("loginUI.doNeedRecoveryClick", "called");
-    G.recoveryRequest = true;
 
+    G.recoveryRequest = true;
     setupPasswordPrompt("recovery-request");
 }
 
@@ -397,14 +385,12 @@ export async function loadLogin() {
     init();
 
     updateBiometricIndicator();
-    //stopVaultIdleCheck();
     setupTitleGesture();
 
     loginUI.signinBtn.onClick(() => AU.initGIS());
     loginUI.signoutLnk.onClick(() => handleSignOut());
     loginUI.recoveryLnk.onClick(doNeedRecoveryClick);
     loginUI.recoverBtn.onClick(doRecoverClick);
-
     loginUI.restoreBackupLnk.onClick(openRecoveryModal);
 
     await BM.debugBiometricDB();
@@ -413,8 +399,8 @@ export async function loadLogin() {
 
 export async function proceedAfterPasswordSuccess(pwd = null) {
     log("loginUI.proceedAfterPasswordSuccess", "called");
-    log("loginUI.proceedAfterPasswordSuccess", `G.unlockedIdentity exists: ${!!G.unlockedIdentity}, G.currentPrivateKey exists: ${!!G.currentPrivateKey}, fingerprint: ${G.unlockedIdentity?.fingerprint}`);
-    log("loginUI.proceedAfterPasswordSuccess", "G.driveLockState:", G.driveLockState ? { mode: G.driveLockState.mode, self: G.driveLockState.self } : null);
+    //log("loginUI.proceedAfterPasswordSuccess", `G.unlockedIdentity exists: ${!!G.unlockedIdentity}, G.currentPrivateKey exists: ${!!G.currentPrivateKey}, fingerprint: ${G.unlockedIdentity?.fingerprint}`);
+    //log("loginUI.proceedAfterPasswordSuccess", "G.driveLockState:", G.driveLockState ? { mode: G.driveLockState.mode, self: G.driveLockState.self } : null);
 
     log("loginUI.proceedAfterPasswordSuccess", "Proceeding to device public key check on drive");
 
@@ -444,14 +430,18 @@ export async function proceedAfterPasswordSuccess(pwd = null) {
     let vaultData;
     // 6️⃣ Load vault payload
     await EN.loadEnvelopePayloadToUI(envelope, async data => vaultData = await JSON.parse(data));
-    await loadVault(pwd, vaultData, { readOnly: G.driveLockState?.mode !== "write" });
+
+    // Load the vault logic ONLY after we know the user is authorized
+    const { loadVault, refreshVaultView } = await import('@/ui/vault.js');
+
+    await loadVault(pwd, vaultData, { readOnly: inReadOnlyMode() });
 
     // Immediately destroy password reference here as well if missed in vault
     pwd = null;
 
-    // 5️⃣ AUTO-UPGRADE UI (When the 4s lock finishes)
+    // AUTO-UPGRADE UI (When the 4s lock finishes)
     G.lockAcquisitionPromise.then((success) => {
-        if (success && G.driveLockState?.mode === "write") {
+        if (success && inWriteMode()) {
             log("loginUI.proceedAfterPasswordSuccess", "Background lock acquired. Upgrading UI to WRITE mode.");
             refreshVaultView(false);
         }
@@ -534,7 +524,7 @@ export function handleSignOut() {
     // 2. Reset the UI
     loginUI.welcomeSpan.setText("Not signed in");
     loginUI.welcomeSpan.classList.add('not-signed-in');
-    loginUI.authorizedNameSpan.setText("");
+    loginUI.authorizedNameSpan.clear();
     loginUI.signoutLnk.setVisible(false);
 
     loginUI.signinBtn.setVisible(true);
@@ -544,14 +534,14 @@ export function handleSignOut() {
 export function showUnlockMessage(msg, type = "error") {
     if (!loginUI.statusMsg) return;
 
-    loginUI.statusMsg.textContent = msg;
+    loginUI.statusMsg.setText(msg);
     loginUI.statusMsg.className = `status-message ${type}`;
 }
 
 export function showAuthMessage(msg, type = "error") {
     if (!loginUI.authMsg) return;
 
-    loginUI.authMsg.textContent = msg;
+    loginUI.authMsg.setText(msg);
     loginUI.authMsg.className = `status-message ${type}`;
 }
 
