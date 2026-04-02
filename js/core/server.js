@@ -1,8 +1,6 @@
 import { C, G, CR, ID, GD, EN, log, trace, debug, info, warn, error, isTraceEnabled } from '@/shared/exports.js';
 
-import { updateLockStatusUI, refreshVaultView }  from '@/ui/vault.js';
-import { showOverlayChoiceUI }  from '@/ui/confirm.js';
-import { showSilentToast } from '@/ui/uihelper.js';
+import { handleDriveLockLost, updateLockStatusUI }  from '@/ui/vault.js';
 
 let _transientCEK = null;
 let _transientEnvelope = null;
@@ -367,46 +365,6 @@ export async function ensureDevicePublicKey() {
 
     log("SV.ensureDevicePublicKey", `Device public key UPLOADED to ${filename}`);
     return pubData;
-}
-
-export function handleDriveLockLost(info) {
-    warn("SV.handleDriveLockLost", "Reason:", info?.reason || "Timed out");
-
-    const wasWriteMode = G.driveLockState?.mode === "write";
-
-    refreshVaultView(wasWriteMode);
-
-    if (G.driveLockState?.heartbeat?.stop) {
-        G.driveLockState.heartbeat.stop();
-    }
-
-    G.driveLockState = null;
-    updateLockStatusUI("Lock lost!");
-
-    showOverlayChoiceUI({
-        title: "Write lock lost",
-        message: `Exclusive lock over vault data has been lost. Vault set to read-only mode. 'Re-acquire' to save changes`,
-        okText: "Re-acquire",
-        cancelText: "Read-only",
-        onConfirm: async () => {
-            try {
-                log("UI.lockLost", "User requested re-acquisition...");
-                await acquireDriveWriteLock();
-
-                // Success! The heartbeat is back, UI stays in write mode.
-                showSilentToast("Lock re-acquired successfully, save your changes first");
-                refreshVaultView(false);
-            } catch (err) {
-                error("UI.lockLost", "Re-acquisition failed:", err.message);
-                showSilentToast("Failed to re-acquire lock, downgrading to read-only mode");
-                refreshVaultView(true);
-            }
-        },
-        onCancel: async () => {
-            showSilentToast("Continuing in read only mode");
-            refreshVaultView(true);
-        }
-    });
 }
 
 export async function writeLockToDrive(lockJson, existingFileId = null) {

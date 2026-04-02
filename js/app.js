@@ -125,12 +125,13 @@ export function activateIdleChecker() {
 export async function logout(reason = "User initiated") {
     log("APP.logout", "Initiating logout... reason:", reason);
 
-    // 1️⃣ Wait for the lock to be released properly
-    await releaseDriveLock();
-
     // 2️⃣ Clear the rest of the app state
     clearGlobals();
     sessionStorage.removeItem("sv_session_private_key");
+
+    // 1️⃣ Wait for the lock to be released properly
+    await releaseDriveLock();
+
 
     deactivateAutoLogout();
 

@@ -1,15 +1,18 @@
-import { C, G, inReadOnlyMode, AU, SV, AT, U, log, trace, debug, info, warn, error } from '@/shared/exports.js';
+import { C, G, inReadOnlyMode, isValidSession, AU, SV, AT, U, log, trace, debug, info, warn, error } from '@/shared/exports.js';
 
 import { activateIdleChecker, logout } from '@/app.js';
+
 import { runAdminBackup } from '@/core/backup.js';
 import { runGarbageCollection, runVaultAccessHousekeeping } from '@/core/janitor.js';
 
 import { ScreenManager } from '@/ui/screen-manager.js';
 import { swapVisibility, showSilentToast } from '@/ui/uihelper.js';
 import { rootUI, vaultUI, vaultNavBarUI, vaultRawDataUI, copyLogsToClipboard, vaultMenuBar, vaultMenu } from '@/ui/loader.js';
-import { showConfirmUI, showOverlayConfirmUI, showOverlayAlertUI, showOverlayPasswordUI } from '@/ui/confirm.js';
-import { showAddNewUI, showRenameUI, showDeleteUI, hideAddRenDel } from '@/ui/add-rename-delete.js';
+import { showConfirmUI } from '@/ui/confirm.js';
+import { showOverlayConfirmUI, showOverlayAlertUI, showOverlayPasswordUI, showOverlayChoiceUI } from '@/ui/modal.js';
+
 import { generateFilterMap, hideFilterUI } from '@/ui/filter.js';
+import { showAddNewUI, showRenameUI, showDeleteUI } from '@/ui/add-rename-delete.js';
 
 let originalVaultData = null;
 let vaultData = null;
@@ -40,12 +43,6 @@ async function init() {
     sessionState.path = ['root'];
 
     swapVisibility(rootUI.loginView, vaultUI.mainSection);
-
-    // Don't need this IF swapVisibility uses vaultUI.mainSection instead of rootUI.vaultView
-    //vaultUI.mainSection.setVisible(true);
-
-    vaultRawDataUI.mainSection.setVisible(false);
-    hideAddRenDel();
 
     vaultMenu.menuBtn.onClick((e) => {
         // 1. Prevent the 'window' or 'body' from seeing this click
@@ -372,16 +369,12 @@ async function doAddClick() {
     log("vaultUI.doAddClick", "called - depth:", depth);
 
     if (depth < 3) {
-        vaultUI.mainSection.setVisible(false);
         showAddNewUI(depth, sessionState.path[depth-1], vaultData, {
             onAdd: (name) => {
                 if (depth === 1) executeAddGroup(name);
                 else if (depth === 2) executeAddItem(name);
-
-                vaultUI.mainSection.setVisible(true);
             },
             onCancel: () => {
-                vaultUI.mainSection.setVisible(true);
                 renderVaultExplorer();
             }
         });
@@ -395,15 +388,11 @@ async function doRenameClick() {
     // We only rename things we are currently "inside" or looking at
     if (depth < 2) return;
 
-    vaultUI.mainSection.setVisible(false);
-
     showRenameUI(depth, vaultData, sessionState.path, {
         onRename: (newName) => {
             executeRename(newName);
-            vaultUI.mainSection.setVisible(true);
         },
         onCancel: () => {
-            vaultUI.mainSection.setVisible(true);
             renderVaultExplorer();
         }
     });
@@ -419,15 +408,11 @@ async function doDeleteClick() {
         return; // Can't delete the root vault
     }
 
-    vaultUI.mainSection.setVisible(false);
-
     showDeleteUI(depth, sessionState.path[1], sessionState.path[2], vaultData, {
         onConfirm: () => {
             executeDeletion();
-            vaultUI.mainSection.setVisible(true);
         },
         onCancel: () => {
-            vaultUI.mainSection.setVisible(true);
             renderVaultExplorer();
         }
     });
@@ -1250,7 +1235,6 @@ function getCurrentItem() {
     return group?.items.find(i => i.id === itemId) || null;
 }
 
-
 // --- Main Render Entry Point ---
 async function renderVaultExplorer() {
     log("vaultUI.renderVaultExplorer", "called");
@@ -1373,7 +1357,12 @@ export async function loadVault(pwd, data, options) {
             // (theme, language, flags, etc.) but the CORRECT read-only status.
             await showVaultUI(currentContext);
         },
-        onHide: () => true
+        onHide: () => {
+            vaultMenuBar.addBtn.setVisible(false);
+            vaultMenuBar.renameBtn.setVisible(false);
+            vaultMenuBar.deleteBtn.setVisible(false);
+            return true;
+        }
     });
 
     // --- THE STARTING PISTOL ---
@@ -1456,6 +1445,51 @@ export function refreshCleanupPill() {
     } else if (pill) {
         pill.remove();
     }
+}
+
+export function handleDriveLockLost(info) {
+    warn("SV.handleDriveLockLost", "Reason:", info?.reason || "Timed out");
+
+    if (!isValidSession) {
+        warn("No valid session found, terminating lock status lost flow");
+        return;
+    }
+
+    const wasWriteMode = G.driveLockState?.mode === "write";
+
+    refreshVaultView(wasWriteMode);
+
+    if (G.driveLockState?.heartbeat?.stop) {
+        G.driveLockState.heartbeat.stop();
+    }
+
+    G.driveLockState = null;
+    updateLockStatusUI("Lock lost!");
+
+    showOverlayChoiceUI({
+        title: "Write lock lost",
+        message: `Exclusive lock over vault data has been lost. Vault set to read-only mode. 'Re-acquire' to save changes`,
+        okText: "Re-acquire",
+        cancelText: "Read-only",
+        onConfirm: async () => {
+            try {
+                log("UI.lockLost", "User requested re-acquisition...");
+                await SV.acquireDriveWriteLock();
+
+                // Success! The heartbeat is back, UI stays in write mode.
+                showSilentToast("Lock re-acquired successfully, save your changes first");
+                refreshVaultView(false);
+            } catch (err) {
+                error("UI.lockLost", "Re-acquisition failed:", err.message);
+                showSilentToast("Failed to re-acquire lock, downgrading to read-only mode");
+                refreshVaultView(true);
+            }
+        },
+        onCancel: async () => {
+            showSilentToast("Continuing in read only mode");
+            refreshVaultView(true);
+        }
+    });
 }
 
 export function updateLockStatusUI(msg = "") {

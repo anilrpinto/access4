@@ -1020,58 +1020,125 @@ body.vault-frozen .list-row:active {
 }
 .silent-toast.show { opacity: 1; }
 
-
+/* 1. THE DIMMED BACKGROUND */
 .modal-overlay {
-    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-    background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 10000;
-}
-
-.modal-mini-card {
-    background: white; width: 350px; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.3);
-    overflow: hidden; padding: 0;
-}
-
-.modal-header {
-    background: #f1f1f1; padding: 10px 15px; border-bottom: 1px solid #ddd;
-    display: flex; justify-content: space-between; align-items: center;
-}
-
-.modal-simple-body { padding: 15px; }
-
-/* Standard buttons you already likely have */
-.btn-primary { background: #1a73e8; color: white; border: none; padding: 10px; border-radius: 4px; cursor: pointer; }
-.btn-secondary { background: white; border: 1px solid #1a73e8; color: #1a73e8; padding: 10px; border-radius: 4px; cursor: pointer; }
-
-/* Make the header title solid and dark */
-#restoreBackup_title {
-    font-size: 16px;
-    font-weight: 700 !important;
-    color: #222 !important; /* Force deep dark grey */
-    letter-spacing: -0.2px;
-}
-
-/* Make the Close Button (X) look like a real interactive element */
-#restoreBackup_closeBtn {
-    background: #eee !important;
-    color: #666;
-    border-radius: 50%;
-    width: 28px;
-    height: 28px;
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(0, 0, 0, 0.5);
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 14px;
-    font-weight: bold;
-    transition: all 0.2s;
-    line-height: 1;
+    z-index: 10000;
+}
+
+/* 1. THE CARD: Crisp white with a deep shadow */
+.modal-mini-card {
+    background: #ffffff;
+    width: 320px; /* Slightly narrower for a tighter look */
+    border-radius: 8px;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.25);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+/* 2. THE HEADER: No background, just the dark line */
+.modal-mini-card header,
+.modal-header {
+    all: unset;
+    display: flex !important;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 20px !important; /* Shaved 6px off the top/bottom */
+    border-bottom: 1.5px solid #bbb !important; /* Darker, crisp line */
+    background: #fff !important;
+}
+
+/* 3. THE TITLE: Punchy Blue with Tight Spacing */
+#restoreBackup_title,
+#systemModal_title,
+.modal-mini-card h2 {
+    font-size: 1.1rem !important; /* Slightly smaller to match card scale */
+    font-weight: 800 !important;
+    color: var(--primary-color) !important;
+    margin: 0 !important;
+    line-height: 1 !important;
+}
+
+/* 4. THE BODY: Compact and professional */
+.modal-simple-body {
+    padding: 16px 20px !important; /* Tighter padding */
+}
+
+.modal-simple-body p {
+    margin: 0 0 12px 0; /* Tightened text-to-input gap */
+    font-size: 0.9rem;
+    color: #555;
+    line-height: 1.3;
+}
+
+/* 6. INPUTS: Lowered height and margins */
+.modal-mini-card input,
+.modal-mini-card textarea {
+    width: 100% !important;
+    padding: 10px !important; /* Shaved 2px for compactness */
+    border: 1px solid #ccc !important;
+    border-radius: 6px !important;
+    margin-bottom: 12px !important; /* Reduced from 15px/20px */
+    font-size: 0.95rem !important;
+}
+
+/* 7. BUTTONS: Side-by-side and punchy */
+.button-group {
+    display: flex;
+    gap: 8px;
+    margin-top: 4px;
+}
+
+.button-group button {
+    flex: 1;
+    padding: 10px !important;
+    border-radius: 6px !important;
+    font-weight: 700 !important;
+    font-size: 0.9rem !important;
+    margin: 0 !important;
+}
+
+.btn-primary, #restoreBackup_decryptBtn {
+    background-color: #27ae60 !important; /* Solid Green */
+    color: white;
     border: none;
-    padding: 0;
+    padding: 12px;
+    border-radius: 6px;
+    font-weight: 700;
+    cursor: pointer;
+    flex: 1;
+}
+
+.btn-secondary, #systemModal_cancelBtn {
+    background-color: #ecf0f1 !important;
+    color: #2c3e50;
+    border: none;
+    padding: 12px;
+    border-radius: 6px;
+    font-weight: 700;
+    cursor: pointer;
+    flex: 1;
+}
+
+/* Close Button (X) */
+#restoreBackup_closeBtn {
+    all: unset;
+    cursor: pointer;
+    color: #aaa;
+    font-weight: bold;
+    font-size: 18px;
+    line-height: 1;
 }
 
 #restoreBackup_closeBtn:hover {
-    background: #e0e0e0 !important;
-    color: #000;
-    transform: scale(1.1);
+    color: #333;
 }
 
 .admin-cleanup-pill {
@@ -1261,7 +1328,6 @@ body.vault-frozen .list-row:active {
     color: #2c3e50;
     box-sizing: border-box;
 }
-
 
 #vaultNavBar_mainSection.filter-mode-active #vaultNavBar_filterInput {
     background: rgba(255, 255, 255, 0.7); /* Slightly higher opacity white to ensure text pops */

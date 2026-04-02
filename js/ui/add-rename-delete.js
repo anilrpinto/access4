@@ -1,22 +1,35 @@
 import { log, trace, debug, info, warn, error } from '@/shared/exports.js';
 
-import { vaultMenuBar, vaultAddNewUI } from '@/ui/loader.js';
-import { showConfirmUI, hideConfirmUI } from '@/ui/confirm.js';
+import { vaultAddNewUI } from '@/ui/loader.js';
+import { showConfirmUI } from '@/ui/confirm.js';
 
-// Function to handle the Add Button click in the header
+function ensureEditorRegistered() {
+    // ScreenManager.register already handles the "if exists" check,
+    // so we can just call it safely.
+    window.ScreenManager.register(window.ScreenManager.EDITOR_SCREENKEY, vaultAddNewUI.mainSection, {
+        onShow: () => {
+            log("vaultAddRenDel.ensureEditorRegistered", "Focusing input.");
+            vaultAddNewUI.input.focus();
+        },
+        onHide: () => {
+            vaultAddNewUI.input.clear();
+            return true;
+        }
+    });
+}
+
 export function showAddNewUI(depth, toParentId, vaultData, {onAdd = () => {},  onCancel = () => {}} = {}) {
     log("vaultAddRenDel.showAddNewUI", "called - depth:", depth);
 
-    vaultMenuBar.addBtn.setVisible(false);
-    vaultMenuBar.renameBtn.setVisible(false);
-    vaultMenuBar.deleteBtn.setVisible(false);
+    // 1. Ensure registration (Happens only once per session/reload)
+    ensureEditorRegistered();
+    window.ScreenManager.switchView(window.ScreenManager.EDITOR_SCREENKEY);
 
     const title = vaultAddNewUI.title;
     const input = vaultAddNewUI.input;
 
     // Clear previous input
     input.clear();
-    vaultAddNewUI.mainSection.setVisible(true);
     input.focus();
 
     vaultAddNewUI.addBtn.setText("Add");
@@ -39,13 +52,13 @@ export function showAddNewUI(depth, toParentId, vaultData, {onAdd = () => {},  o
         const val = input.value.trim();
         if (!val) return showAddNewStatusMessage("Name cannot be empty");
 
+        window.ScreenManager.goHome();
         onAdd(val);
-        vaultAddNewUI.mainSection.setVisible(false);
     });
 
     // Handle Cancel
     vaultAddNewUI.cancelBtn.onClick(() => {
-        vaultAddNewUI.mainSection.setVisible(false);
+        window.ScreenManager.goHome();
         onCancel();
     });
 
@@ -60,9 +73,9 @@ export function showAddNewUI(depth, toParentId, vaultData, {onAdd = () => {},  o
 export function showRenameUI(depth, vaultData, path, {onRename = () => {}, onCancel = () => {}} = {}) {
     log("vaultAddRenDel.showRenameUI", "called - depth:", depth);
 
-    vaultMenuBar.addBtn.setVisible(false);
-    vaultMenuBar.renameBtn.setVisible(false);
-    vaultMenuBar.deleteBtn.setVisible(false);
+    // 1. Ensure registration (Happens only once per session/reload)
+    ensureEditorRegistered();
+    window.ScreenManager.switchView(window.ScreenManager.EDITOR_SCREENKEY);
 
     const title = vaultAddNewUI.title;
     const input = vaultAddNewUI.input;
@@ -90,7 +103,6 @@ export function showRenameUI(depth, vaultData, path, {onRename = () => {}, onCan
     input.value = currentName;
     title.setText(headerText);
     saveBtn.setText("Save");
-    vaultAddNewUI.mainSection.setVisible(true);
     input.focus();
 
     // 3. Handle Save
@@ -98,13 +110,13 @@ export function showRenameUI(depth, vaultData, path, {onRename = () => {}, onCan
         const newVal = input.value.trim();
         if (!newVal) return; // Add status msg if needed
 
+        window.ScreenManager.goHome();
         onRename(newVal);
-        vaultAddNewUI.mainSection.setVisible(false);
     });
 
     // 4. Handle Cancel
     vaultAddNewUI.cancelBtn.onClick(() => {
-        vaultAddNewUI.mainSection.setVisible(false);
+        window.ScreenManager.goHome();
         onCancel();
     });
 }
@@ -112,26 +124,21 @@ export function showRenameUI(depth, vaultData, path, {onRename = () => {}, onCan
 export function showDeleteUI(depth, groupId, itemId, vaultData, {onConfirm = () => {}, onCancel = () => {}} = {}) {
     log("vaultAddRenDel.showDeleteUI", "transitioned to showConfirmUI - depth:", depth);
 
-    vaultMenuBar.addBtn.setVisible(false);
-    vaultMenuBar.renameBtn.setVisible(false);
-    vaultMenuBar.deleteBtn.setVisible(false);
-
     const group = vaultData.groups.find(g => g.id === groupId);
-    const groupName = group ? group.name : "this group";
+    const groupName = group ? group.name : "Group";
 
     let title, msg, okBtnText;
 
     if (depth === 2) {
         // --- DELETE GROUP CASE ---
         title = groupName;
-        msg = `This will delete the selected group and all its child items. Continue?`;
+        msg = `Delete group and all items?`;
         okBtnText = "Delete Group";
     } else {
         // --- DELETE ITEM CASE ---
         const item = group?.items.find(i => i.id === itemId);
-        const itemName = item ? item.label : "this item";
-        title = itemName;
-        msg = `Delete selected item from group <b>${groupName}</b> permanently?`;
+        title = item ? item.label : "Item";
+        msg = `Delete item from group <b>${groupName}</b>?`;
         okBtnText = "Delete Item";
     }
 
@@ -140,15 +147,6 @@ export function showDeleteUI(depth, groupId, itemId, vaultData, {onConfirm = () 
         title: title,
         message: msg,
         okText: okBtnText,
-        onConfirm: () => {
-            onConfirm();
-            // showConfirmUI handles the visibility swap back to main
-        }
+        onConfirm: onConfirm
     });
 }
-
-export function hideAddRenDel() {
-    vaultAddNewUI.mainSection.setVisible(false);
-    hideConfirmUI();
-}
-
