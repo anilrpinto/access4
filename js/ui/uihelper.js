@@ -74,6 +74,14 @@ export function loadUI(names, prefix = "", scope = document) {
             return this;
         };
 
+        el.setReadOnly = function(isReadOnly) {
+            // Only inputs and textareas support the readOnly property
+            if ("readOnly" in this) {
+                this.readOnly = isReadOnly;
+            }
+            return this;
+        };
+
         el.clear = function() {
             if ("value" in this) {
                 this.value = "";
@@ -141,6 +149,13 @@ export function loadUI(names, prefix = "", scope = document) {
         Object.values(ui).forEach(el => {
             if (el instanceof HTMLElement) el.setEnabled?.(enabled);
         });
+    };
+
+    ui.setReadOnly = (isReadOnly) => {
+        Object.values(ui).forEach(el => {
+            if (el instanceof HTMLElement) el.setReadOnly?.(isReadOnly);
+        });
+        return ui;
     };
 
     ui.clear = function() {

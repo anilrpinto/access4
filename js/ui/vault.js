@@ -1278,12 +1278,14 @@ function manageActionableItems(readOnly) {
     log("vaultUI.manageActionableItems", "called");
 
     const visible = !readOnly;
+    const genesis = AU.isGenesisUser();
     const admin = AU.isAdmin();
 
     // These only care about read-only/admin status, not depth
     vaultMenu.saveMenu.setVisible(visible);
     vaultMenu.toggleEditMenu.setVisible(visible);
-    vaultMenu.rawDataMenu.setVisible(visible && admin);
+
+    vaultMenu.rawDataMenu.setVisible(genesis || (visible && admin));
 
     vaultMenu.syncAccessMenu.setVisible(visible && admin);
     vaultMenu.runBackupMenu.setVisible(admin);
@@ -1375,6 +1377,10 @@ export async function loadVault(pwd, data, options) {
 export function refreshVaultView(readOnly) {
     if (readOnly)
         warn("vaultUI.refreshVaultView", "Read-Only mode, app will be limited to view info only!");
+
+    vaultUI.title.classList.value = AU.isGenesisUser() ? 'genesis-user' : AU.isAdminUser() ? 'admin-user' : 'member-user';
+
+    vaultRawDataUI.content.setReadOnly(readOnly || !AU.isGenesisUser());
 
     renderVaultExplorer();
     manageActionableItems(readOnly);

@@ -1566,3 +1566,18 @@ button.danger-btn:active {
     background-color: #f1b0b7 !important; /* Active tap state */
     transform: scale(0.98);
 }
+
+.genesis-user {
+    color: #138d9c !important;
+    font-weight: bold;
+}
+
+.admin-user {
+    color: #602bba !important;
+    font-weight: bold;
+}
+
+.member-user {
+    color: #000000 !important;
+    font-weight: bold;
+}
