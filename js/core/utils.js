@@ -28,6 +28,8 @@ export function dumpLocalStorageForDebug() {
     }
 }
 
+export const delay = (ms) => new Promise(res => setTimeout(res, ms));
+
 export function getCurrentTime() {
     return new Date().toLocaleTimeString([], {
         hour: '2-digit',

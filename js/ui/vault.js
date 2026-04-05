@@ -1,9 +1,9 @@
-import { C, G, inReadOnlyMode, isValidSession, AU, SV, AT, U, log, trace, debug, info, warn, error } from '@/shared/exports.js';
+import { C, G, inReadOnlyMode, isValidSession, CR, AU, SV, AT, U, log, trace, debug, info, warn, error } from '@/shared/exports.js';
 
 import { activateIdleChecker, logout } from '@/app.js';
 
-import { runAdminBackup } from '@/core/backup.js';
-import { runGarbageCollection, runVaultAccessHousekeeping } from '@/core/janitor.js';
+import { runFullBackup, runSharedVaultBackup, runPrivateVaultBackup } from '@/core/backup.js';
+import { runSharedVaultCleanup, runPrivateVaultCleanup, runVaultAccessHousekeeping } from '@/core/janitor.js';
 
 import { ScreenManager } from '@/ui/screen-manager.js';
 import { swapVisibility, showSilentToast } from '@/ui/uihelper.js';
@@ -13,9 +13,15 @@ import { showOverlayConfirmUI, showOverlayAlertUI, showOverlayPasswordUI, showOv
 
 import { generateFilterMap, hideFilterUI } from '@/ui/filter.js';
 import { showAddNewUI, showRenameUI, showDeleteUI } from '@/ui/add-rename-delete.js';
+import { promptPrivateVaultPassword, showCreatePrivateVaultUI, lockPrivateVault, isPrivateVaultUnlocked, savePrivateVaultData } from "@/ui/private-vault.js";
 
 let originalVaultData = null;
 let vaultData = null;
+
+// Add these to your existing declarations
+let privateVaultData = null;         // The decrypted JSON
+let originalPrivateVaultData = null; // For discarding changes
+let isPrivateMode = false;           // UI Toggle state
 
 let vaultClipboard = {
     mode: null,      // 'cut' (we can add 'copy' later if needed)
@@ -68,6 +74,7 @@ async function init() {
     vaultMenu.syncAccessMenu.onClick(doSyncAccessClick);
     vaultMenu.runBackupMenu.onClick(doRunBackupClick);
     vaultMenu.recoveryRotationMenu.onClick(doRecoveryKeyRotationClick);
+    vaultMenu.privateVaultMenu.onClick(doPrivateVaultClick);
 
     vaultUI.title.onClick(doToggleSecureClick);
     vaultUI.toggleSecureBtn.onClick(doToggleSecureClick);
@@ -88,6 +95,106 @@ async function init() {
     // Ensure these containers always use flex when shown
     //vaultRawDataUI.mainSection.setFlex();
     //vaultUI.mainSection.setFlex();
+}
+
+async function doPrivateVaultClick() {
+    log("vaultUI.doPrivateVaultClick", "called");
+
+    if (isPrivateVaultUnlocked()) {
+        if (privateVaultData && !isPrivateMode)
+            toggleVaultMode('private');
+        else {
+            //lockPrivateVault();
+            toggleVaultMode('shared');
+        }
+        return
+    }
+
+    // 2. Check if a private vault pointer exists in the main vault extensions
+    const emailHash = await CR.hashString(G.userEmail);
+    const pointer = vaultData.extensions?.private_vaults?.[emailHash];
+
+    if (!pointer) {
+        // CASE A: GENESIS (No vault found for this email)
+        await showCreatePrivateVaultUI(async (result) => {
+
+            // 1. Update the local Main Envelope
+            if (!vaultData.extensions) vaultData.extensions = { private_vaults: {} };
+
+            vaultData.extensions.private_vaults[emailHash] = result.pointer;
+
+            // 2. Persist the Main Envelope immediately (so the pointer isn't lost)
+            await doSaveClick();
+
+            // 3. Set the Private state
+            privateVaultData = result.data;
+            originalPrivateVaultData = structuredClone(result.data);
+
+            // 4. Switch View
+            toggleVaultMode('private');
+        });
+    } else {
+        // CASE B: UNLOCK (Vault exists, need password)
+        await promptPrivateVaultPassword(pointer, emailHash, async (pwd, data) => {
+            if (data) {
+                privateVaultData = data;
+                originalPrivateVaultData = structuredClone(privateVaultData);
+            } else
+                log("vaultUI.doPrivateVaultClick", "accessing already unlocked private vault");
+            showSilentToast("Private Vault Accessible");
+            toggleVaultMode('private');
+
+            runPrivateVaultBackup(pwd, privateVaultData, true, () => showSilentToast("Private vault backup successful"), () => showSilentToast("Private vault backup failed"));
+
+            runPrivateVaultCleanup(privateVaultData).catch(err => {
+                warn("vaultUI.doPrivateVaultClick", "Ignoring private vault cleanup failure (non-critical):", err);
+            });
+        });
+    }
+}
+
+/**
+ * SWITCHES THE UI CONTEXT
+ * Changes the "Source of Truth" for the Explorer and Breadcrumbs.
+ */
+async function toggleVaultMode(mode) {
+    log("vaultUI.toggleVaultMode", `Switching to: ${mode}`);
+
+    isPrivateMode = (mode === 'private');
+
+    // 1. Reset navigation to the root of the selected vault
+    sessionState.path = ['root'];
+
+    // 2. Update UI Branding (Visual cues are vital for security)
+    if (isPrivateMode) {
+        vaultUI.title.setText("🛡️ Private Vault");
+        vaultUI.title.style.color = "#FFD700"; // Gold/Security Yellow
+        showSilentToast("Switched to Private Mode", false);
+    } else {
+        vaultUI.title.setText("Vault");
+        vaultUI.title.style.color = ""; // Default
+        showSilentToast("Returned to Shared Vault", false);
+    }
+
+    refreshMenuUI();
+
+    // 3. Update the Action Bar (Add/Rename/Delete logic)
+    refreshAddRenDelBtnVisibility();
+
+    // 4. Full Re-render
+    renderVaultExplorer();
+}
+
+/**
+ * Returns the currently active vault data based on view mode.
+ */
+function getActiveData() {
+    return isPrivateMode ? privateVaultData : vaultData;
+}
+
+function setActiveData(activeData) {
+    if (isPrivateMode) privateVaultData = activeData;
+    else vaultData = activeData;
 }
 
 async function doUsersClick() {
@@ -124,27 +231,47 @@ async function doSyncAccessClick() {
 async function doRunBackupClick() {
     log("vaultUI.doRunBackupClick", "called");
 
-    // 1. Prompt for password
+    const hasPrivate = isPrivateVaultUnlocked();
+
+    // 1. Shared Vault Password Prompt
     const pwd = await showOverlayPasswordUI({
-        title: "Manual Backup",
-        message: "Password required to create a secure backup package.",
-        okText: "Run"
+        title: "Shared Vault Backup",
+        message: "Enter your password for Shared Vault backup.",
+        okText: hasPrivate ? "Continue" : "Run"
     });
 
     if (!pwd) return; // Opted out - canceled
 
+    let privPwd = null;
+
+    // 2. Conditional Private Vault Password Prompt
+    // Only prompt if the private vault is initialized/unlocked in this session
+    if (hasPrivate) {
+        privPwd = await showOverlayPasswordUI({
+            title: "Private Vault Backup",
+            message: "Enter password to your Private vault",
+            okText: "Run"
+        });
+
+        // Note: If they cancel HERE, we can still proceed with just Shared,
+        // or return if you want "Full or Nothing".
+        // Let's assume they want both if they started the flow.
+        if (!privPwd) return;
+    }
+
     try {
-        // 2. Execute (true = explicit request)
-        await runAdminBackup(pwd, vaultData, false, () => {
-            showSilentToast("Writing backup package (ZIP+HTML+TXT) to local storage...");
+        // 3. Updated runFullBackup (Sequential Downloads)
+        // Pass both passwords into the generalized orchestrator
+        await runFullBackup(pwd, vaultData, privPwd, privateVaultData, () => {
+            showSilentToast("Writing backup packages (ZIP+HTML+TXT) to local storage...");
             refreshCleanupPill();
         });
 
     } catch (err) {
         error("vaultUI.doRunBackupUI", "Error:" + err);
         showOverlayAlertUI({
-            title: "Error",
-            message: "Decryption failed. Please ensure your Master Password is correct."
+            title: "Backup Failed",
+            message: "Authentication failed. Please ensure the passwords typed are correct."
         });
     }
 }
@@ -161,13 +288,27 @@ function doDiscardChangesClick() {
             // 1. REVERT THE DATA CHANGES
             vaultData = structuredClone(originalVaultData);
 
-            // 2. Nuke the "Orphaned" Uploads from Drive
-            if (pendingFileUploads.length > 0) {
-                pendingFileUploads.forEach(id => AT.deleteAttachmentFile(id));
-                pendingFileUploads = [];
+            // 2. Revert Private (if unlocked)
+            if (privateVaultData) {
+                privateVaultData = structuredClone(originalPrivateVaultData);
             }
 
-            // 3. Clear the delete queue (They are back in the vault now)
+            // 1. Capture the IDs and clear the array immediately to prevent double-processing
+            const filesToNuke = [...pendingFileUploads];
+            pendingFileUploads = [];
+
+            // 3. Nuke the "Orphaned" Uploads from Drive
+            if (filesToNuke.length > 0) {
+                log("vaultUI", `Cleaning up ${filesToNuke.length} unsaved uploads...`);
+                // Non-blocking but tracked
+                Promise.all(filesToNuke.map(id =>
+                    AT.deleteAttachmentFile(id).catch(err => error("DiscardCleanup", `Failed: ${id}`, err))
+                )).then(() => {
+                    log("vaultUI", "Background upload cleanup finished.");
+                });
+            }
+
+            // 4. Clear the delete queue (They are back in the vault now)
             if (typeof pendingFileDeletions !== 'undefined') {
                 log("vaultUI.doDiscardChangesClick", `Rescuing ${pendingFileDeletions.length} files from deletion queue.`);
                 pendingFileDeletions = [];
@@ -230,6 +371,7 @@ function doCutClick() {
 async function doPasteClick() {
     log("vaultUI.doPasteClick", "called");
 
+    const activeData = getActiveData();
     const targetGroupId = sessionState.path[1];
 
     // 1. Validation: Must be in a group to paste
@@ -238,7 +380,7 @@ async function doPasteClick() {
         return;
     }
 
-    const targetGroup = vaultData.groups.find(g => g.id === targetGroupId);
+    const targetGroup = activeData.groups.find(g => g.id === targetGroupId);
     if (!targetGroup) {
         error("Paste failed: Target group not found");
         return;
@@ -249,7 +391,7 @@ async function doPasteClick() {
     // 2. Loop through every item in the clipboard
     vaultClipboard.items.forEach(clipboardEntry => {
         // Find the source group for THIS specific item
-        const sourceGroup = vaultData.groups.find(g => g.id === clipboardEntry.parentId);
+        const sourceGroup = activeData.groups.find(g => g.id === clipboardEntry.parentId);
 
         // Safety: Don't move if source is the same as target
         if (sourceGroup && sourceGroup.id !== targetGroupId) {
@@ -296,6 +438,13 @@ function doSecure() {
 
     // 1. Wipe the Data
     vaultData = null;
+    originalVaultData = null;
+    privateVaultData = null;
+    originalPrivateVaultData = null;
+    isPrivateMode = false;
+
+    lockPrivateVault();
+
     vaultRawDataUI.content.clear();
 
     // 2. Wipe the Session State (Crucial!)
@@ -354,14 +503,23 @@ function doShowRawDataClick() {
     window.ScreenManager.register(window.ScreenManager.RAW_DATA_SCREENKEY, vaultRawDataUI.mainSection, {
         onShow: async () => {
             log("doShowRawDataClick.show", "Loading raw vault data");
-            if (vaultRawDataUI.content && vaultData) {
-                vaultRawDataUI.content.setText(U.format(vaultData));
+
+            const activeData = getActiveData();
+            if (vaultRawDataUI.content && activeData) {
+                vaultRawDataUI.content.setText(U.format(activeData));
             }
         }
     });
     ScreenManager.switchView(window.ScreenManager.RAW_DATA_SCREENKEY);
 
     vaultRawDataUI.closeBtn.onClick(() => window.ScreenManager.goHome());
+
+/*    vaultRawDataUI.closeBtn.onClick(() => {
+        const activeData = JSON.parse(vaultRawDataUI.content.value);
+        setActiveData(activeData);
+        log("activeData", JSON.stringify(activeData));
+        window.ScreenManager.goHome();
+    });*/
 }
 
 async function doAddClick() {
@@ -369,7 +527,7 @@ async function doAddClick() {
     log("vaultUI.doAddClick", "called - depth:", depth);
 
     if (depth < 3) {
-        showAddNewUI(depth, sessionState.path[depth-1], vaultData, {
+        showAddNewUI(depth, sessionState.path[depth-1], getActiveData(), {
             onAdd: (name) => {
                 if (depth === 1) executeAddGroup(name);
                 else if (depth === 2) executeAddItem(name);
@@ -388,7 +546,7 @@ async function doRenameClick() {
     // We only rename things we are currently "inside" or looking at
     if (depth < 2) return;
 
-    showRenameUI(depth, vaultData, sessionState.path, {
+    showRenameUI(depth, getActiveData(), sessionState.path, {
         onRename: (newName) => {
             executeRename(newName);
         },
@@ -408,7 +566,7 @@ async function doDeleteClick() {
         return; // Can't delete the root vault
     }
 
-    showDeleteUI(depth, sessionState.path[1], sessionState.path[2], vaultData, {
+    showDeleteUI(depth, sessionState.path[1], sessionState.path[2], getActiveData(), {
         onConfirm: () => {
             executeDeletion();
         },
@@ -460,7 +618,6 @@ async function doToggleEditClick() {
 
 async function doSaveClick() {
     log("vaultUI.doSaveClick", "Starting save process...");
-    showStatusMessage("Encrypting and saving...", null);
 
     if (!vaultData || Object.keys(vaultData).length === 0) {
         warn("vaultUI.doSaveClick", "Vault data is empty or missing.");
@@ -468,23 +625,47 @@ async function doSaveClick() {
         return;
     }
 
+    // Check for any changes across both vaults
+    const changedShared = JSON.stringify(vaultData) !== JSON.stringify(originalVaultData);
+    const changedPrivate = privateVaultData && (JSON.stringify(privateVaultData) !== JSON.stringify(originalPrivateVaultData));
+
+    if (!changedShared && !changedPrivate && pendingFileDeletions.length === 0) {
+        showStatusMessage("Vault has not changed since last save", "info");
+        return;
+    }
+
+    showStatusMessage("Encrypting and saving...", null);
+
     try {
-        // 1. PERSIST THE JSON (The Source of Truth)
-        await SV.encryptAndPersistPlaintext(JSON.stringify(vaultData), {
-            onUpdate: updateLockStatusUI
-        });
 
-        // 2. DATA SYNC: Update our "Last Saved" snapshot
-        originalVaultData = structuredClone(vaultData);
+        const saveTasks = [];
 
-        // --- NEW SYMMETRY LINE ---
-        // Since the JSON saved successfully, these uploads are now "Official".
+        // Task: Shared Vault
+        if (changedShared) {
+            saveTasks.push((async () => {
+                await SV.encryptAndPersistPlaintext(JSON.stringify(vaultData), { onUpdate: updateLockStatusUI });
+                originalVaultData = structuredClone(vaultData);
+            })());
+        }
+
+        // Task: Private Vault
+        if (changedPrivate) {
+            saveTasks.push((async () => {
+                await savePrivateVaultData(privateVaultData);
+                originalPrivateVaultData = structuredClone(privateVaultData);
+            })());
+        }
+
+        // 1. Wait for all JSON updates to finish
+        await Promise.all(saveTasks);
+
+        // 2. Commit Uploads: Now that JSONs are saved, these files are "Official"
         // We clear the list so we don't nuke them on a future Discard/Logout.
         pendingFileUploads = [];
-        // -------------------------
 
         // 3. PHYSICAL CLEANUP: Run this only after the JSON is safely saved
         if (typeof pendingFileDeletions !== 'undefined' && pendingFileDeletions.length > 0) {
+
             info("vaultUI.doSaveClick", `Processing ${pendingFileDeletions.length} queued deletions...`);
 
             // We use allSettled so one 403 (Permission) doesn't stop the others
@@ -518,10 +699,11 @@ async function doSaveClick() {
                 refreshMenuUI();
             }
         });
-        showStatusMessage(`Last saved: ${U.getCurrentTime()}`, "success");
+        showStatusMessage(`Last saved at ${U.getCurrentTime()}`, "success");
 
     } catch (err) {
         error("vaultUI.doSaveClick", "Save failed:", err);
+        showOverlayAlertUI({ title: "Save Failed", message: err.message });
         showStatusMessage(`Save failed: ${err.message || err}`, "error");
         // Note: we do NOT clear pendingFileDeletions here so the user can try saving again
     }
@@ -530,9 +712,11 @@ async function doSaveClick() {
 function executeAddGroup(name) {
     log("vaultUI.executeAddGroup", "called - name:", name);
 
+    const activeData = getActiveData();
     const newId = 'g-' + Date.now();
     const newGroup = { id: newId, name: name, items: [] };
-    vaultData.groups.push(newGroup);
+
+    activeData.groups.push(newGroup);
 
     // Auto-navigate into the new group
     sessionState.path.push(newId);
@@ -541,9 +725,10 @@ function executeAddGroup(name) {
 
 function executeAddItem(name) {
     log("vaultUI.executeAddItem", "called - name:", name);
+    const activeData = getActiveData();
 
     const groupId = sessionState.path[1];
-    const group = vaultData.groups.find(g => g.id === groupId);
+    const group = activeData.groups.find(g => g.id === groupId);
     const now = new Date().toISOString();
     const newItem = {
         id: 'i-' + Date.now(),
@@ -558,15 +743,16 @@ function executeAddItem(name) {
 function executeRename(newName) {
     log("vaultUI.executeRename", "called - newName:", newName);
 
+    const activeData = getActiveData();
     const depth = sessionState.path.length;
     const groupId = sessionState.path[1];
 
     if (depth === 2) {
-        const group = vaultData.groups.find(g => g.id === groupId);
+        const group = activeData.groups.find(g => g.id === groupId);
         if (group) group.name = newName;
     } else if (depth === 3) {
         const itemId = sessionState.path[2];
-        const group = vaultData.groups.find(g => g.id === groupId);
+        const group = activeData.groups.find(g => g.id === groupId);
         const item = group?.items.find(i => i.id === itemId);
         if (item) {
             item.label = newName;
@@ -580,15 +766,16 @@ function executeRename(newName) {
 function executeDeletion() {
     log("vaultUI.executeDeletion", "called");
 
+    const activeData = getActiveData();
     const depth = sessionState.path.length;
 
     if (depth === 2) {
         // --- DELETE GROUP ---
         const groupId = sessionState.path[1];
-        const index = vaultData.groups.findIndex(g => g.id === groupId);
+        const index = activeData.groups.findIndex(g => g.id === groupId);
 
         if (index > -1) {
-            vaultData.groups.splice(index, 1);
+            activeData.groups.splice(index, 1);
             // After deleting a group, we must go back to the root
             sessionState.path = ['root'];
         }
@@ -597,7 +784,7 @@ function executeDeletion() {
         // --- DELETE ITEM ---
         const groupId = sessionState.path[1];
         const itemId = sessionState.path[2];
-        const group = vaultData.groups.find(g => g.id === groupId);
+        const group = activeData.groups.find(g => g.id === groupId);
 
         if (group) {
             const index = group.items.findIndex(i => i.id === itemId);
@@ -654,7 +841,13 @@ function refreshMenuUI() {
         vaultMenu.selectMenu.classList.remove('active-mode-text');
     }
 
-    vaultMenu.discardChangesMenu.setVisible(JSON.stringify(vaultData) !== JSON.stringify(originalVaultData));
+    vaultMenu.privateVaultMenu.setText((isPrivateVaultUnlocked() && isPrivateMode ? "🔒 Close" : "🛡️ Open") + " Private Vault");
+    vaultMenu.discardChangesMenu.setVisible(hasVaultChanges());
+}
+
+function hasVaultChanges() {
+    return (JSON.stringify(vaultData) !== JSON.stringify(originalVaultData)) ||
+        (privateVaultData && JSON.stringify(privateVaultData) !== JSON.stringify(originalPrivateVaultData));
 }
 
 async function toggleLogs() {
@@ -665,14 +858,17 @@ async function toggleLogs() {
  * Resolves an ID to a human-readable name for the breadcrumb
  */
 function getNameFromId(id, index) {
-    if (id === 'root') return "🏠";
+    if (id === 'root') return isPrivateMode ? "🛡️" : "🏠";
+
+    const activeData = getActiveData();
+
     if (index === 1) { // It's a Group ID
-        const group = vaultData.groups.find(g => g.id === id);
+        const group = activeData.groups.find(g => g.id === id);
         return group ? group.name : "Unknown Group";
     }
     if (index === 2) { // It's an Item ID
         const groupId = sessionState.path[1];
-        const group = vaultData.groups.find(g => g.id === groupId);
+        const group = activeData.groups.find(g => g.id === groupId);
         const item = group?.items.find(i => i.id === id);
         return item ? item.label : "Unknown Item";
     }
@@ -687,20 +883,48 @@ function renderBreadcrumbs() {
     if (!breadcrumbs) return;
 
     breadcrumbs.innerHTML = "";
+
+    // Determine if the user is currently looking at the root of the active vault
+    const isCurrentlyAtRoot = sessionState.path.length === 1 && sessionState.path[0] === 'root';
+
     sessionState.path.forEach((id, index) => {
+        const isRootNode = (id === 'root');
         const isLast = index === sessionState.path.length - 1;
         const label = getNameFromId(id, index);
 
         const span = document.createElement('span');
-        span.className = isLast ? 'breadcrumb-item active' : 'breadcrumb-item link';
+
+        // We make the root node ALWAYS look like a link if we are at root
+        // so the user knows they can click it to switch vaults.
+        const canSwitch = isRootNode && isCurrentlyAtRoot;
+        span.className = (isLast && !canSwitch) ? 'breadcrumb-item active' : 'breadcrumb-item link';
         span.innerText = label;
 
-        if (!isLast) {
-            span.onclick = () => {
+        span.onclick = async () => {
+            if (isRootNode) {
+                if (isCurrentlyAtRoot) {
+                    // --- VAULT SWITCHER ---
+                    // Triggered by clicking the icon (🏠/🛡️) while already at the top level.
+                    log("vaultUI.breadcrumb", "Root-to-Root click: Toggling Vaults");
+                    if (isPrivateMode) {
+                        toggleVaultMode('shared');
+                    } else {
+                        await doPrivateVaultClick();
+                    }
+                } else {
+                    // --- RESET TO ROOT ---
+                    // Triggered by clicking the icon while deep in a group or item.
+                    log("vaultUI.breadcrumb", "Resetting to current vault root");
+                    sessionState.path = ['root'];
+                    renderVaultExplorer();
+                }
+            } else if (!isLast) {
+                // --- STANDARD BACKWARD NAVIGATION ---
+                // Navigating to a specific Group in the path.
                 sessionState.path = sessionState.path.slice(0, index + 1);
-                renderVaultExplorer(); // We will build this next
-            };
-        }
+                renderVaultExplorer();
+            }
+        };
 
         breadcrumbs.appendChild(span);
         if (!isLast) {
@@ -716,15 +940,16 @@ function renderBreadcrumbs() {
 
 function renderGroupList(container) {
     log("vaultUI.renderGroupList", "called");
+    const activeData = getActiveData();
 
     container.innerHTML = ""; // Clear existing
 
-    if (!vaultData.groups || vaultData.groups.length === 0) {
+    if (!activeData.groups || activeData.groups.length === 0) {
         container.innerHTML = `<div class="empty-state">No groups found.</div>`;
         return;
     }
 
-    vaultData.groups.forEach(group => {
+    activeData.groups.forEach(group => {
 
         // FILTER CHECK: Skip if not visible in search
         if (currentFilterMap && !currentFilterMap.visible.has(group.id)) {
@@ -762,10 +987,11 @@ function renderGroupList(container) {
 
 function renderItemList(container, groupId) {
     log("vaultUI.renderItemList", "called");
+    const activeData = getActiveData();
 
     container.innerHTML = "";
 
-    const group = vaultData.groups.find(g => g.id === groupId);
+    const group = activeData.groups.find(g => g.id === groupId);
     if (!group) return;
 
     // 💡 EMPTY STATE TWEAK:
@@ -844,8 +1070,9 @@ function updateMoveToolbar() {
 
 function renderItemDetails(container, groupId, itemId) {
     log("vaultUI.renderItemDetails", "called");
+    const activeData = getActiveData();
 
-    const group = vaultData.groups.find(g => g.id === groupId);
+    const group = activeData.groups.find(g => g.id === groupId);
     const item = group?.items.find(i => i.id === itemId);
 
     if (!item) {
@@ -1044,10 +1271,9 @@ async function handleUploadAttachment(file, label, itemObject) {
         // SAFETY: If the section doesn't exist yet (first upload for this item),
         // find the main detail container and inject it.
         if (!container) {
-            const detailView = document.getElementById('vault_explorer'); // Or your specific detail ID
             container = document.createElement('div');
             container.className = 'attachment-section';
-            detailView.appendChild(container);
+            vaultUI.explorer.appendChild(container);
         }
 
         // 2. Now append the spinner
@@ -1068,7 +1294,8 @@ async function handleUploadAttachment(file, label, itemObject) {
         let mimeType = file.type || (file.name.endsWith('.zip') ? 'application/zip' : '');
         log("vaultUI.handleUploadAttachment", "mimeType:", mimeType);
 
-        const attachmentEntry = await AT.saveAttachment(fileName, binary, file.type);
+        const attachmentEntry = await AT.saveAttachment(isPrivateMode ? C.PRIVATE_ATTACHMENTS_FOLDER_NAME : C.ATTACHMENTS_FOLDER_NAME,
+            fileName, binary, file.type);
 
         // attachmentEntry.val is the Google Drive File ID.
         // We add it to our 'pendingFileUploads' so we can nuke it if they hit Discard.
@@ -1227,11 +1454,12 @@ function attachDetailListeners(container) {
  * Finds the currently active item based on the sessionState.path
  */
 function getCurrentItem() {
+    const activeData = getActiveData();
     const groupId = sessionState.path[1];
     const itemId = sessionState.path[2];
     if (!groupId || !itemId) return null;
 
-    const group = vaultData.groups.find(g => g.id === groupId);
+    const group = activeData.groups.find(g => g.id === groupId);
     return group?.items.find(i => i.id === itemId) || null;
 }
 
@@ -1242,8 +1470,10 @@ async function renderVaultExplorer() {
     // 1. Wipe transient keys/envelope before any rendering starts
     SV.flushCachedTransients();
 
+    const activeData = getActiveData();
+
     // Safety check: if we still don't have data, stop here.
-    if (!vaultData) {
+    if (!activeData) {
         warn("vaultUI.renderVaultExplorer", "No data available to render.");
         return;
     }
@@ -1340,7 +1570,8 @@ export async function loadVault(pwd, data, options) {
     originalVaultData = structuredClone(data);
 
     if (AU.isAdmin()) {
-        await runAdminBackup(pwd, vaultData, true, () => refreshCleanupPill(), () => refreshCleanupPill());
+        const cb = () => refreshCleanupPill();
+        runSharedVaultBackup(pwd, vaultData, true, cb, cb);
     }
     pwd = null;
 
@@ -1371,14 +1602,14 @@ export async function loadVault(pwd, data, options) {
     // This is what actually triggers the UI transition!
     ScreenManager.switchView('explorer');
 
-    setTimeout(async () => await runGarbageCollection(vaultData), 5000); // 5-second delay to prioritize the initial UI render
+    setTimeout(async () => runSharedVaultCleanup(vaultData), 5000); // 5-second delay to prioritize the initial UI render
 }
 
 export function refreshVaultView(readOnly) {
     if (readOnly)
         warn("vaultUI.refreshVaultView", "Read-Only mode, app will be limited to view info only!");
 
-    vaultUI.title.classList.value = AU.isGenesisUser() ? 'genesis-user' : AU.isAdminUser() ? 'admin-user' : 'member-user';
+    vaultUI.title.classList.value = AU.isGenesisUser() ? 'genesis-user' : AU.isAdmin() ? 'admin-user' : 'member-user';
 
     vaultRawDataUI.content.setReadOnly(readOnly || !AU.isGenesisUser());
 
@@ -1399,7 +1630,7 @@ export function handleSearchInput(query) {
         if (!query || query.trim() === "") {
             currentFilterMap = null;
         } else {
-            currentFilterMap = generateFilterMap(vaultData, query);
+            currentFilterMap = generateFilterMap(getActiveData(), query);
         }
 
         // FORCE HOME: Reset the navigation path to the root

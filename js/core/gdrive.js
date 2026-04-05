@@ -247,21 +247,42 @@ export async function upsertJsonFile({ name, parentId, json, overwrite = false }
  * Binary version of upsert.
  * Handles the 'attachments' folder and returns the Drive File ID.
  */
-export async function upsertBinaryFile({ name, parentId, content, mimeType = "application/octet-stream" }) {
-    log("GD.upsertBinaryFile", `Uploading ${name}`);
+export async function upsertBinaryFile({ name, parentId, content, mimeType = "application/octet-stream", fileId = null }) {
+    log("GD.upsertBinaryFile", `Uploading ${name} (ID: ${fileId || 'New File'})`);
 
-    // Note: We usually don't 'overwrite' attachments since they use UUIDs,
-    // but the structure remains consistent with your JSON helper.
-    const file = await _driveMultipartUploadBinary({
-        metadata: {
-            name,
-            parents: [parentId],
-            mimeType
-        },
-        content
-    });
+    if (fileId) {
+        // UPDATE EXISTING FILE
+        // We use the simpler "media" upload for updates unless you need to change metadata
+        const url = _buildDriveUploadUrl(`files/${fileId}`, { uploadType: "media" });
 
-    return file.id; // This is the ID we MUST store in the Vault JSON
+        const res = await fetch(url, {
+            method: "PATCH",
+            headers: {
+                Authorization: `Bearer ${G.accessToken}`,
+                "Content-Type": mimeType
+            },
+            body: content // Blob or ArrayBuffer
+        });
+
+        if (!res.ok) {
+            const text = await res.text();
+            throw new Error(`Binary update failed: ${res.status} - ${text}`);
+        }
+
+        const json = await res.json();
+        return json.id;
+    } else {
+        // CREATE NEW FILE
+        const file = await _driveMultipartUploadBinary({
+            metadata: {
+                name,
+                parents: [parentId],
+                mimeType
+            },
+            content
+        });
+        return file.id;
+    }
 }
 
 /**

@@ -1,6 +1,6 @@
 "use strict";
 
-import { C, G, clearGlobals, SV, log, trace, debug, info, warn, error,
+import { C, G, clearGlobals, isValidSession, SV, log, trace, debug, info, warn, error,
     setLogLevel, onlyLogLevels, TRACE, DEBUG, INFO, WARN, ERROR } from '@/shared/exports.js';
 
 import { rootUI } from '@/ui/loader.js';
@@ -46,6 +46,12 @@ function onLoad() {
     window.addEventListener('focus', () => {
         if (G.driveLockState && !G.driveLockState.heartbeat) {
             log("APP.focus", "Tab focused - Attempting to restart stalled heartbeat...");
+
+            if (!isValidSession) {
+                warn("No valid session found, terminating lock status lost flow");
+                return;
+            }
+
             SV.tryAcquireEnvelopeWriteLock(); // This uses the new "Proactive" logic from earlier
         }
     });
@@ -131,7 +137,6 @@ export async function logout(reason = "User initiated") {
 
     // 1️⃣ Wait for the lock to be released properly
     await releaseDriveLock();
-
 
     deactivateAutoLogout();
 

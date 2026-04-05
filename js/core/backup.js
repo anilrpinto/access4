@@ -1,43 +1,57 @@
-import { C, G, AU, SV, CR, ID, AT, U, log, trace, debug, info, warn, error } from '@/shared/exports.js';
+import { C, G, AU, CR, ID, AT, U, log, trace, debug, info, warn, error } from '@/shared/exports.js';
 import { showSilentToast } from '@/ui/uihelper.js';
 
 const RECOVERY_STRING_PREFIX = "access4recoveryv1";
 
-export async function runAdminBackup(pwd, vaultData, isAuto = true, onBackup = null, onSkip = null) {
-    log("backup.runAdminBackup", `Starting backup (Mode: ${isAuto ? 'Auto' : 'Manual'})`);
+/**
+ * Internal Generalized Backup Engine
+ * Handles shared and private silos based on options.
+ */
+async function _runBackup(pwd, vaultData, options = {}) {
+    const {
+        isAuto = true,
+        onBackup = null,
+        onSkip = null,
+        siloType: vaultType = 'shared',
+        attachmentFolder = C.ATTACHMENTS_FOLDER_NAME
+    } = options;
 
-    if (!AU.isAdmin()) return; // Non-admins never backup
+    log(`backup._runBackup.${vaultType}`, `Starting ${vaultType} backup (Mode: ${isAuto ? 'Auto' : 'Manual'})`);
+
+    if (!AU.isAdmin()) return;
 
     const today = new Date().toISOString().split('T')[0];
+    const scopedKey = `${G.userEmail}::${vaultType.toLowerCase()}_${C.LAST_AUTO_BACKUP_KEY}`;
 
-    const scopedKey = `${G.userEmail}::${C.LAST_AUTO_BACKUP_KEY}`;
-
+    // 1. THROTTLING & VERIFICATION
     if (isAuto) {
-        // Daily Throttling Logic
-        const lastBackup = localStorage.getItem(scopedKey);
-        if (lastBackup === today) {
-            info("backup.runAdminBackup", "Auto-backup skipped: already ran today.");
-            if (onSkip) onSkip();
-            return;
-        }
+        if (!G.settings.ignore24hCheck) {
+            const lastBackup = localStorage.getItem(scopedKey);
+            if (lastBackup === today) {
+                info(`backup._runBackup.${vaultType}`, `${vaultType} Auto-backup skipped: already ran today.`);
+                if (onSkip) onSkip();
+                return;
+            }
+        } else
+            log(`backup._runBackup.${vaultType}`, "IGNORING 24H check!!");
+
     } else {
         try {
-            if (!pwd || pwd.length < C.PASSWORD_MIN_LEN) throw new Error("Invalid password, try again");
-
+            if (!pwd || pwd.length < C.PASSWORD_MIN_LEN) throw new Error("Invalid password");
             const id = await ID.loadIdentity();
             await ID.verifyPasswordVerifier(id.passwordVerifier, await CR.deriveKey(pwd, id.kdf));
         } catch (e) {
-            throw new Error("Invalid Master Password");
+            throw new Error(`Invalid Master Password for ${vaultType} backup.`);
         }
     }
 
-    // 2. EXECUTION LOGIC (Master Bundle ZIP)
+    // 2. EXECUTION LOGIC
     try {
         const fullTs = new Date().toISOString().replace(/[:.]/g, '-');
         const prefix = isAuto ? "A" : "M";
-        const bundleName = `${prefix}-Access4_MASTER_BUNDLE_${U.getLocalTimestamp()}_${G.userEmail.slice(0, -15)}.zip`;
+        const bundleName = `${prefix}-ACCESS4_${vaultType.toUpperCase()}_BUNDLE_${U.getLocalTimestamp()}_${G.userEmail.slice(0, -15)}.zip`;
 
-        const vaultJson = JSON.stringify(vaultData, null, 2);
+        const vaultJson = U.format(vaultData);
 
         // --- Create the Master Bundle ZIP ---
         const masterZipWriter = new window.zip.ZipWriter(new window.zip.BlobWriter("application/zip"));
@@ -51,44 +65,40 @@ export async function runAdminBackup(pwd, vaultData, isAuto = true, onBackup = n
             zipCrypto: true
         });
 
-        // A2. ATTACHMENT PROCESSING: Fetch, Decrypt, and Pack
+        // A2. ATTACHMENT PROCESSING
         const allAttachments = [];
-        vaultData.groups.forEach(g => {
-            if (g.items) {
-                g.items.forEach(i => {
+        const crawl = (obj) => {
+            if (!obj || typeof obj !== 'object') return;
+            if (Array.isArray(obj.items)) {
+                obj.items.forEach(i => {
                     if (i.attachments && i.attachments.length > 0) {
                         i.attachments.forEach(a => {
-                            // Use 'label' to match your JSON schema
-                            allAttachments.push({
-                                ...a,
-                                itemName: i.label || i.id || "Unknown_Item"
-                            });
+                            allAttachments.push({ ...a, itemName: i.label || i.id || "Unknown_Item" });
                         });
                     }
                 });
             }
-        });
+            // If the JSON structure has nested groups (shared vault style)
+            if (obj.groups && Array.isArray(obj.groups)) {
+                obj.groups.forEach(g => crawl(g));
+            }
+        };
+        crawl(vaultData);
 
         if (allAttachments.length > 0) {
-            info("backup.runAdminBackup", `Processing ${allAttachments.length} attachments...`);
+            info(`backup._runBackup.${vaultType}`, `Processing ${allAttachments.length} attachments from ${attachmentFolder}...`);
 
             for (const attach of allAttachments) {
                 try {
-                    // Use your validated Envelope logic to get plaintext bytes
+                    // AT.openAttachment uses GD.readBinaryByFileId internally, which is folder-agnostic
                     const plaintext = await AT.openAttachment(attach);
-
-                    // If openAttachment returns an ArrayBuffer, this converts it.
-                    // If it's already a Uint8Array, this is a safe no-op.
                     const dataToZip = new Uint8Array(plaintext);
 
                     if (dataToZip.length === 0) {
-                        warn("backup.runAdminBackup", `Decrypted data for ${attach.key} is 0 bytes!`);
+                        warn(`backup._runBackup.${vaultType}`, `Decrypted data for ${attach.key} is 0 bytes!`);
                     }
 
-                    // Path formatting: "attachments/ItemName_FileName.ext"
-                    // We sanitize the item name to prevent ZIP path errors
-                    const itemName = attach.itemName || "Unknown";
-                    const safeItemName = itemName.replace(/[^a-z0-9]/gi, '_');
+                    const safeItemName = (attach.itemName || "Unknown").replace(/[^a-z0-9]/gi, '_');
                     const zipPath = `attachments/${safeItemName}_${attach.key}`;
 
                     await internalZipWriter.add(zipPath, new window.zip.Uint8ArrayReader(dataToZip), {
@@ -96,10 +106,9 @@ export async function runAdminBackup(pwd, vaultData, isAuto = true, onBackup = n
                         zipCrypto: true
                     });
 
-                    log("backup.runAdminBackup", `Bundled ${dataToZip.length} bytes: ${zipPath}`);
+                    log(`backup._runBackup.${vaultType}`, `Bundled ${zipPath} : ${dataToZip.length} bytes`);
                 } catch (err) {
-                    // Log the error but keep the backup moving
-                    error("backup.runAdminBackup", `Failed to bundle ${attach.key}: ${err.message}`, err);
+                    error(`backup._runBackup.${vaultType}`, `Failed to bundle ${attach.key}: ${err.message}`, err);
                 }
             }
         }
@@ -107,11 +116,9 @@ export async function runAdminBackup(pwd, vaultData, isAuto = true, onBackup = n
         const internalZipBlob = await internalZipWriter.close();
         await masterZipWriter.add("1-Encrypted_Data.zip", new window.zip.BlobReader(internalZipBlob));
 
-        // 2. Add the Standalone HTML Recovery
         const htmlBlob = await generateRecoveryHTML(vaultJson, pwd);
         await masterZipWriter.add("2-Recovery_Standalone.html", new window.zip.BlobReader(htmlBlob));
 
-        // 3. Add the Recovery TXT String
         const recoveryString = await generateRecoveryString(vaultJson, pwd);
         const txtBlob = new Blob([recoveryString], { type: 'text/plain' });
         await masterZipWriter.add("3-Recovery_String.txt", new window.zip.BlobReader(txtBlob));
@@ -123,19 +130,71 @@ export async function runAdminBackup(pwd, vaultData, isAuto = true, onBackup = n
         // 3. SUCCESS STATE
         if (isAuto) {
             localStorage.setItem(scopedKey, today);
-            showSilentToast("Daily recovery bundle saved.");
+            showSilentToast(`${vaultType} backup saved.`);
         }
 
         // 4. LOGGING & UI CALLBACK
         await logBackupEvent(fullTs, !isAuto);
 
         if (onBackup) onBackup();
-        else if (onSkip) onSkip();
 
     } catch (err) {
         if (onSkip) onSkip();
-        error("backup.runAdminBackup", "Bundle generation failed: " + err);
-        throw err; // Re-throw so doRunBackupUI can catch it and show the error modal
+        error(`backup._runBackup.${vaultType}`, `${vaultType} Bundle generation failed: ` + err);
+        throw err;
+    }
+}
+
+/**
+ * BACKUP SHARED VAULT
+ */
+export async function runSharedVaultBackup(pwd, vaultData, isAuto = true, onBackup = null, onSkip = null) {
+    return _runBackup(pwd, vaultData, {
+        isAuto,
+        onBackup,
+        onSkip,
+        siloType: 'shared',
+        attachmentFolder: C.ATTACHMENTS_FOLDER_NAME
+    });
+}
+
+/**
+ * BACKUP PRIVATE VAULT
+ */
+export async function runPrivateVaultBackup(pwd, privateVaultData, isAuto = true, onBackup = null, onSkip = null) {
+    return _runBackup(pwd, privateVaultData, {
+        isAuto,
+        onBackup,
+        onSkip,
+        siloType: 'private',
+        attachmentFolder: C.PRIVATE_ATTACHMENTS_FOLDER_NAME
+    });
+}
+
+/**
+ * FULL BACKUP (Both Silos)
+ * Typically used for manual backups.
+ */
+export async function runFullBackup(pwd, sharedVaultData, privPwd = null, privateVaultData = null, onBackup = null, onSkip = null) {
+    log("backup.runFullBackup", "Executing full manual backup of all available vaults.");
+
+    try {
+        // 1. Shared Vault
+        await runSharedVaultBackup(pwd, sharedVaultData, false);
+
+        // 2. Do Private only if we have both the pwd and the data
+        if (privPwd && privateVaultData) {
+            log("backup.runFullBackup", "Pausing for Safari download manager gap...");
+            await U.delay(2000);
+            await runPrivateVaultBackup(pwd, privateVaultData, false);
+        }
+
+        if (onBackup) onBackup();
+
+    } catch (err) {
+        if (onSkip) onSkip();
+        error(`backup.runFullBackup`, "Full backup Bundle generation failed: " + err);
+        throw err;
     }
 }
 

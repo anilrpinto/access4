@@ -4,68 +4,84 @@ import { C, G, AU, GD, SV, EN, ID, RG, AT, log, info, warn, error } from '@/shar
  * Sweeps the Attachments folder for files owned by the current user
  * that are no longer referenced in the decrypted Vault JSON.
  */
-export async function runGarbageCollection(vaultData) {
+export async function runSharedVaultCleanup(vaultData) {
+    _runVaultCleanup(vaultData);
+}
 
+export async function runPrivateVaultCleanup(privateVaultData) {
+    _runVaultCleanup(privateVaultData, C.PRIVATE_ATTACHMENTS_FOLDER_NAME, 'private');
+}
+
+/**
+ * Core vault Cleanup Logic
+ * @param {Object} vaultData - The specific vault (Shared or Private) to check against.
+ * @param {string} folderName - The Drive folder to scan (C.ATTACHMENTS_FOLDER_NAME or C.PRIVATE_ATTACHMENTS_FOLDER_NAME).
+ * @param {string} vaultType - A label for logging and storage keys ('shared' or 'private').
+ */
+async function _runVaultCleanup(vaultData, folderName = C.ATTACHMENTS_FOLDER_NAME, vaultType = 'shared') {
+    // 1. Validation
     if (!vaultData || Object.keys(vaultData).length === 0) {
-        warn("janitor.runGarbageCollection", "Vault data is empty or null. Aborting GC to prevent accidental deletion.");
+        warn(`janitor.${vaultType}`, `Vault data empty. Aborting to prevent accidental deletion.`);
         return;
     }
 
-    // 1. Device-Specific Throttle Check (LocalStorage)
-    // We use a unique key based on the user ID so multiple users on 1 device stay separate
-    const storageKey = `${G.userEmail}::${C.LAST_GC_RUN_KEY}`;
+    // 2. Throttle Check (Unique per User AND per Silo)
+    const storageKey = `${G.userEmail}::${vaultType.toLowerCase()}_${C.LAST_GC_RUN_KEY}`;
     const lastRunStr = localStorage.getItem(storageKey);
     const lastRun = lastRunStr ? new Date(lastRunStr) : null;
     const now = new Date();
     const twentyFourHours = 24 * 60 * 60 * 1000;
 
-    if (!G.settings.ignore24hBackupCheck) {
+    if (!G.settings.ignore24hCheck) {
         if (lastRun && (now - lastRun < twentyFourHours)) {
-            warn("janitor.runGarbageCollection", `Skipping file cleanup. Device last cleaned at: ${lastRun.toLocaleString()}`);
+            warn(`janitor.${vaultType}`, `Cleanup skipped. Last run: ${lastRun.toLocaleString()}`);
             return;
         }
     } else
-        log("janitor.runGarbageCollection", "IGNORING 24H backup check!!");
+        log(`janitor.${vaultType}`, "IGNORING 24H check!!");
 
-    log("janitor.runGarbageCollection", "Starting background cleanup...");
+    log(`janitor.${vaultType}`, `Starting background cleanup for folder: ${folderName}...`);
 
     try {
-        const driveFiles = await GD.listFilesOwnedByMe(C.ATTACHMENTS_FOLDER_NAME);
-
-        if (driveFiles.length > 0) {
-
-            const activeIds = new Set();
-            const crawl = (obj) => {
-                if (!obj || typeof obj !== 'object') return;
-                if (Array.isArray(obj.attachments)) {
-                    obj.attachments.forEach(attr => { if (attr.val) activeIds.add(attr.val); });
-                }
-                Object.values(obj).forEach(val => { if (val && typeof val === 'object') crawl(val); });
-            };
-            crawl(vaultData);
-
-            const orphans = driveFiles.filter(file => !activeIds.has(file.id));
-
-            if (orphans.length > 0) {
-                log("janitor.runGarbageCollection", `Purging ${orphans.length} orphans...`);
-                for (const file of orphans) {
-                    await AT.deleteAttachmentFile(file.id).catch(err => warn("janitor.GC", err.message));
-                }
-            } else {
-                log("janitor.runGarbageCollection", "Drive is in sync. No orphans found.");
-            }
+        // 3. Scan Drive
+        const driveFiles = await GD.listFilesOwnedByMe(folderName);
+        if (driveFiles.length === 0) {
+            log(`janitor.${vaultType}`, "No files found in folder. Nothing to clean.");
+            return;
         }
 
-        // 4. Update LocalStorage (No Vault Save Required!)
+        // 4. Crawl local data for active IDs
+        const activeIds = new Set();
+        const crawl = (obj) => {
+            if (!obj || typeof obj !== 'object') return;
+            if (Array.isArray(obj.attachments)) {
+                obj.attachments.forEach(attr => { if (attr.val) activeIds.add(attr.val); });
+            }
+            Object.values(obj).forEach(val => { if (val && typeof val === 'object') crawl(val); });
+        };
+        crawl(vaultData);
+
+        // 5. Identify and Purge Orphans
+        const orphans = driveFiles.filter(file => !activeIds.has(file.id));
+
+        if (orphans.length > 0) {
+            log(`janitor.${vaultType}`, `Purging ${orphans.length} orphans...`);
+            for (const file of orphans) {
+                await AT.deleteAttachmentFile(file.id).catch(err => warn(`janitor.${vaultType}.GC`, err.message));
+            }
+        } else {
+            log(`janitor.${vaultType}`, "Drive is in sync. No orphans found.");
+        }
+
+        // 6. Update Throttle Timestamp
         localStorage.setItem(storageKey, new Date().toISOString());
 
-        info("janitor.runGarbageCollection", "Drive files cleanup completed.");
+        info(`janitor.${vaultType}`, "Drive files cleanup completed.");
 
     } catch (err) {
-        error("janitor.runGarbageCollection", "Global GC failure: " + err.message);
+        error(`janitor.${vaultType}`, "Cleanup failure: " + err.message);
     }
 }
-
 
 /**
  * Runs silently after login to ensure the

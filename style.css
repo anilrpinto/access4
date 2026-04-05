@@ -1137,6 +1137,11 @@ body.vault-frozen .list-row:active {
     line-height: 1;
 }
 
+#restoreBackup_copyBtn:hover {
+    background-color: #fa8241 !important;
+    color: #333;
+}
+
 #restoreBackup_closeBtn:hover {
     color: #333;
 }

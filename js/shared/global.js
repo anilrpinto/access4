@@ -43,9 +43,9 @@ const _G = {
         gisPrompt: false,
         minifyJson: false,
         clearBioDbOnLoad: false,
-        clearLocalStorageOnLoad: true,
+        clearLocalStorageOnLoad: false,
         clearLastAutoBackupKey: false,
-        ignore24hBackupCheck: true,
+        ignore24hCheck: false,
         preAuthMembers: {
             "avitapinto@gmail.com": { role: "member", readonly: false, forcePasswordChange: false, allowAttachments: true },
             "allisonpintosd@gmail.com": { role: "member", readonly: true, allowAttachments: false },

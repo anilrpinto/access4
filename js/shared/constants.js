@@ -1,7 +1,7 @@
 "use strict";
 
 export const C = deepFreeze({
-    APP_VERSION: "16",
+    APP_VERSION: "19",
     CLIENT_ID: "738922366916-ppn1c24mp9qamr6pdmjqss3cqjmvqljv.apps.googleusercontent.com",
     SCOPES: "https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/userinfo.email",
     ACCESS4_ROOT_ID: "1zQPiXTCDlPjzgD1YZiVKsRB2s4INUS_g",
@@ -15,7 +15,9 @@ export const C = deepFreeze({
     RECOVERY_KEY_PRIVATE_FILE: "recovery.private.json",
     PUBKEY_FOLDER_NAME: "pub-keys",
     RECOVERY_FOLDER_NAME: "recovery",
+    PRIVATE_VAULT_FOLDER_NAME: "private",
     ATTACHMENTS_FOLDER_NAME: "attachments",
+    PRIVATE_ATTACHMENTS_FOLDER_NAME: "private-attachments",
 
     BACKUP_MANIFEST_KEY: "backup_manifest",
     LAST_AUTO_BACKUP_KEY: "last_auto_backup",
@@ -25,7 +27,7 @@ export const C = deepFreeze({
     MAX_BACKUP_MANIFEST_ENTRIES: 10,
 
     HEARTBEAT_INTERVAL: 10_000, // 10 seconds
-    LOCK_TTL_MS: 30_000,        // 30 secconds (must be > heartbeat)
+    LOCK_TTL_MS: 30_000,        // 30 seconds (must be > heartbeat)
     IDLE_TIMEOUT_MS: 900000,    // 15 mins
 
     BIO_DB_NAME: "bio_db",

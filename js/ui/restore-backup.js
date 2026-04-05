@@ -60,7 +60,7 @@ async function doDecryptClick() {
 async function doCopyToClipboardClick() {
     backupRestoreUI.outputTxa.select();
     backupRestoreUI.outputTxa.setSelectionRange(0, 99999); // For mobile
-    copyToClipboard(backupRestoreUI.outputTxa.getText());
+    copyToClipboard(backupRestoreUI.outputTxa.value);
 }
 
 // 1. Decrypt Action

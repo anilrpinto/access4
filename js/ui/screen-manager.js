@@ -11,6 +11,7 @@ export const ScreenManager = {
     RAW_DATA_SCREENKEY: 'raw-data',
     EDITOR_SCREENKEY: 'editor',
     CONFIRM_SCREENKEY: 'confirm',
+    CREATE_PRIVATE_VAULT_SCREENKEY: 'create-private-vault',
 
     isRegistered(key) {
         // Centralized logic for "What defines a registered screen?"

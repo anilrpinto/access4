@@ -112,6 +112,10 @@ function _createStarterVaultJson() {
         "meta": {
             "version": "1.0",
             "lastModified": null,
+            "type": "shared",
+            "extensions": {
+                "private_vaults": {}
+            }
         },
         "groups": [
             {

@@ -142,6 +142,7 @@
                     <button id="vaultMenu_syncAccessMenu">Sync Access</button>
                     <button id="vaultMenu_runBackupMenu">Run Backup</button>
                     <button id="vaultMenu_recoveryRotationMenu">Recovery Rotation</button>
+                    <button id="vaultMenu_privateVaultMenu">Private vault</button>
                     <hr>
                     <button id="vaultMenu_selectMenu">Select</button>
                     <button id="vaultMenu_cutMenu" style="display:none;">Cut</button>
@@ -227,6 +228,23 @@
                 <button id="vaultRecoveryKey_rotateBtn">Rotate Key</button>
             </div>
             <div id="vaultRecoveryKey_statusMsg" class="unlock-message"></div>
+        </div>
+
+        <!-- Private Vault Creation Section -->
+        <div id="vaultCreatePrivate_mainSection" style="display: none;">
+            <div class="input-group">
+                <label>Password</label>
+                <input type="password" id="vaultCreatePrivate_pwdInput">
+            </div>
+            <div class="input-group">
+                <label>Confirm Password</label>
+                <input type="password" id="vaultCreatePrivate_confirmPwdInput">
+            </div>
+            <div class="button-group">
+                <button id="vaultCreatePrivate_cancelBtn">Cancel</button>
+                <button id="vaultCreatePrivate_createBtn">Create</button>
+            </div>
+            <div id="vaultCreatePrivate_statusMsg" class="unlock-message"></div>
         </div>
 
         <div id="vaultUsers_mainSection" class="inline-ui-view" style="display: none;">

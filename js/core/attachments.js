@@ -14,18 +14,19 @@ function getDevDriveName(originalName) {
 /**
  * Handles the encryption and Drive upload of an attachment.
  * Returns the metadata object to be stored in the Vault JSON.
+ * @param {string} folderName - The bname of the destination folder.
  * @param {string} name - The display name/label for the file.
  * @param {Uint8Array} binary - The raw file bytes.
  * @param {string} mimeType - The original mime type (for metadata).
  */
-export async function saveAttachment(name, binary, mimeType) {
+export async function saveAttachment(folderName = C.ATTACHMENTS_FOLDER_NAME, name, binary, mimeType) {
     log("AT.saveAttachment", `Processing: ${name}`);
 
     const fileUuid = CR.generateUUID();
     const encryptedBytes = await encryptAttachment(binary, fileUuid);
 
     // 1. Get the folder ID (this should be cached in G.attachmentsFolderId eventually)
-    const folderId = await GD.findOrCreateFolder("attachments", C.ACCESS4_ROOT_ID);
+    const folderId = await GD.findOrCreateFolder(folderName, C.ACCESS4_ROOT_ID);
 
     // --- TEMP DEV LOGIC ---
     const driveName = getDevDriveName(name);    //`${fileUuid}.bin`

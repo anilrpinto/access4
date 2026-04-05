@@ -15,6 +15,9 @@ export const vaultRawDataUI = loadUI(['mainSection', 'content', 'closeBtn'], 'va
 export const vaultRecoveryKeyUI = loadUI(['mainSection', 'currentPwdSection', 'currentPwdInput', 'pwdInput',
     'confirmPwdInput', 'rotateBtn', 'cancelBtn', 'statusMsg'], 'vaultRecoveryKey_', 'vaultBody');
 
+export const vaultCreatePrivateUI = loadUI(['mainSection', 'pwdInput', 'confirmPwdInput', 'createBtn', 'cancelBtn', 'statusMsg'],
+    'vaultCreatePrivate_', 'vaultBody');
+
 export const vaultAddNewUI = loadUI(['mainSection', 'title', 'label', 'input', 'cancelBtn', 'addBtn'], 'vaultAddNew_', 'vaultBody');
 
 export const confirmUI = loadUI(['mainSection', 'title', 'message', 'cancelBtn', 'okBtn'], 'vaultConfirm_', 'vaultBody');
@@ -31,8 +34,9 @@ export const vaultUsersUI = loadUI(['mainSection', 'title', 'closeBtn', 'userSel
 export const vaultMenuBar = loadUI(['addBtn', 'renameBtn', 'deleteBtn'], 'vaultMenuBar_', 'vault_headerRightSide');
 
 export const vaultMenu = loadUI(['menuBtn', 'menuDropdown', 'saveMenu', 'toggleEditMenu', 'rawDataMenu',
-    'discardChangesMenu', 'copyLogsMenu', 'toggleLogsMenu', 'usersMenu', 'syncAccessMenu', 'runBackupMenu', 'recoveryRotationMenu',
-    'selectMenu', 'cutMenu', 'pasteMenu', 'logoutMenu'], 'vaultMenu_', 'vault_headerRightSide');
+    'discardChangesMenu', 'copyLogsMenu', 'toggleLogsMenu', 'usersMenu', 'syncAccessMenu', 'runBackupMenu',
+    'recoveryRotationMenu', 'privateVaultMenu', 'selectMenu', 'cutMenu', 'pasteMenu', 'logoutMenu'],
+    'vaultMenu_', 'vault_headerRightSide');
 
 export const systemModalUI = loadUI(['mainSection', 'title', 'message', 'cancelBtn', 'okBtn'], 'systemModal_');
 

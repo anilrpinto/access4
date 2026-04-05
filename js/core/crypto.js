@@ -85,12 +85,30 @@ export async function deriveKey(pwd, kdf) {
     );
 }
 
+/**
+ * INTERNAL CORE: Hashes any Uint8Array/ArrayBuffer
+ * This is the "single source of truth" for SHA-256 hashing in your app.
+ */
+async function _hashBuffer(buf) {
+    const data = buf instanceof ArrayBuffer ? new Uint8Array(buf) : buf;
+    const hashBuffer = await crypto.subtle.digest(CR_ALG.HASH.SHA256, data);
+    return new Uint8Array(hashBuffer);
+}
+
+export async function hashString(str) {
+    log("CR.hashString", "called");
+    const encoder = new TextEncoder();
+    // Normalize to handle case-insensitivity for emails
+    const hashBytes = await _hashBuffer(encoder.encode(str.trim().toLowerCase()));
+    return bufToB64(hashBytes);
+}
+
 export async function computePublicKeyFingerprint(pubBytes) {
     log("CR.computePublicKeyFingerprint", "called");
-
-    const buf = pubBytes instanceof ArrayBuffer ? new Uint8Array(pubBytes) : pubBytes;
-    const hashBuffer = await crypto.subtle.digest(CR_ALG.HASH.SHA256, buf);
-    return bufToB64(new Uint8Array(hashBuffer));
+    // Pass the bytes to the core hasher
+    const hashBytes = await _hashBuffer(pubBytes);
+    // Return the Base64 version exactly as before
+    return bufToB64(hashBytes);
 }
 
 export async function encrypt(data, key) {
