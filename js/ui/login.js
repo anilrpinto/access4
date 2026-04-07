@@ -1,4 +1,4 @@
-import { C, G, inReadOnlyMode, inWriteMode, clearGlobals, AU, BM, CR, ID, R, RG, SV, EN, U,
+import { C, G, LS, inReadOnlyMode, inWriteMode, clearGlobals, AU, BM, CR, ID, R, RG, SV, EN, U,
     log, trace, debug, info, warn, error } from '@/shared/exports.js';
 
 import { runVaultAccessHousekeeping } from '@/core/janitor.js';
@@ -581,7 +581,7 @@ async function promptClearLocalStorage() {
         return false;
     }
 
-    localStorage.clear();
+    LS.clear();
     log("loginUI.promptClearLocalStorage", "localStorage cleared successfully.");
     return true;
 }
@@ -594,7 +594,7 @@ async function promptClearLastAutoBackupKey() {
         return false;
     }
 
-    localStorage.removeItem(C.LAST_AUTO_BACKUP_KEY);
+    LS.remove(C.LAST_AUTO_BACKUP_KEY);
     log("loginUI.promptClearLastAutoBackupKey", "Silent Backup key cleared successfully.");
     return true;
 }

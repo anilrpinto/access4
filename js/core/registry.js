@@ -1,4 +1,4 @@
-import { C, G, GD, log, trace, debug, info, warn, error } from '@/shared/exports.js';
+import { C, G, LS, GD, log, trace, debug, info, warn, error } from '@/shared/exports.js';
 
 function resetKeyRegistry() {
     log("RG.resetKeyRegistry", "called");
@@ -243,7 +243,7 @@ export function saveRegistryToCache() {
             version: "1.0" // Good practice for future migrations
         };
 
-        localStorage.setItem(`${G.userEmail}::${C.REGISTRY_CACHE_KEY}`, JSON.stringify(cacheData));
+        LS.set(C.REGISTRY_CACHE_KEY, JSON.stringify(cacheData));
         log("RG.saveRegistryToCache", `Cached ${activeDevices.length} active devices.`);
     } catch (err) {
         // Handle QuotaExceededError (rare for this small JSON, but safe)
@@ -254,11 +254,9 @@ export function saveRegistryToCache() {
 /**
  * Loads the registry from local storage into G.keyRegistry.
  */
-// registry.js
-
 export function loadRegistryFromCache() {
     try {
-        const raw = localStorage.getItem(`${G.userEmail}::${C.REGISTRY_CACHE_KEY}`);
+        const raw = LS.get(C.REGISTRY_CACHE_KEY);
         if (!raw) {
             log("RG.loadRegistryFromCache", "No cache found, initializing empty registry");
             resetKeyRegistry(); // Ensure G.keyRegistry structure exists

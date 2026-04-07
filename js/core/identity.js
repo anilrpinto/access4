@@ -1,17 +1,13 @@
-import { C, G, CR, GD, log, trace, debug, info, warn, error } from '@/shared/exports.js';
-
-function identityKey() {
-    return `${G.userEmail}::${C.IDENTITY_KEY}`;
-}
+import { C, G, LS, CR, GD, log, trace, debug, info, warn, error } from '@/shared/exports.js';
 
 function saveIdentity(id) {
-    localStorage.setItem(identityKey(), JSON.stringify(id));
+    LS.set(C.IDENTITY_KEY, JSON.stringify(id));
 }
 
 function loadIdentityFromStorage() {
     log("ID.loadIdentityFromStorage", "called");
 
-    const raw = localStorage.getItem(identityKey());
+    const raw = LS.get(C.IDENTITY_KEY);
     log("ID.loadIdentityFromStorage", "Identity in localStorage exists:", !!raw);
 
     if (!raw) return null;
@@ -86,12 +82,11 @@ export function getDeviceId() {
         throw new Error(err);
     }
 
-    const scopedKey = `${G.userEmail}::${C.DEVICE_ID_KEY}`;
-    let id = localStorage.getItem(scopedKey);
+    let id = LS.get(C.DEVICE_ID_KEY);
 
     if (!id) {
         id = CR.generateUUID();
-        localStorage.setItem(scopedKey, id);
+        LS.set(C.DEVICE_ID_KEY, id);
         log("ID.getDeviceId", `New unique device ID generated for ${G.userEmail}: ${id}`);
     }
     return id;
@@ -127,11 +122,9 @@ export async function loadIdentity() {
 }
 
 export function removeDeviceIdentity() {
-    const key = identityKey();
-    if (localStorage.getItem(key)) {
-        warn("ID.removeDeviceIdentity", "Removing identity:" + key);
-        localStorage.removeItem(C.DEVICE_ID_KEY);
-        localStorage.removeItem(key);
+    if (LS.get(C.IDENTITY_KEY)) {
+        warn("ID.removeDeviceIdentity", "Removing identity:", C.IDENTITY_KEY);
+        LS.remove(C.DEVICE_ID_KEY);
     }
 }
 

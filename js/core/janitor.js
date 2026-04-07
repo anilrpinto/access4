@@ -1,4 +1,4 @@
-import { C, G, AU, GD, SV, EN, ID, RG, AT, log, info, warn, error } from '@/shared/exports.js';
+import { C, G, LS, AU, GD, SV, EN, ID, RG, AT, log, info, warn, error } from '@/shared/exports.js';
 
 /**
  * Sweeps the Attachments folder for files owned by the current user
@@ -26,8 +26,8 @@ async function _runVaultCleanup(vaultData, folderName = C.ATTACHMENTS_FOLDER_NAM
     }
 
     // 2. Throttle Check (Unique per User AND per Silo)
-    const storageKey = `${G.userEmail}::${vaultType.toLowerCase()}_${C.LAST_GC_RUN_KEY}`;
-    const lastRunStr = localStorage.getItem(storageKey);
+    const storageKey = `${vaultType.toLowerCase()}_${C.LAST_GC_RUN_KEY}`;
+    const lastRunStr = LS.get(storageKey);
     const lastRun = lastRunStr ? new Date(lastRunStr) : null;
     const now = new Date();
     const twentyFourHours = 24 * 60 * 60 * 1000;
@@ -74,7 +74,7 @@ async function _runVaultCleanup(vaultData, folderName = C.ATTACHMENTS_FOLDER_NAM
         }
 
         // 6. Update Throttle Timestamp
-        localStorage.setItem(storageKey, new Date().toISOString());
+        LS.set(storageKey, new Date().toISOString());
 
         info(`janitor.${vaultType}`, "Drive files cleanup completed.");
 

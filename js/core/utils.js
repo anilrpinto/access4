@@ -2,7 +2,7 @@ import { G } from '@/shared/global.js';
 import { log, trace, debug, info, warn, error } from '@/shared/log.js';
 
 export function format(json) {
-    // Determine indentation: undefined (minified), other wise indent by 2 spaces
+    // Determine indentation: undefined (minified), otherwise indent by 2 spaces
     return JSON.stringify(json, null, (G.settings?.minifyJson ? undefined : 2));
 }
 

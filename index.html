@@ -181,6 +181,67 @@
             <div id="vault_statusMsg" class="unlock-message"></div>
         </div>
 
+        <div id="advSearch_mainSection" class="modal-overlay hidden">
+            <div class="modal-mini-card adv-search-container">
+
+                <header class="adv-header">
+                    <h2 id="advSearch_title">Advanced Search</h2>
+                    <button id="advSearch_close" class="close-x-btn">&times;</button>
+                </header>
+
+                <div class="modal-simple-body modal-body">
+                    <div class="search-field">
+                        <label class="input-label">Search In</label>
+                        <select id="advSearch_scope">
+                            <option value="">All (Default)</option>
+                            <optgroup label="System">
+                                <option value="groups">Groups Only</option>
+                                <option value="items">Items Only</option>
+                                <option value="details">Item Details Only</option>
+                                <option value="attachments">Attachments Only</option>
+                            </optgroup>
+                            <optgroup id="advSearch_dynamicLabels" label="Field Labels"></optgroup>
+                        </select>
+                    </div>
+
+                    <div class="search-field">
+                        <label class="input-label">Attachments</label>
+                        <select id="advSearch_attach">
+                            <option value="" selected>Any (Don't care)</option>
+                            <option value="only">Items With Attachments</option>
+                            <option value="none">Items Without Attachments</option>
+                        </select>
+                    </div>
+
+                    <div class="search-field">
+                        <label class="input-label">Logic</label>
+                        <select id="advSearch_logic">
+                            <option value="contains" selected>Contains</option>
+                            <option value="exact">Exact Match</option>
+                            <option value="or">OR (Spaces)</option>
+                            <option value="and">AND (Spaces)</option>
+                        </select>
+                    </div>
+
+                    <div class="search-field checkbox-row">
+                        <label class="check-label">
+                            <input type="checkbox" id="advSearch_case">
+                            <span>Case Sensitive</span>
+                        </label>
+                    </div>
+                </div>
+
+                <hr class="modal-sep">
+
+                <div class="modal-footer">
+                    <div class="button-group">
+                        <button id="advSearch_reset" class="secondary-btn">Reset All</button>
+                        <button id="advSearch_run" class="btn-primary">Apply</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <div id="vaultConfirm_mainSection" class="inline-ui-view" style="display:none;">
             <div>
                 <h2 id="vaultConfirm_title" class="data-title">Confirm</h2>

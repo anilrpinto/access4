@@ -1,4 +1,4 @@
-import { C, G, ID, GD, CR, log, trace, debug, info, warn, error, isTraceEnabled } from '@/shared/exports.js';
+import { C, G, LS, ID, GD, CR, log, trace, debug, info, warn, error, isTraceEnabled } from '@/shared/exports.js';
 
 import { loginUI } from '@/ui/loader.js';
 
@@ -31,7 +31,7 @@ async function handleAuth(resp) {
         onAuthReady(G.userEmail);
     } catch (err) {
         error("AU.handleAuth", "Error after signin: " + err);
-        showAuthMessage(err);
+        showAuthMessage(`Initial authorization failed. ${err}`);
         loginUI.signinBtn.setVisible(true);
         //alert("Error after signin: " + err);
     }
@@ -136,7 +136,7 @@ async function ensureAuthorization() {
     log("AU.ensureAuthorization", `called - verifying against ${C.AUTH_FILE_NAME}`);
 
     // 1️⃣ Try to get the ID from cache first
-    let fileId = localStorage.getItem('cache_auth_file_id');
+    let fileId = LS.get(C.AUTH_FILE_ID_CACHE);
     let existing;
 
     if (fileId) {
@@ -150,7 +150,7 @@ async function ensureAuthorization() {
         existing = await GD.readJsonByName(C.AUTH_FILE_NAME);
 
         if (existing?.fileId) {
-            localStorage.setItem('cache_auth_file_id', existing.fileId);
+            LS.set(C.AUTH_FILE_ID_CACHE, existing.fileId);
         }
     }
 
@@ -173,7 +173,7 @@ async function ensureAuthorization() {
 
         const fileId = await GD.upsertJsonFile({ name: C.AUTH_FILE_NAME, parentId: C.ACCESS4_ROOT_ID, json: data });
 
-        if (fileId) localStorage.setItem('cache_auth_file_id', fileId);
+        if (fileId) LS.set(C.AUTH_FILE_ID_CACHE, fileId);
 
         log("AU.ensureAuthorization", `Genesis authorization created for ${G.userEmail}`);
     }

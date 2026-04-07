@@ -40,6 +40,9 @@ export const vaultMenu = loadUI(['menuBtn', 'menuDropdown', 'saveMenu', 'toggleE
 
 export const systemModalUI = loadUI(['mainSection', 'title', 'message', 'cancelBtn', 'okBtn'], 'systemModal_');
 
+export const advSearchUI = loadUI(['mainSection', 'close', 'scope', 'dynamicLabels', 'attach', 'case', 'logic', 'reset', 'run'],
+    'advSearch_', 'vaultBody');
+
 export async function copyLogsToClipboard() {
     if (!logEl) return;
 

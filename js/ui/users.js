@@ -1,6 +1,5 @@
-import { G, GD, inReadOnlyMode, log, trace, debug, info, warn, error } from '@/shared/exports.js';
+import { C, G, LS, GD, inReadOnlyMode, log, trace, debug, info, warn, error } from '@/shared/exports.js';
 
-import { ScreenManager } from '@/ui/screen-manager.js';
 import { showSilentToast } from '@/ui/uihelper.js';
 import { vaultUsersUI, vaultMenu } from '@/ui/loader.js';
 
@@ -13,7 +12,7 @@ async function unload() {
 
     if (currentAuthSnapshot !== originalAuthSnapshot) {
         if (!confirm("You have unsaved changes. Discard them?")) {
-            return false; // ✋ Veto! ScreenManager stops here.
+            return false;
         }
         // User said OK to discard: Revert G.auth so it's not "dirty"
         G.auth = JSON.parse(originalAuthSnapshot);
@@ -173,7 +172,7 @@ async function persistUserChanges() {
     log("users.persistUserChanges", "Pushing registry updates to Drive...");
 
     G.auth.modified = new Date().toISOString();
-    await GD.drivePatchJsonFile(localStorage.getItem('cache_auth_file_id'), G.auth);
+    await GD.drivePatchJsonFile(LS.get(C.AUTH_FILE_ID_CACHE), G.auth);
 
     log("users.persistUserChanges", "authorized.json updated successfully.");
 }

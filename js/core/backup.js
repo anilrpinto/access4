@@ -1,4 +1,4 @@
-import { C, G, AU, CR, ID, AT, U, log, trace, debug, info, warn, error } from '@/shared/exports.js';
+import { C, G, LS, AU, CR, ID, AT, U, log, trace, debug, info, warn, error } from '@/shared/exports.js';
 import { showSilentToast } from '@/ui/uihelper.js';
 
 const RECOVERY_STRING_PREFIX = "access4recoveryv1";
@@ -21,12 +21,12 @@ async function _runBackup(pwd, vaultData, options = {}) {
     if (!AU.isAdmin()) return;
 
     const today = new Date().toISOString().split('T')[0];
-    const scopedKey = `${G.userEmail}::${vaultType.toLowerCase()}_${C.LAST_AUTO_BACKUP_KEY}`;
+    const scopedKey = `${vaultType.toLowerCase()}_${C.LAST_AUTO_BACKUP_KEY}`;
 
     // 1. THROTTLING & VERIFICATION
     if (isAuto) {
         if (!G.settings.ignore24hCheck) {
-            const lastBackup = localStorage.getItem(scopedKey);
+            const lastBackup = LS.get(scopedKey);
             if (lastBackup === today) {
                 info(`backup._runBackup.${vaultType}`, `${vaultType} Auto-backup skipped: already ran today.`);
                 if (onSkip) onSkip();
@@ -129,7 +129,7 @@ async function _runBackup(pwd, vaultData, options = {}) {
 
         // 3. SUCCESS STATE
         if (isAuto) {
-            localStorage.setItem(scopedKey, today);
+            LS.set(scopedKey, today);
             showSilentToast(`${vaultType} backup saved.`);
         }
 
@@ -199,8 +199,7 @@ export async function runFullBackup(pwd, sharedVaultData, privPwd = null, privat
 }
 
 export async function logBackupEvent(timestamp, autoRun) {
-    const scopedKeyManifest = `${G.userEmail}::${C.BACKUP_MANIFEST_KEY}`;
-    let manifest = JSON.parse(localStorage.getItem(scopedKeyManifest) || "[]");
+    let manifest = JSON.parse(LS.get(C.BACKUP_MANIFEST_KEY) || "[]");
     manifest.push({ timestamp, type: autoRun ? 'auto' : 'manual' });
 
     // Keep only last 20 entries to prevent local storage bloat
@@ -208,13 +207,12 @@ export async function logBackupEvent(timestamp, autoRun) {
         warn("backup.logBackupEvent", "Manifest threshold reached. Removing oldest entry.");
         manifest = manifest.slice(-C.MAX_BACKUP_MANIFEST_ENTRIES);
     }
-    localStorage.setItem(scopedKeyManifest, JSON.stringify(manifest));
+    LS.set(C.BACKUP_MANIFEST_KEY, JSON.stringify(manifest));
 
-    const scopedKeyCounter = `${G.userEmail}::${C.BACKUP_CLEANUP_COUNTER_KEY}`;
-    // THE INCREMENTER (This is what the Pill tracks)
-    let counter = parseInt(localStorage.getItem(scopedKeyCounter) || 0);
+    let counter = parseInt(LS.get(C.BACKUP_CLEANUP_COUNTER_KEY) || 0);
     counter++;
-    localStorage.setItem(scopedKeyCounter, counter);
+    LS.set(C.BACKUP_CLEANUP_COUNTER_KEY, counter);
+
     log("backup.logBackupEvent", `Event logged. New cleanup count: ${counter}`);
 }
 

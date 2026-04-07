@@ -1,7 +1,16 @@
 import { log, trace, debug, info, warn, error } from '@/shared/exports.js';
 
-import { vaultNavBarUI } from '@/ui/loader.js';
-import { handleSearchInput } from '@/ui/vault.js';
+import { vaultNavBarUI, advSearchUI } from '@/ui/loader.js';
+import { handleSearchInput, getActiveVaultData } from '@/ui/vault.js';
+
+// This holds the state from your modal
+export const ADVANCED_FILTER_STATE = {
+    active: false,
+    searchIn: "",       // Default: All fields
+    attachment: "",     // Default: Any (don't care)
+    caseSensitive: false,
+    tokenLogic: "contains" // Default: Partial match
+};
 
 /**
  * THE ENGINE: Generates visibility and highlight instructions
@@ -12,8 +21,13 @@ import { handleSearchInput } from '@/ui/vault.js';
  * @param {string} query - The search text.
  */
 export function generateFilterMap(vaultData, query) {
-    const q = query.toLowerCase().trim();
-    if (!q) return null; // No filter applied
+    //log("filter.generateFilterMap", "called - query:", query);
+
+    const s = ADVANCED_FILTER_STATE;
+    const q = query.trim();
+
+    // If query is empty and we aren't doing an "Attachment Only/None" search, exit
+    if (!q && !s.attachment) return null;
 
     const map = {
         visible: new Set(),
@@ -23,75 +37,113 @@ export function generateFilterMap(vaultData, query) {
     function walk(node, type = 'group', parentMatch = false) {
         let nodeHasMatch = false;
 
-        // 1. Check current node name
-        const name = (type === 'group' ? node.name : node.label) || "";
-        if (name.toLowerCase().includes(q)) {
-            map.highlighted.add(node.id);
-            nodeHasMatch = true;
+        // --- A. PRE-FILTER: Attachment Status ---
+        if (type === 'item') {
+            const hasAttach = node.attachments && node.attachments.length > 0;
+            if (s.attachment === 'only' && !hasAttach) return false;
+            if (s.attachment === 'none' && hasAttach) return false;
         }
 
-        // 2. Check Fields
+        // --- B. MATCHING LOGIC: Respecting "searchIn" ---
+        const scope = s.searchIn;
+
+        // 1. Check current node name (Groups or Items)
+        if (!scope || scope === 'groups' || scope === 'items') {
+            const name = (type === 'group' ? node.name : node.label) || "";
+            if (smartMatch(name, q, s)) {
+                map.highlighted.add(node.id);
+                nodeHasMatch = true;
+            }
+        }
+
+        // 2. Check Fields (Item Details)
         if (type === 'item' && node.fields) {
             node.fields.forEach(f => {
-                if (f.key.toLowerCase().includes(q) || f.val.toLowerCase().includes(q)) {
-                    map.highlighted.add(`${node.id}-field-${f.key}`);
-                    nodeHasMatch = true;
+                // 1. Normalize the field key from the JSON to Uppercase for the comparison
+                const fieldKeyUpper = (f.key || "").trim().toUpperCase();
+
+                // 2. Scope check: blank, 'details', or exact match to the ALL CAPS scope
+                const isInScope = !scope || scope === 'details' || scope === fieldKeyUpper;
+
+                if (isInScope) {
+                    // If we are scoped to a specific label (e.g. "PIN"), we only match the VALUE.
+                    // Otherwise, we match label OR value.
+                    const labelMatch = (scope !== fieldKeyUpper) && smartMatch(f.key, q, s);
+                    const valueMatch = smartMatch(f.val, q, s);
+
+                    if (labelMatch || valueMatch) {
+                        map.highlighted.add(`${node.id}-field-${f.key}`);
+                        nodeHasMatch = true;
+                    }
                 }
             });
         }
 
-        // 2.5 NEW: Check Attachments
+        // 3. Check Attachments
         if (type === 'item' && node.attachments) {
-            node.attachments.forEach(a => {
-                // We search the 'key' which is the filename (e.g., "passport.pdf")
-                if (a.key.toLowerCase().includes(q)) {
-                    // Highlighting the specific attachment ID helps the UI
-                    // visually mark the matching file in the detail view
-                    map.highlighted.add(`${node.id}-attachment-${a.val}`);
-                    nodeHasMatch = true;
-                }
-            });
+            if (!scope || scope === 'attachments') {
+                node.attachments.forEach(a => {
+                    if (smartMatch(a.key, q, s)) {
+                        map.highlighted.add(`${node.id}-attachment-${a.val}`);
+                        nodeHasMatch = true;
+                    }
+                });
+            }
         }
 
-        // 💡 THE FIX: If the parent matched OR this node matched,
-        // we tell the children they are in a "matched branch"
+        // --- C. RECURSION (Preserving your original behavior) ---
         const isVisibleByInheritance = parentMatch || nodeHasMatch;
-
         let childrenHaveMatch = false;
 
-        // 3. Recurse into SUB-GROUPS
         if (node.groups) {
             node.groups.forEach(g => {
                 if (walk(g, 'group', isVisibleByInheritance)) childrenHaveMatch = true;
             });
         }
 
-        // 4. Recurse into ITEMS
         if (node.items) {
             node.items.forEach(i => {
                 if (walk(i, 'item', isVisibleByInheritance)) childrenHaveMatch = true;
             });
         }
 
-        // FINAL VISIBILITY CHECK:
-        // A node is visible if:
-        // - It matched
-        // - Any child matched
-        // - OR its parent matched (inheritance)
+        // FINAL VISIBILITY CHECK
         if (nodeHasMatch || childrenHaveMatch || parentMatch) {
             map.visible.add(node.id);
-            return true; // Tells parent "hey, I (or my kids) have a match"
+            return true;
         }
 
         return false;
     }
 
-    // Start walking from the root groups
     if (vaultData.groups) {
         vaultData.groups.forEach(g => walk(g));
     }
 
     return map;
+}
+
+/**
+ * HELPER: The logic core that replaces .includes()
+ */
+function smartMatch(target, query, settings) {
+    if (!target) return false;
+    // Standardize Case
+    let t = settings.caseSensitive ? String(target) : String(target).toLowerCase();
+    let q = settings.caseSensitive ? String(query) : String(query).toLowerCase();
+
+    // Standardize Logic
+    switch (settings.tokenLogic) {
+        case 'exact':
+            return t === q;
+        case 'or':
+            return q.split(/\s+/).some(token => token && t.includes(token));
+        case 'and':
+            return q.split(/\s+/).every(token => token && t.includes(token));
+        case 'contains':
+        default:
+            return t.includes(q);
+    }
 }
 
 let clickCount = 0;
@@ -153,13 +205,14 @@ filterToggle.onclick = () => {
             }
 
         } else if (clickCount === 2) {
-            // --- DOUBLE CLICK: Full Reset ---
-            console.log("Double Click: Clearing search and resetting UI");
-            resetFilter();
-
+            // --- DOUBLE CLICK: Advanced Modal ---
+            log("filter.filterToggle", "Double Click: Opening Advanced Modal...");
+            showAdvancedSearchModal(getActiveVaultData());
         } else if (clickCount >= 3) {
-            // --- TRIPLE CLICK: Advanced Modal ---
-            console.log("Triple Click: Opening Advanced Modal...");
+            // --- TRIPLE CLICK: Full Reset ---
+            log("filter.filterToggle", "Triple Click: Clearing search and resetting UI");
+            resetAdvancedSettings();
+            resetFilter();
         }
 
         clickCount = 0;
@@ -189,4 +242,113 @@ function resetFilter() {
     filterWrapper.classList.add('hidden');
     breadcrumbs.classList.remove('hidden');
     handleSearchInput("");
+}
+
+function resetAdvancedSettings() {
+    ADVANCED_FILTER_STATE.active = false;
+    ADVANCED_FILTER_STATE.searchIn = "";
+    ADVANCED_FILTER_STATE.attachment = "";
+    ADVANCED_FILTER_STATE.caseSensitive = false;
+    ADVANCED_FILTER_STATE.tokenLogic = "contains";
+}
+
+function applyAdvancedSearch() {
+    // 1. Read values from your modal HTML elements
+    ADVANCED_FILTER_STATE.searchIn = advSearchUI.scope.value;
+    ADVANCED_FILTER_STATE.attachment = currentToggleVal; // From your triple-toggle
+    ADVANCED_FILTER_STATE.caseSensitive = advSearchUI.case.checked;
+    ADVANCED_FILTER_STATE.tokenLogic = advSearchUI.logic.value;
+
+    // 2. Trigger the existing search flow with the current input text
+    const currentQuery = vaultNavBarUI.filterInput.value;
+    handleSearchInput(currentQuery);
+
+    // 3. Close Modal
+    hideModal('advSearch_modal');
+}
+
+/**
+ * SCRAPER: Iterates through the vault to find all unique Detail Labels.
+ */
+function getUniqueFieldLabels(vaultData) {
+    const labels = new Set();
+
+    const walk = (node) => {
+        if (node.fields) {
+            node.fields.forEach(f => {
+                if (f.key && f.key.trim()) {
+                    // Force to Uppercase to match the Details screen
+                    labels.add(f.key.trim().toUpperCase());
+                }
+            });
+        }
+        // Recursively walk through groups and items
+        if (node.groups) node.groups.forEach(g => walk(g));
+        if (node.items) node.items.forEach(i => walk(i));
+    };
+
+    walk(vaultData);
+
+    // Return sorted alphabetically (A-Z)
+    return Array.from(labels).sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * UI CONTROLLER: Shows the modal and wires up the logic.
+ */
+export function showAdvancedSearchModal(vaultData) {
+    if (!vaultData) {
+        warn("filter.showAdvancedSearchModal", "No vault data.");
+        return;
+    }
+
+    // 1. CLEAR AND RE-POPULATE DYNAMIC LABELS
+    advSearchUI.dynamicLabels.innerHTML = '';
+    const uniqueLabels = getUniqueFieldLabels(vaultData);
+
+    uniqueLabels.forEach(label => {
+        const opt = document.createElement('option');
+        opt.value = label;
+        opt.textContent = label;
+        advSearchUI.dynamicLabels.appendChild(opt);
+    });
+
+    // 2. SYNC UI WITH CURRENT STATE
+    const s = ADVANCED_FILTER_STATE;
+    advSearchUI.scope.value = s.searchIn;
+    advSearchUI.case.checked = s.caseSensitive;
+    advSearchUI.logic.value = s.tokenLogic;
+
+    // NEW: Sync the Attachment select dropdown instead of buttons
+    advSearchUI.attach.value = s.attachment;
+
+    // 3. SHOW MODAL
+    advSearchUI.mainSection.classList.remove('hidden');
+
+    // 4. BUTTON LISTENERS
+    advSearchUI.run.onclick = () => {
+        // Update the state object with the latest UI values
+        s.searchIn = advSearchUI.scope.value;
+        s.caseSensitive = advSearchUI.case.checked;
+        s.tokenLogic = advSearchUI.logic.value;
+        s.attachment = advSearchUI.attach.value; // Read from the new select
+
+        // Trigger the search engine
+        const currentQuery = vaultNavBarUI.filterInput.value;
+        handleSearchInput(currentQuery);
+
+        advSearchUI.mainSection.classList.add('hidden');
+    };
+
+    advSearchUI.reset.onclick = () => {
+        resetAdvancedSettings();
+        resetFilter();
+        // Re-run the modal setup to refresh the UI elements to default
+        showAdvancedSearchModal(vaultData);
+        advSearchUI.mainSection.classList.add('hidden');
+    };
+
+    advSearchUI.close.onclick = () => {
+        advSearchUI.mainSection.classList.add('hidden');
+    };
 }

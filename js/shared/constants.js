@@ -1,7 +1,7 @@
 "use strict";
 
 export const C = deepFreeze({
-    APP_VERSION: "19",
+    APP_VERSION: "20",
     CLIENT_ID: "738922366916-ppn1c24mp9qamr6pdmjqss3cqjmvqljv.apps.googleusercontent.com",
     SCOPES: "https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/userinfo.email",
     ACCESS4_ROOT_ID: "1zQPiXTCDlPjzgD1YZiVKsRB2s4INUS_g",
@@ -18,6 +18,7 @@ export const C = deepFreeze({
     PRIVATE_VAULT_FOLDER_NAME: "private",
     ATTACHMENTS_FOLDER_NAME: "attachments",
     PRIVATE_ATTACHMENTS_FOLDER_NAME: "private-attachments",
+    AUTH_FILE_ID_CACHE: 'auth_file_id_cache',
 
     BACKUP_MANIFEST_KEY: "backup_manifest",
     LAST_AUTO_BACKUP_KEY: "last_auto_backup",
