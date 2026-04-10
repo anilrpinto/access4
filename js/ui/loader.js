@@ -10,7 +10,7 @@ export const loginUI = loadUI(['title', 'signinBtn', 'signinStatus', 'welcomeSpa
 
 export const vaultUI = loadUI(['title', 'toggleSecureBtn', 'mainSection', 'headerRightSide', 'explorer', 'statusMsg'], 'vault_', 'vaultView');
 
-export const vaultRawDataUI = loadUI(['mainSection', 'content', 'closeBtn'], 'vaultRawData_', 'vaultView');
+export const vaultRawDataUI = loadUI(['mainSection', 'textContent', 'treeContent', 'toggleViewBtn', 'closeBtn'], 'vaultRawData_', 'vaultView');
 
 export const vaultRecoveryKeyUI = loadUI(['mainSection', 'currentPwdSection', 'currentPwdInput', 'pwdInput',
     'confirmPwdInput', 'rotateBtn', 'cancelBtn', 'statusMsg'], 'vaultRecoveryKey_', 'vaultBody');

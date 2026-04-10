@@ -172,7 +172,7 @@ input[type="password"] {
 }
 
 /* --- 7. RAW DATA TEXTAREA (The only height exception) --- */
-#vaultRawData_content {
+#vaultRawData_textContent {
     width: 100%;
     height: 70vh; /* Fixed height for the code view */
     font-family: monospace;
@@ -660,7 +660,7 @@ button.link-button:active {
 }
 
 /* --- VAULT RAW DATA VIEW --- */
-#vaultRawData_content {
+#vaultRawData_textContent {
     width: 100%;
     /* Fill most of the screen minus the button and header */
     height: 82vh;
@@ -694,7 +694,7 @@ button.link-button:active {
 }
 
 /* Subtle hover effect for the 'Tap to Copy' hint */
-#vaultRawData_content:active {
+#vaultRawData_textContent:active {
     background-color: #f0f0f0;
 }
 
@@ -1752,4 +1752,168 @@ button.danger-btn:active {
 @keyframes badge-pop {
     0% { transform: scale(0.5); opacity: 0; }
     100% { transform: scale(1); opacity: 1; }
+}
+
+/** Vault data Treeview **/
+
+/* 1. Lower the z-index so it doesn't bury the dropdown menu */
+#vaultRawData_mainSection {
+    position: fixed;
+    top: 60px;
+    left: 0;
+    width: 100vw;
+    height: calc(100vh - 60px);
+    background: #fff;
+    padding: 15px;
+    /* Changed from 2000 to 900 to stay under .menuDropdown-content (1001) */
+    z-index: 900;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* 2. Ensure your Menu and Header stay on top */
+header {
+    z-index: 1000 !important; /* Higher than the viewer */
+}
+
+.menuDropdown-content {
+    z-index: 1001 !important; /* Highest point in the vault */
+}
+
+/* 2. Fix the "Invisible Layer" on Content */
+#vaultRawData_textContent,
+#vaultRawData_treeContent {
+    width: 100%;
+    margin-bottom: 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: #fdfdfd;
+    overflow-y: auto !important;
+    overflow-x: auto;
+    /* This ensures that if the element is hidden (display: none),
+       it absolutely cannot block clicks */
+}
+
+/* 3. Keep the expansion logic we fixed earlier */
+#vaultRawData_textContent:not([style*="display: none"]),
+#vaultRawData_treeContent:not([style*="display: none"]) {
+    height: calc(100% - 70px) !important;
+    flex: none !important;
+    pointer-events: auto;
+    width: 100%;
+    margin-bottom: 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: #fdfdfd;
+    overflow-y: auto !important;
+    overflow-x: auto;
+}
+
+/* 4. Hide the other one completely to prevent phantom clicks */
+#vaultRawData_textContent[style*="display: none"],
+#vaultRawData_treeContent[style*="display: none"] {
+    display: none !important; /* Force browser to ignore it entirely */
+}
+
+/* 5. Buttons remain at the bottom */
+.button-group {
+    flex-shrink: 0;
+    display: flex;
+    gap: 10px;
+    margin-top: auto;
+    padding-bottom: 5px;
+}
+
+/* Fix for the "Menu Click" issue */
+/* If your top menu is being blocked, ensure the main section doesn't
+   have an invisible margin or outline overlapping the 60px header */
+
+/* 3. Ensure the tree div doesn't collapse to 0 or grow to infinity */
+#vaultRawData_treeContent {
+    display: block; /* Overrides flex defaults if necessary */
+    min-height: 0;   /* Crucial for flex containers to allow shrinking/scrolling */
+}
+
+/* Specific fix for the Textarea */
+#vaultRawData_textContent {
+    resize: none;
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 13px;
+    padding: 12px;
+    line-height: 1.5;
+    white-space: pre;
+}
+
+/* 3. Tree-Specific Styling */
+.json-tree {
+    font-family: 'Cascadia Code', 'Source Code Pro', 'Consolas', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    color: #333;
+    padding: 15px;
+}
+
+/* 4. Tree Nodes and Hierarchy */
+.json-tree ul {
+    list-style-type: none;
+    /* Reduced margin for a tighter, cleaner look now that brackets are gone */
+    margin: 0 0 0 10px;
+    padding: 0;
+    border-left: 1px solid #e8e8e8;
+}
+
+.json-tree li {
+    position: relative;
+    padding-left: 12px;
+}
+
+.json-tree .caret {
+    cursor: pointer;
+    user-select: none;
+    color: #666;
+    margin-right: 5px;
+    display: inline-block;
+}
+
+.json-tree .caret::before {
+    /* Switched to a solid arrow which looks better for data branches */
+    content: "▼";
+    display: inline-block;
+    transition: transform 0.2s ease;
+    font-size: 8px;
+    vertical-align: middle;
+    color: #bbb;
+}
+
+.json-tree .caret-down::before {
+    /* Rotates to point right when collapsed */
+    transform: rotate(-90deg);
+}
+
+/* New: Meta info for array counts (e.g., [28]) */
+.json-meta {
+    color: #999;
+    font-size: 0.75rem;
+    font-weight: 400;
+    margin-left: 4px;
+    font-family: sans-serif;
+}
+
+/* Toggle Logic */
+.json-tree .nested { display: none; }
+.json-tree .active { display: block; }
+
+/* Syntax Highlighting */
+.json-key { color: #881391; font-weight: 600; }
+.json-string { color: #21a121; }
+.json-number { color: #1c00cf; }
+.json-boolean { color: #aa5d00; }
+.json-null { color: #777; font-style: italic; }
+
+/* Optional: Subtle hover effect to track which line you are on */
+.json-tree li:hover > .caret,
+.json-tree li:hover > .json-key {
+    background-color: rgba(0, 0, 0, 0.03);
 }

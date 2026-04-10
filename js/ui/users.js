@@ -1,7 +1,7 @@
 import { C, G, LS, GD, inReadOnlyMode, log, trace, debug, info, warn, error } from '@/shared/exports.js';
 
 import { showSilentToast } from '@/ui/uihelper.js';
-import { vaultUsersUI, vaultMenu } from '@/ui/loader.js';
+import { vaultUsersUI } from '@/ui/loader.js';
 
 let originalAuthSnapshot = null; // To track changes
 

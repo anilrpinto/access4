@@ -155,9 +155,14 @@
     </header>
 
     <div id="vaultRawData_mainSection" style="display:none;">
-        <!--div id="vaultRawData_content" class="code-block"></div-->
-        <textarea id="vaultRawData_content" readonly></textarea>
-        <button id="vaultRawData_closeBtn">Close</button>
+        <textarea id="vaultRawData_textContent" spellcheck="false" readonly></textarea>
+
+        <div id="vaultRawData_treeContent" class="json-tree" style="display:none;"></div>
+
+        <div class="button-group">
+            <button id="vaultRawData_toggleViewBtn">Tree View</button>
+            <button id="vaultRawData_closeBtn">Close</button>
+        </div>
     </div>
 
     <main id="vaultBody">

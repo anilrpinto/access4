@@ -216,7 +216,20 @@ async function doRecoveryKeyRotationClick() {
         const { showRecoveryRotationUI } = await import('@/ui/recovery-rotation.js');
         await showRecoveryRotationUI();
     } catch (err) {
-        error("vaultUI.doUsersClick", "Failed to load Users module:", err);
+        error("vaultUI.doRecoveryKeyRotationClick", "Failed to load recovery rotation module:", err);
+        showSilentToast("Error loading component", true);
+    }
+}
+
+async function doShowRawDataClick() {
+    log("vaultUI.doShowRawDataClick", "called");
+
+    try {
+        const { showRawDataUI } = await import('@/ui/raw-data-viewer.js');
+        const getViewState = () => ({ data: getActiveVaultData(), isMasked: !sessionState.showSecure });
+        await showRawDataUI(getViewState, (data) => setActiveVaultData(data));
+    } catch (err) {
+        error("vaultUI.doShowRawDataClick", "Failed to load raw data viewer module:", err);
         showSilentToast("Error loading component", true);
     }
 }
@@ -445,7 +458,7 @@ function doSecure() {
 
     lockPrivateVault();
 
-    vaultRawDataUI.content.clear();
+    vaultRawDataUI.textContent.clear();
 
     // 2. Wipe the Session State (Crucial!)
     sessionState.isEditable = false;
@@ -477,7 +490,7 @@ async function showVaultUI({ readOnly = false } = {}) {
     activateIdleChecker();
 }
 
-function doToggleSecureClick() {
+async function doToggleSecureClick() {
     log("vaultUI.doToggleSecureClick", "called");
 
     // 1. Toggle the state
@@ -495,32 +508,10 @@ function doToggleSecureClick() {
 
     // 4. Re-render the explorer to apply state to all secure type fields
     renderVaultExplorer();
-}
 
-function doShowRawDataClick() {
-    log("vaultUI.doShowRawDataClick", "called");
+    const { refreshRawDataTree } = await import('@/ui/raw-data-viewer.js');
+    refreshRawDataTree(getActiveVaultData(), !sessionState.showSecure);
 
-    window.ScreenManager.register(window.ScreenManager.RAW_DATA_SCREENKEY, vaultRawDataUI.mainSection, {
-        onShow: async () => {
-            log("doShowRawDataClick.show", "Loading raw vault data");
-
-            const activeData = getActiveVaultData();
-            if (vaultRawDataUI.content && activeData) {
-                vaultRawDataUI.content.setText(U.format(activeData));
-            }
-        }
-    });
-    ScreenManager.switchView(window.ScreenManager.RAW_DATA_SCREENKEY);
-
-    vaultRawDataUI.closeBtn.onClick(() => {
-        if (AU.isGenesisUser()) {
-            const activeData = JSON.parse(vaultRawDataUI.content.value);
-            if (isDebugEnabled)
-                debug("vaultUI.doShowRawDataClick.close", `prevLen:${JSON.stringify(getActiveVaultData()).length} currLen:${JSON.stringify(activeData).length}`);
-            setActiveVaultData(activeData);
-        }
-        window.ScreenManager.goHome();
-    });
 }
 
 async function doAddClick() {
@@ -1680,7 +1671,7 @@ export function refreshVaultView(readOnly) {
 
     vaultUI.title.classList.value = AU.isGenesisUser() ? 'genesis-user' : AU.isAdmin() ? 'admin-user' : 'member-user';
 
-    vaultRawDataUI.content.setReadOnly(readOnly || !AU.isGenesisUser());
+    vaultRawDataUI.textContent.setReadOnly(readOnly || !AU.isGenesisUser());
 
     renderVaultExplorer();
     manageActionableItems(readOnly);

@@ -25,6 +25,12 @@ export function loadUI(names, prefix = "", scope = document) {
     const attachMethods = (el) => {
         if (!el) return;
 
+        el.isVisible = function() {
+            // Checks both the style attribute and the calculated style from CSS
+            return this.style.display !== "none" &&
+                getComputedStyle(this).display !== "none";
+        };
+
         // Default visibility behavior
         el.setVisible = function(show) {
             // Using inline-block as per your layout preference
