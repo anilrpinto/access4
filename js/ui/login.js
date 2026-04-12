@@ -432,7 +432,7 @@ export async function proceedAfterPasswordSuccess(pwd = null) {
     await EN.loadEnvelopePayloadToUI(envelope, async data => vaultData = await JSON.parse(data));
 
     // Load the vault logic ONLY after we know the user is authorized
-    const { loadVault, refreshVaultView } = await import('@/ui/vault.js');
+    const { loadVault, refreshVault } = await import('@/ui/vault.js');
 
     await loadVault(pwd, vaultData, { readOnly: inReadOnlyMode() });
 
@@ -443,7 +443,7 @@ export async function proceedAfterPasswordSuccess(pwd = null) {
     G.lockAcquisitionPromise.then((success) => {
         if (success && inWriteMode()) {
             log("loginUI.proceedAfterPasswordSuccess", "Background lock acquired. Upgrading UI to WRITE mode.");
-            refreshVaultView(false);
+            refreshVault(false);
         }
     }).catch(err => {
         warn("loginUI.proceedAfterPasswordSuccess", "Background lock failed:", err.message);
@@ -544,7 +544,6 @@ export function showAuthMessage(msg, type = "error") {
     loginUI.authMsg.setText(msg);
     loginUI.authMsg.className = `status-message ${type}`;
 }
-
 
 /*
  * TEMPORARY DEVELOPMENT CODE - REMOVE

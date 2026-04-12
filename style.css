@@ -1,6 +1,6 @@
 /* --- 1. THE FOUNDATION --- */
 :root {
-    --header-bg: #4A6572;
+    --header-bg: #5dbeea;
     --vault-header-bg: #eeeeee;
     --primary-color: #1E90FF;
     --bg-color: #f5f7fa;
@@ -55,7 +55,7 @@ header {
     top: 0;
     z-index: 1000;
     background-color: var(--header-bg);
-    color: #ffffff;
+    color: #fff;
     box-shadow: 0 2px 5px rgba(0,0,0,0.1);
 }
 

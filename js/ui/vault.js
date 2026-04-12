@@ -5,15 +5,16 @@ import { activateIdleChecker, logout } from '@/app.js';
 import { runFullBackup, runSharedVaultBackup, runPrivateVaultBackup } from '@/core/backup.js';
 import { runSharedVaultCleanup, runPrivateVaultCleanup, runVaultAccessHousekeeping } from '@/core/janitor.js';
 
-import { ScreenManager } from '@/ui/screen-manager.js';
+import { ScreenManager } from '@/ui/screen-manager.js'; // Do not delete, need for initialization!
 import { swapVisibility, showSilentToast } from '@/ui/uihelper.js';
 import { rootUI, vaultUI, vaultNavBarUI, vaultRawDataUI, copyLogsToClipboard, vaultMenuBar, vaultMenu } from '@/ui/loader.js';
 import { showConfirmUI } from '@/ui/confirm.js';
 import { showOverlayConfirmUI, showOverlayAlertUI, showOverlayPasswordUI, showOverlayChoiceUI } from '@/ui/modal.js';
 
-import { generateFilterMap, hideFilterUI } from '@/ui/filter.js';
+import { generateFilterMap  } from '@/ui/search.js';
 import { showAddNewUI, showRenameUI, showDeleteUI } from '@/ui/add-rename-delete.js';
-import { promptPrivateVaultPassword, showCreatePrivateVaultUI, lockPrivateVault, isPrivateVaultUnlocked, savePrivateVaultData } from "@/ui/private-vault.js";
+import { lockPrivateVault, isPrivateVaultUnlocked, savePrivateVaultData } from "@/ui/private-vault.js";
+import { loadExplorer, renderBreadcrumbs, renderVaultExplorer, getCurrentItem } from '@/ui/explorer.js';
 
 let originalVaultData = null;
 let vaultData = null;
@@ -74,7 +75,7 @@ async function init() {
     vaultMenu.syncAccessMenu.onClick(doSyncAccessClick);
     vaultMenu.runBackupMenu.onClick(doRunBackupClick);
     vaultMenu.recoveryRotationMenu.onClick(doRecoveryKeyRotationClick);
-    vaultMenu.privateVaultMenu.onClick(doPrivateVaultClick);
+
 
     vaultUI.title.onClick(doToggleSecureClick);
     vaultUI.toggleSecureBtn.onClick(doToggleSecureClick);
@@ -97,67 +98,11 @@ async function init() {
     //vaultUI.mainSection.setFlex();
 }
 
-async function doPrivateVaultClick() {
-    log("vaultUI.doPrivateVaultClick", "called");
-
-    if (isPrivateVaultUnlocked()) {
-        if (privateVaultData && !isPrivateMode)
-            toggleVaultMode('private');
-        else {
-            lockPrivateVault();
-            toggleVaultMode('shared');
-        }
-        return
-    }
-
-    // 2. Check if a private vault pointer exists in the main vault extensions
-    const emailHash = await CR.hashString(G.userEmail);
-    const pointer = vaultData.meta.extensions?.private_vaults?.[emailHash];
-
-    if (!pointer) {
-        // CASE A: GENESIS (No vault found for this email)
-        await showCreatePrivateVaultUI(async (result) => {
-
-            // 1. Update the local Main Envelope
-            if (!vaultData.meta.extensions) vaultData.meta.extensions = { private_vaults: {} };
-
-            vaultData.meta.extensions.private_vaults[emailHash] = result.pointer;
-
-            // 2. Persist the Main Envelope immediately (so the pointer isn't lost)
-            await doSaveClick();
-
-            // 3. Set the Private state
-            privateVaultData = result.data;
-            originalPrivateVaultData = structuredClone(result.data);
-
-            // 4. Switch View
-            toggleVaultMode('private');
-        });
-    } else {
-        // CASE B: UNLOCK (Vault exists, need password)
-        await promptPrivateVaultPassword(pointer, emailHash, async (pwd, data) => {
-            if (data) {
-                privateVaultData = data;
-                originalPrivateVaultData = structuredClone(privateVaultData);
-            } else
-                log("vaultUI.doPrivateVaultClick", "accessing already unlocked private vault");
-            showSilentToast("Private Vault Accessible");
-            toggleVaultMode('private');
-
-            runPrivateVaultBackup(pwd, privateVaultData, true, () => showSilentToast("Private vault backup successful"), () => showSilentToast("Private vault backup failed"));
-
-            runPrivateVaultCleanup(privateVaultData).catch(err => {
-                warn("vaultUI.doPrivateVaultClick", "Ignoring private vault cleanup failure (non-critical):", err);
-            });
-        });
-    }
-}
-
 /**
  * SWITCHES THE UI CONTEXT
  * Changes the "Source of Truth" for the Explorer and Breadcrumbs.
  */
-async function toggleVaultMode(mode) {
+export async function toggleVaultMode(mode) {
     log("vaultUI.toggleVaultMode", `Switching to: ${mode}`);
 
     isPrivateMode = (mode === 'private');
@@ -176,13 +121,7 @@ async function toggleVaultMode(mode) {
         showSilentToast("Returned to Shared Vault", false);
     }
 
-    refreshMenuUI();
-
-    // 3. Update the Action Bar (Add/Rename/Delete logic)
-    refreshAddRenDelBtnVisibility();
-
-    // 4. Full Re-render
-    renderVaultExplorer();
+    refreshVault();
 }
 
 /**
@@ -334,8 +273,8 @@ function doDiscardChangesClick() {
             sessionState.isSelectionMode = false;
 
             showStatusMessage("Reverted to last save.", "info");
-            refreshMenuUI();
-            renderVaultExplorer();
+
+            refreshVault();
         }
     });
 }
@@ -355,8 +294,7 @@ function doSelectClick() {
         sessionState.isSelectionMode = true;
     }
 
-    refreshMenuUI();
-    renderVaultExplorer();
+    refreshVault();
 }
 
 function doCutClick() {
@@ -374,11 +312,10 @@ function doCutClick() {
     // Auto-navigate to root
     sessionState.path = ['root'];
 
-    refreshMenuUI();
     showStatusMessage(`${vaultClipboard.items.length} items cut. Select a group to paste.`, "info");
 
     // Re-render so we see the Group List now
-    renderVaultExplorer();
+    refreshVault();
 }
 
 async function doPasteClick() {
@@ -433,8 +370,7 @@ async function doPasteClick() {
         showStatusMessage("No items were moved (already in target group)", "info");
     }
 
-    refreshMenuUI();
-    renderVaultExplorer();
+    refreshVault();
 }
 
 function doLogout() {
@@ -481,12 +417,10 @@ function doSecure() {
 async function showVaultUI({ readOnly = false } = {}) {
     log("vaultUI.showVaultUI", "called");
 
-    if (readOnly) {
-        warn("vaultUI.showVaultUI", "Showing vault read-only mode");
-    }
+    if (readOnly) warn("vaultUI.showVaultUI", "Showing vault read-only mode");
 
     swapVisibility(rootUI.loginView, rootUI.vaultView);
-    refreshVaultView(readOnly);
+    refreshVault(readOnly);
     activateIdleChecker();
 }
 
@@ -511,7 +445,6 @@ async function doToggleSecureClick() {
 
     const { refreshRawDataTree } = await import('@/ui/raw-data-viewer.js');
     refreshRawDataTree(getActiveVaultData(), !sessionState.showSecure);
-
 }
 
 async function doAddClick() {
@@ -525,7 +458,7 @@ async function doAddClick() {
                 else if (depth === 2) executeAddItem(name);
             },
             onCancel: () => {
-                renderVaultExplorer();
+                refreshVault();
             }
         });
     }
@@ -543,7 +476,7 @@ async function doRenameClick() {
             executeRename(newName);
         },
         onCancel: () => {
-            renderVaultExplorer();
+            refreshVault();
         }
     });
 }
@@ -563,36 +496,9 @@ async function doDeleteClick() {
             executeDeletion();
         },
         onCancel: () => {
-            renderVaultExplorer();
+            refreshVault();
         }
     });
-}
-
-function refreshAddRenDelBtnVisibility() {
-    // 1. Check Permissions (The Master Gate)
-    const writeable = !inReadOnlyMode();
-
-    // 2. Check Navigation Depth
-    const depth = sessionState.path.length;
-
-    // 3. Logic: What is physically possible at this depth?
-    let canAdd = true;          // Possible at Root (Add Group) and Group (Add Item)
-    let canRenameDelete = true; // Possible at Group and Item Detail
-
-    if (depth === 1) {
-        // At Root: No existing target to Rename or Delete
-        canRenameDelete = false;
-    } else if (depth === 3) {
-        // At Item Detail: "Add" logic happens back in the Item List (Depth 2)
-        canAdd = false;
-    }
-
-    // 4. Apply: Must be logically possible AND the vault must be writeable
-    vaultMenuBar.addBtn.setVisible(canAdd && writeable);
-    vaultMenuBar.renameBtn.setVisible(canRenameDelete && writeable);
-    vaultMenuBar.deleteBtn.setVisible(canRenameDelete && writeable);
-
-    //log("vaultUI.refreshAddRenDelBtnVisibility", `depth:${depth} add:${canAdd} renDel:${canRenameDelete} writeable:${writeable}`);
 }
 
 async function doToggleEditClick() {
@@ -605,7 +511,7 @@ async function doToggleEditClick() {
 
     sessionState.isEditable = !sessionState.isEditable;
     vaultMenu.toggleEditMenu.setText(sessionState.isEditable ? "Exit Edit Mode" : "Edit Item");
-    renderVaultExplorer();
+    refreshVault();
 }
 
 async function doSaveClick() {
@@ -622,6 +528,7 @@ async function doSaveClick() {
     const changedPrivate = privateVaultData && (JSON.stringify(privateVaultData) !== JSON.stringify(originalPrivateVaultData));
 
     if (!changedShared && !changedPrivate && pendingFileDeletions.length === 0) {
+        info("vaultUI.doSaveClick", "Vault has not changed since last save");
         showSilentToast("No new changes to save");
         showStatusMessage("Vault has not changed since last save", "info");
         return;
@@ -689,7 +596,7 @@ async function doSaveClick() {
             message: `Your changes (and deletions) have been applied successfully.`,
             okText: "OK",
             onConfirm: () => {
-                refreshMenuUI();
+                refreshVault();
             }
         });
         showStatusMessage(`Last saved at ${U.getCurrentTime()}`, "success");
@@ -713,7 +620,7 @@ function executeAddGroup(name) {
 
     // Auto-navigate into the new group
     sessionState.path.push(newId);
-    renderVaultExplorer();
+    refreshVault();
 }
 
 function executeAddItem(name) {
@@ -730,7 +637,7 @@ function executeAddItem(name) {
         fields: [{ type: 'text', key: 'Username', val: '' }, { type: 'secure', key: 'Password', val: '' }, { type: 'note', key: 'Notes', val: '' }]
     };
     group.items.push(newItem);
-    renderVaultExplorer();
+    refreshVault();
 }
 
 function executeRename(newName) {
@@ -753,7 +660,7 @@ function executeRename(newName) {
         }
     }
 
-    renderVaultExplorer();
+    refreshVault();
 }
 
 function executeDeletion() {
@@ -789,53 +696,7 @@ function executeDeletion() {
         }
     }
 
-    renderVaultExplorer();
-}
-
-function refreshMenuUI() {
-    log("vaultUI.refreshMenuUI", "called");
-
-    const count = vaultClipboard.items.length;
-    const isCutting = vaultClipboard.mode === 'cut';
-    const isSelecting = sessionState.isSelectionMode;
-
-    // --- SECTION 1: APP TITLE (vaultUI.title) ---
-    if (isCutting) {
-        vaultUI.title.setText(`${count} Ready to Move`);
-        vaultUI.title.style.color = "#FF9800"; // Orange
-    } else if (isSelecting) {
-        vaultUI.title.setText(count > 0 ? `${count} Selected` : "Select Items...");
-        vaultUI.title.style.color = "var(--primary-color)"; // Blue
-    } else {
-        // RESET: Bring the title back to its default state
-        vaultUI.title.setText("Vault");
-        vaultUI.title.style.color = "";
-    }
-
-    // --- SECTION 2: BREADCRUMBS ---
-    // Always render breadcrumbs so the user knows where they are
-    // globally, regardless of selection/move status.
-    renderBreadcrumbs();
-
-    // --- SECTION 3: MENU VISIBILITY (Updated for UX) ---
-
-    // 1. Only show 'Cut' if we are selecting AND not already in 'Cut' mode
-    vaultMenu.cutMenu.setVisible(isSelecting && count > 0 && !isCutting);
-
-    const inGroup = sessionState.path.length === 2;
-    vaultMenu.pasteMenu.setVisible(isCutting && inGroup);
-
-    // 2. Update the "Select Multiple" toggle text to handle 'Cancel Move'
-    if (isSelecting || isCutting) {
-        vaultMenu.selectMenu.setText(isCutting ? "Cancel Move" : "Cancel Selection");
-        vaultMenu.selectMenu.classList.add('active-mode-text');
-    } else {
-        vaultMenu.selectMenu.setText("Select Multiple");
-        vaultMenu.selectMenu.classList.remove('active-mode-text');
-    }
-
-    vaultMenu.privateVaultMenu.setText((isPrivateVaultUnlocked() && isPrivateMode ? "🔒 Close" : "🛡️ Open") + " Private Vault");
-    vaultMenu.discardChangesMenu.setVisible(hasVaultChanges());
+    refreshVault();
 }
 
 function hasVaultChanges() {
@@ -847,269 +708,7 @@ async function toggleLogs() {
     rootUI.log.toggleVisibility();
 }
 
-/**
- * Resolves an ID to a human-readable name for the breadcrumb
- */
-function getNameFromId(id, index) {
-    if (id === 'root') return isPrivateMode ? "🛡️" : "🏠";
-
-    const activeData = getActiveVaultData();
-
-    if (index === 1) { // It's a Group ID
-        const group = activeData.groups.find(g => g.id === id);
-        return group ? group.name : "Unknown Group";
-    }
-    if (index === 2) { // It's an Item ID
-        const groupId = sessionState.path[1];
-        const group = activeData.groups.find(g => g.id === groupId);
-        const item = group?.items.find(i => i.id === id);
-        return item ? item.label : "Unknown Item";
-    }
-    return id;
-}
-
-/**
- * Renders the Breadcrumb interface
- */
-function renderBreadcrumbs() {
-    const breadcrumbs = vaultNavBarUI.breadcrumbs;
-    if (!breadcrumbs) return;
-
-    breadcrumbs.innerHTML = "";
-
-    // Determine if the user is currently looking at the root of the active vault
-    const isCurrentlyAtRoot = sessionState.path.length === 1 && sessionState.path[0] === 'root';
-
-    sessionState.path.forEach((id, index) => {
-        const isRootNode = (id === 'root');
-        const isLast = index === sessionState.path.length - 1;
-        const label = getNameFromId(id, index);
-
-        const span = document.createElement('span');
-
-        // We make the root node ALWAYS look like a link if we are at root
-        // so the user knows they can click it to switch vaults.
-        const canSwitch = isRootNode && isCurrentlyAtRoot;
-        span.className = (isLast && !canSwitch) ? 'breadcrumb-item active' : 'breadcrumb-item link';
-        span.innerText = label;
-
-        span.onclick = async () => {
-            if (isRootNode) {
-                if (isCurrentlyAtRoot) {
-                    // --- VAULT SWITCHER ---
-                    // Triggered by clicking the icon (🏠/🛡️) while already at the top level.
-                    log("vaultUI.breadcrumb", "Root-to-Root click: Toggling Vaults");
-                    if (isPrivateMode) {
-                        toggleVaultMode('shared');
-                    } else {
-                        await doPrivateVaultClick();
-                    }
-                } else {
-                    // --- RESET TO ROOT ---
-                    // Triggered by clicking the icon while deep in a group or item.
-                    log("vaultUI.breadcrumb", "Resetting to current vault root");
-                    sessionState.path = ['root'];
-                    renderVaultExplorer();
-                }
-            } else if (!isLast) {
-                // --- STANDARD BACKWARD NAVIGATION ---
-                // Navigating to a specific Group in the path.
-                sessionState.path = sessionState.path.slice(0, index + 1);
-                renderVaultExplorer();
-            }
-        };
-
-        breadcrumbs.appendChild(span);
-        if (!isLast) {
-            const sep = document.createElement('span');
-            sep.className = 'sep';
-            sep.innerText = ' › ';
-            breadcrumbs.appendChild(sep);
-        }
-    });
-}
-
-// --- Phase 3: UI Renderers ---
-
-function renderGroupList(container) {
-    log("vaultUI.renderGroupList", "called");
-    const activeData = getActiveVaultData();
-
-    container.innerHTML = ""; // Clear existing
-
-    if (!activeData.groups || activeData.groups.length === 0) {
-        container.innerHTML = `<div class="empty-state">No groups found.</div>`;
-        return;
-    }
-
-    activeData.groups.forEach(group => {
-
-        // FILTER CHECK: Skip if not visible in search
-        if (currentFilterMap && !currentFilterMap.visible.has(group.id)) {
-            return;
-        }
-
-        let matchDensity = 0;
-        if (currentFilterMap) {
-            const hits = currentFilterMap.highlighted;
-
-            // 1. Check if the Group name itself matched
-            if (hits.has(group.id)) matchDensity++;
-
-            // 2. Check Items and their Fields
-            group.items.forEach(item => {
-                // Did the Item label match?
-                if (hits.has(item.id)) matchDensity++;
-
-                // Did any specific fields match?
-                // We check the specific ID format: `${node.id}-field-${f.key}`
-                if (item.fields) {
-                    item.fields.forEach(f => {
-                        if (hits.has(`${item.id}-field-${f.key}`)) {
-                            matchDensity++;
-                        }
-                    });
-                }
-            });
-        }
-
-        // Check if any item in the clipboard is from THIS group
-        const hasCutItems = vaultClipboard.items.some(i => i.parentId === group.id);
-
-        // HIGHLIGHT CHECK: Is this group name a match?
-        const isMatch = currentFilterMap?.highlighted.has(group.id);
-
-        const div = document.createElement('div');
-        // Add 'source-group' class if items are being cut from here
-        // Add 'search-highlight' class if it's a match
-        div.className = `list-row ${hasCutItems ? 'source-group-active' : ''} ${isMatch ? 'search-highlight' : ''}`;
-
-        // Only show badge if density > 0
-        const matchBadge = (currentFilterMap && matchDensity > 0)
-            ? `<span class="match-count-badge">${matchDensity}</span>`
-            : '';
-
-        div.innerHTML = `
-            <span class="row-label">📁 ${group.name} ${hasCutItems ? '<small>(moving items...)</small>' : ''}</span>
-            <div class="row-status-area">
-                ${matchBadge}
-                <span class="count">${group.items.length}</span>
-            </div>
-        `;
-
-        div.onclick = () => {
-            hideFilterUI();
-            sessionState.path.push(group.id);
-            renderVaultExplorer();
-        };
-        container.appendChild(div);
-    });
-
-    // THE EMPTY CHECK: If the loop finished but added nothing
-    if (container.children.length === 0 && currentFilterMap) {
-        container.innerHTML = `<div class="empty-state">No data matching "${currentSearchQuery}".</div>`;
-    }
-}
-
-function renderItemList(container, groupId) {
-    log("vaultUI.renderItemList", "called");
-    const activeData = getActiveVaultData();
-
-    container.innerHTML = "";
-
-    const group = activeData.groups.find(g => g.id === groupId);
-    if (!group) return;
-
-    // 💡 EMPTY STATE TWEAK:
-    if (group.items.length === 0) {
-        container.innerHTML = `<div class="empty-state">This group is empty.</div>`;
-        return;
-    }
-
-    group.items.forEach(item => {
-
-        // FILTER CHECK: Skip if item is hidden by filter
-        if (currentFilterMap && !currentFilterMap.visible.has(item.id)) {
-            return;
-        }
-
-        let matchDensity = 0;
-        if (currentFilterMap) {
-            const hits = currentFilterMap.highlighted;
-
-            // 1. Did the Item label itself match?
-            if (hits.has(item.id)) matchDensity++;
-
-            // 2. Did any specific fields within this item match?
-            if (item.fields) {
-                item.fields.forEach(f => {
-                    if (hits.has(`${item.id}-field-${f.key}`)) {
-                        matchDensity++;
-                    }
-                });
-            }
-        }
-
-        const div = document.createElement('div');
-
-        // 1. Check if item is in the clipboard (works for both Selection and Cut modes)
-        const isSelected = vaultClipboard.items.some(i => i.id === item.id);
-
-        // 💡 HIGHLIGHT CHECK: Is this item title a match?
-        const isMatch = currentFilterMap?.highlighted.has(item.id);
-
-        div.className = `list-row ${isSelected ? 'to-be-moved' : ''} ${isMatch ? 'search-highlight' : ''}`;
-
-        // 💡 THE TOGGLE LOGIC:
-        // If we have a match, show the badge. If not, show the standard arrow.
-        const rightIndicator = (currentFilterMap && matchDensity > 0)
-            ? `<span class="match-count-badge">${matchDensity}</span>`
-            : `<span class="arrow">›</span>`;
-
-        div.innerHTML = `
-            <span class="row-label">📄 ${item.label}</span>
-            <div class="row-status-area">
-                ${rightIndicator}
-            </div>
-        `;
-
-        div.onclick = () => {
-            // 2. If we are selecting OR if the item is already "Cut",
-            // clicking should only toggle selection/do nothing, not navigate.
-            if (sessionState.isSelectionMode || vaultClipboard.mode === 'cut') {
-                toggleItemSelection(item.id, div);
-            } else {
-                // Normal navigation
-                hideFilterUI();
-                sessionState.path.push(item.id);
-                renderVaultExplorer();
-            }
-        };
-        container.appendChild(div);
-    });
-
-    // THE EMPTY CHECK:
-    if (container.children.length === 0) {
-        const msg = currentFilterMap ? "No items match your search." : "This group is empty.";
-        container.innerHTML = `<div class="empty-state">${msg}</div>`;
-    }
-}
-
-function toggleItemSelection(id, element) {
-    const index = vaultClipboard.items.findIndex(i => i.id === id);
-
-    if (index > -1) {
-        vaultClipboard.items.splice(index, 1);
-        element.classList.remove('to-be-moved');
-    } else {
-        // WE MUST STORE THE PARENT ID HERE
-        vaultClipboard.items.push({ id: id, parentId: sessionState.path[1] });
-        element.classList.add('to-be-moved');
-    }
-    refreshMenuUI();
-}
-
-function updateMoveToolbar() {
+/*function updateMoveToolbar() {
     const count = vaultClipboard.items.length;
 
     if (sessionState.isSelectionMode && count > 0) {
@@ -1121,468 +720,40 @@ function updateMoveToolbar() {
         // Put the normal Breadcrumbs back if nothing is selected
         renderBreadcrumbs();
     }
+}*/
+
+export async function handlePrivateVaultGenesis(result) {
+    // 1. Update the local Main Envelope
+    if (!vaultData.meta.extensions) vaultData.meta.extensions = { private_vaults: {} };
+
+    vaultData.meta.extensions.private_vaults[result.emailHash] = result.pointer;
+
+    // 2. Persist the Main Envelope immediately (so the pointer isn't lost)
+    await doSaveClick();
+
+    // 3. Set the Private state
+    privateVaultData = result.data;
+    originalPrivateVaultData = structuredClone(result.data);
+
+    // 4. Switch View
+    toggleVaultMode('private');
 }
 
-function renderItemDetails(container, groupId, itemId) {
-    log("vaultUI.renderItemDetails", "called");
-    const activeData = getActiveVaultData();
+export async function handlePrivateVaultUnlock(pwd, data) {
+    if (data) {
+        privateVaultData = data;
+        originalPrivateVaultData = structuredClone(privateVaultData);
+    } else
+        log("vaultUI.handlePrivateVaultUnlock", "accessing already unlocked private vault");
 
-    const group = activeData.groups.find(g => g.id === groupId);
-    const item = group?.items.find(i => i.id === itemId);
+    showSilentToast("Private Vault Accessible");
+    toggleVaultMode('private');
 
-    if (!item) {
-        container.innerHTML = `<div class="empty-state">Item not found.</div>`;
-        return;
-    }
+    runPrivateVaultBackup(pwd, privateVaultData, true, () => showSilentToast("Private vault backup successful"), () => showSilentToast("Private vault backup failed"));
 
-    const detailEl = document.createElement('div');
-    detailEl.className = 'detail-view';
-
-    // 1. Audit Meta Bar (Existing)
-    const metaBar = document.createElement('div');
-    metaBar.className = 'item-meta-bar';
-    const dateOpts = { dateStyle: 'short', timeStyle: 'short' };
-    const createdStr = new Date(item.created).toLocaleString(undefined, dateOpts);
-    const modifiedStr = new Date(item.modified).toLocaleString(undefined, dateOpts);
-    const isModified = item.created !== item.modified;
-    metaBar.innerHTML = `
-        <span class="meta-left">${createdStr}</span>
-        ${isModified ? `<span class="meta-right">${modifiedStr}</span>` : ''}
-    `;
-    detailEl.appendChild(metaBar);
-
-    const readonlyAttr = sessionState.isEditable ? "" : "readonly";
-
-    // 2. Render Standard Fields (Text, Secure, Note)
-    item.fields.forEach((field, index) => {
-        const fieldMatchID = `${item.id}-field-${field.key}`;
-        const isMatch = currentFilterMap?.highlighted.has(fieldMatchID);
-        const fieldBox = document.createElement('div');
-        fieldBox.className = `field-box ${sessionState.isEditable ? 'editable' : ''}`;
-
-        let html = `
-            <div class="field-header">
-                <input type="text" class="label-input ${isMatch ? 'search-label-hit' : ''}"
-                   data-index="${index}" value="${field.key}" ${readonlyAttr} placeholder="Label">
-                <div class="field-actions">
-                    ${sessionState.isEditable ?
-                        `<button class="icon-btn delete-field-btn" data-index="${index}">🗑️</button>` :
-                        `<button class="icon-btn copy-btn" data-val="${field.val}">📋</button>`
-                    }
-                </div>
-            </div>`;
-
-        if (field.type === 'secure') {
-            html += `<div class="input-wrap"><input type="${sessionState.showSecure ? 'text' : 'password'}" class="field-input" data-index="${index}" value="${field.val}" ${readonlyAttr} spellcheck="false"></div>`;
-        } else if (field.type === 'note') {
-            html += `<textarea class="field-input" data-index="${index}" ${readonlyAttr} rows="4">${field.val}</textarea>`;
-        } else {
-            html += `<div class="input-wrap"><input type="text" class="field-input" data-index="${index}" value="${field.val}" ${readonlyAttr}></div>`;
-        }
-
-        fieldBox.innerHTML = html;
-        detailEl.appendChild(fieldBox);
+    runPrivateVaultCleanup(privateVaultData).catch(err => {
+        warn("vaultUI.doPrivateVaultClick", "Ignoring private vault cleanup failure (non-critical):", err);
     });
-
-    // 3. NEW: Render Attachments Section
-    if (item.attachments && item.attachments.length > 0) {
-        const attachmentSection = document.createElement('div');
-        attachmentSection.id = `attachments_${item.id}`;
-        attachmentSection.className = 'attachment-section';
-        attachmentSection.innerHTML = `<div class="section-label">Attachments</div>`;
-
-        // EVENT DELEGATION: One listener for the whole box
-        attachmentSection.onclick = (e) => {
-            // Handle Download
-            const link = e.target.closest('.file-link');
-            if (link) {
-                e.preventDefault();
-                const fileId = link.getAttribute('data-id');
-                const fileObj = item.attachments.find(a => a.val === fileId);
-                if (fileObj) handleDownloadAttachment(fileObj);
-                return;
-            }
-
-            // Handle Delete
-            const deleteBtn = e.target.closest('.delete-attachment-btn');
-            if (deleteBtn) {
-                // 1. STOP the click from traveling up to the main vault listeners
-                e.stopPropagation();
-                e.preventDefault();
-
-                const index = deleteBtn.getAttribute('data-index');
-                handleDeleteAttachment(item, index);
-            }
-        };
-
-        item.attachments.forEach((file, index) => {
-            const sizeKB = Math.round(file.meta.size / 1024);
-
-            // 💡 HIGHLIGHT LOGIC: Construct the ID used in filter.js
-            const attachmentMatchID = `${item.id}-attachment-${file.val}`;
-            const isMatch = currentFilterMap?.highlighted.has(attachmentMatchID);
-
-            const fileRow = document.createElement('div');
-            fileRow.className = `attachment-row ${isMatch ? 'filter-match' : ''}`;
-
-            fileRow.innerHTML = `
-            <a href="#" class="file-link" data-id="${file.val}">📄 ${file.key} (${sizeKB} KB)</a>
-            <div class="field-actions">
-                ${sessionState.isEditable ?
-                    `<button class="icon-btn delete-attachment-btn" data-index="${index}">🗑️</button>` : ''}
-            </div>
-        `;
-            attachmentSection.appendChild(fileRow);
-        });
-
-        detailEl.appendChild(attachmentSection);
-    }
-
-    // 4. Field Template (Existing)
-    if (sessionState.isEditable) {
-        addNewFieldTemplate(detailEl, item);
-    }
-
-    container.appendChild(detailEl);
-    attachDetailListeners(container, item); // Pass item to handle file actions
-}
-
-function addNewFieldTemplate(targetElement, itemObject) {
-    const addTemplate = document.createElement('div');
-    addTemplate.className = 'field-box add-template';
-
-    addTemplate.innerHTML = `
-        <div class="add-field-row">
-            <input type="text" id="newField_label" placeholder="Label" class="add-label-input">
-            <select id="newField_type" class="add-type-select">
-                <option value="text">Text</option>
-                <option value="secure">Secure</option>
-                <option value="note">Note</option>
-                <option value="file">File</option>
-            </select>
-            <input type="file" id="file_uploader" style="display:none">
-            <button id="newField_confirmBtn" class="add-icon-btn">➕</button>
-        </div>
-    `;
-
-    const confirmBtn = addTemplate.querySelector('#newField_confirmBtn');
-    const typeSelect = addTemplate.querySelector('#newField_type');
-    const fileInput = addTemplate.querySelector('#file_uploader');
-
-    confirmBtn.onclick = () => {
-        const label = document.getElementById('newField_label').value.trim();
-        const type = typeSelect.value;
-
-        if (type === 'file') {
-            fileInput.click(); // Open system file picker
-        } else {
-            if (!label) {
-                return showOverlayAlertUI({
-                    title: "Error",
-                    message: "Label is mandatory!"
-                });
-            }
-
-            itemObject.fields.push({ key: label, val: "", type: type });
-            itemObject.modified = new Date().toISOString();
-            renderVaultExplorer();
-        }
-    };
-
-    fileInput.onchange = async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-
-        const label = document.getElementById('newField_label').value.trim();
-
-        await handleUploadAttachment(file, label, itemObject);
-
-        renderVaultExplorer();
-    };
-
-    typeSelect.onchange = () => {
-        const labelInput = document.getElementById('newField_label');
-        if (typeSelect.value === 'file') {
-            labelInput.placeholder = "Optional File Label...";
-        } else {
-            labelInput.placeholder = "Label (e.g. Username)";
-        }
-    };
-
-    targetElement.appendChild(addTemplate);
-}
-
-async function handleUploadAttachment(file, label, itemObject) {
-    // 1. Create a temporary ID to find this specific UI row later
-    const tempId = "up_" + Date.now();
-    const fileName = label || file.name;
-
-    try {
-        log("vaultUI.handleUploadAttachment", `Starting upload for: ${fileName}`);
-
-        // 1. Find the container
-        let container = document.querySelector('.attachment-section');
-
-        // SAFETY: If the section doesn't exist yet (first upload for this item),
-        // find the main detail container and inject it.
-        if (!container) {
-            container = document.createElement('div');
-            container.className = 'attachment-section';
-            vaultUI.explorer.appendChild(container);
-        }
-
-        // 2. Now append the spinner
-        const loadingRow = document.createElement('div');
-        loadingRow.className = 'attachment-row uploading-row';
-        loadingRow.id = tempId;
-        loadingRow.innerHTML = `
-            <div class="field-actions">
-                <span><div class="spinner"></div> &nbsp; Encrypting ${fileName}...</span>
-            </div>
-        `;
-        container.appendChild(loadingRow);
-
-        // 3. Perform the actual work
-        const arrayBuffer = await file.arrayBuffer();
-        const binary = new Uint8Array(arrayBuffer);
-
-        let mimeType = file.type || (file.name.endsWith('.zip') ? 'application/zip' : '');
-        log("vaultUI.handleUploadAttachment", "mimeType:", mimeType);
-
-        const attachmentEntry = await AT.saveAttachment(isPrivateMode ? C.PRIVATE_ATTACHMENTS_FOLDER_NAME : C.ATTACHMENTS_FOLDER_NAME,
-            fileName, binary, file.type);
-
-        // attachmentEntry.val is the Google Drive File ID.
-        // We add it to our 'pendingFileUploads' so we can nuke it if they hit Discard.
-        if (attachmentEntry && attachmentEntry.val) {
-            pendingFileUploads.push(attachmentEntry.val);
-            log("vaultUI.handleUploadAttachment", `Tracking new file for discard-safety: ${attachmentEntry.val}`);
-        }
-
-        // 4. Update memory
-        if (!itemObject.attachments) itemObject.attachments = [];
-        itemObject.attachments.push(attachmentEntry);
-        itemObject.modified = new Date().toISOString();
-
-        // 5. Success! The full render will now replace our temp row
-        renderVaultExplorer();
-        info("vaultUI.handleUploadAttachment", "Upload complete.");
-
-    } catch (err) {
-        // Remove the failed spinner if it exists
-        document.getElementById(tempId)?.remove();
-        error("vaultUI.handleUploadAttachment", "Upload Error:", err);
-        showOverlayAlertUI({
-            title: "Upload Error",
-            message: "Failed to upload attachment. Check logs for details."
-        });
-    }
-}
-
-async function handleDownloadAttachment(attachment) {
-    try {
-        log("vaultUI.handleDownloadAttachment", `Opening: ${attachment.key}`);
-
-        // 1. Get the decrypted bytes from the Envelope layer
-        const plaintext = await AT.openAttachment(attachment);
-
-        // 2. Trigger the actual browser download
-        const blob = new Blob([plaintext], { type: attachment.meta.mime });
-        const url = URL.createObjectURL(blob);
-
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = attachment.key;
-        document.body.appendChild(a);
-        a.click();
-
-        // Cleanup memory
-        setTimeout(() => {
-            URL.revokeObjectURL(url);
-            a.remove();
-        }, 100);
-
-        info("vaultUI.handleDownloadAttachment", "File delivered.");
-
-    } catch (err) {
-        // Now vault.js only handles UI-level reporting
-        error("vaultUI.handleDownloadAttachment", "Failed to open file", err);
-        showOverlayAlertUI({
-            title: "Attachment Error",
-            message: "Failed to download or decrypt file."
-        });
-    }
-}
-
-async function handleDeleteAttachment(item, index) {
-    const attachment = item.attachments[index];
-    if (!attachment) return;
-
-    showOverlayConfirmUI({
-        title: `Remove ${attachment.key}?`,
-        message: `This will remove the attachment from the vault. Changes are pending until you click 'Save'.`,
-        okText: "Remove",
-        onConfirm: async () => {
-            // 1. Add the Drive File ID to our "Hit List"
-            if (attachment.val) {
-                pendingFileDeletions.push(attachment.val);
-                log("vault.handleDelete", `Added ${attachment.val} to pending deletes.`);
-            }
-
-            // 2. Remove from the local vaultData array immediately
-            item.attachments.splice(index, 1);
-            item.modified = new Date().toISOString();
-
-            // 3. Refresh the UI - the file disappears instantly!
-            renderVaultExplorer();
-
-            showSilentToast("Removed. Remember to Save changes.");
-        }
-    });
-}
-
-function attachDetailListeners(container) {
-    const item = getCurrentItem();
-    if (!item) return;
-
-    // 1. Toggle Password Visibility
-    // Redraws the UI to switch between dots (••••) and plain text
-    container.querySelectorAll('.toggle-btn').forEach(btn => {
-        btn.onclick = () => {
-            sessionState.showSecure = !sessionState.showSecure;
-            renderVaultExplorer();
-        };
-    });
-
-    // 2. Copy to Clipboard
-    container.querySelectorAll('.copy-btn').forEach(btn => {
-        btn.onclick = () => {
-            navigator.clipboard.writeText(btn.dataset.val);
-            const original = btn.innerText;
-            btn.innerText = "✅";
-            setTimeout(() => btn.innerText = original, 1500);
-        };
-    });
-
-    // 3. Update Field Values (Text/Password/Notes)
-    // Updates the JavaScript object only. No UI refresh to avoid cursor jumping.
-    container.querySelectorAll('.field-input').forEach(input => {
-        input.oninput = (e) => {
-            const index = e.target.dataset.index;
-            item.fields[index].val = e.target.value;
-        };
-    });
-
-    // 4. Update Field Labels (Keys)
-    container.querySelectorAll('.label-input').forEach(input => {
-        input.oninput = (e) => {
-            const index = e.target.dataset.index;
-            item.fields[index].key = e.target.value;
-        };
-    });
-
-    // 5. Delete Field Logic
-    // Structural change: requires a full re-render to remove the row.
-    container.querySelectorAll('.delete-field-btn').forEach(btn => {
-        btn.onclick = (e) => {
-            // SAFEGUARD 1: Stop the click from bleeding into the background
-            e.stopPropagation();
-
-            const index = parseInt(btn.dataset.index);
-            const fieldName = item.fields[index].key || "unnamed";
-
-            showOverlayConfirmUI({
-                title: "Delete Field",
-                message: `Are you sure you want to delete the <b>${fieldName}</b> field?`,
-                okText: "Delete",
-                onConfirm: () => {
-                    // This code only runs if the user clicks the red "Delete" button
-                    item.fields.splice(index, 1);
-
-                    // SAFEGUARD 2: Flag the item as changed for the sync logic
-                    item.modified = new Date().toISOString();
-
-                    // Refresh the UI to remove the row
-                    renderVaultExplorer();
-                }
-            });
-        };
-    });
-}
-
-/**
- * Finds the currently active item based on the sessionState.path
- */
-function getCurrentItem() {
-    const activeData = getActiveVaultData();
-    const groupId = sessionState.path[1];
-    const itemId = sessionState.path[2];
-    if (!groupId || !itemId) return null;
-
-    const group = activeData.groups.find(g => g.id === groupId);
-    return group?.items.find(i => i.id === itemId) || null;
-}
-
-// --- Main Render Entry Point ---
-async function renderVaultExplorer() {
-    log("vaultUI.renderVaultExplorer", "called");
-
-    // 1. Wipe transient keys/envelope before any rendering starts
-    SV.flushCachedTransients();
-
-    const activeData = getActiveVaultData();
-
-    // Safety check: if we still don't have data, stop here.
-    if (!activeData) {
-        warn("vaultUI.renderVaultExplorer", "No data available to render.");
-        return;
-    }
-
-    // IMPORTANT: Let refreshMenuUI handle the title/breadcrumbs logic
-    // instead of calling renderBreadcrumbs() directly here.
-    // 1. Update Menu (Title, Cut/Paste visibility)
-    refreshMenuUI();
-
-    // 2. Update Toolbar (Add/Rename/Delete visibility)
-    // Moving this here ensures it runs on EVERY re-render (Paste, Undo, Nav, etc.)
-    refreshAddRenDelBtnVisibility();
-
-    const explorer = vaultUI.explorer;
-    if (!explorer) return;
-    explorer.innerHTML = "";
-
-    const depth = sessionState.path.length;
-
-    // View Routing
-    if (depth === 1) {
-        renderGroupList(explorer);
-    } else if (depth === 2) {
-        renderItemList(explorer, sessionState.path[1]);
-    } else if (depth === 3) {
-        // We'll build the detail renderer in Phase 4
-        renderItemDetails(explorer, sessionState.path[1], sessionState.path[2]);
-    }
-}
-
-function manageActionableItems(readOnly) {
-    log("vaultUI.manageActionableItems", "called");
-
-    const visible = !readOnly;
-    const genesis = AU.isGenesisUser();
-    const admin = AU.isAdmin();
-
-    // These only care about read-only/admin status, not depth
-    vaultMenu.saveMenu.setVisible(visible);
-    vaultMenu.toggleEditMenu.setVisible(visible);
-
-    vaultMenu.rawDataMenu.setVisible(genesis || (visible && admin));
-
-    vaultMenu.syncAccessMenu.setVisible(visible && admin);
-    vaultMenu.runBackupMenu.setVisible(admin);
-    vaultMenu.recoveryRotationMenu.setVisible(visible && admin);
-
-    // NOTE: addBtn, renameBtn, and deleteBtn are intentionally removed from here
-    // as they are handled by the render loop.
 }
 
 /**
@@ -1591,7 +762,7 @@ function manageActionableItems(readOnly) {
 function applyReadOnlyTheme(readOnly) {
     log("vaultUI.applyReadOnlyTheme", "called readOnly:", readOnly);
 
-    const mainHeader = document.querySelector('header'); // Or vaultUI.header if defined
+    const mainHeader = vaultUI.header;
     const body = document.body;
 
     if (readOnly) {
@@ -1615,6 +786,96 @@ function applyReadOnlyTheme(readOnly) {
     }
 }
 
+export function refreshMoveMenu() {
+    log("vaultUI.refreshMoveMenu", "called");
+
+    const count = vaultClipboard.items.length;
+    const isCutting = vaultClipboard.mode === 'cut';
+    const isSelecting = sessionState.isSelectionMode;
+
+    // --- SECTION 1: APP TITLE (vaultUI.title) ---
+    if (isCutting) {
+        vaultUI.title.setText(`${count} Ready to Move`);
+        vaultUI.title.style.color = "#FF9800"; // Orange
+    } else if (isSelecting) {
+        vaultUI.title.setText(count > 0 ? `${count} Selected` : "Select Items...");
+        vaultUI.title.style.color = "var(--primary-color)"; // Blue
+    } else {
+        // RESET: Bring the title back to its default state
+        vaultUI.title.setText("Vault");
+        vaultUI.title.style.color = "";
+    }
+
+    // --- SECTION 3: MENU VISIBILITY (Updated for UX) ---
+
+    // 1. Only show 'Cut' if we are selecting AND not already in 'Cut' mode
+    vaultMenu.cutMenu.setVisible(isSelecting && count > 0 && !isCutting);
+
+    const inGroup = sessionState.path.length === 2;
+    vaultMenu.pasteMenu.setVisible(isCutting && inGroup);
+
+    // 2. Update the "Select Multiple" toggle text to handle 'Cancel Move'
+    if (isSelecting || isCutting) {
+        vaultMenu.selectMenu.setText(isCutting ? "Cancel Move" : "Cancel Selection");
+        vaultMenu.selectMenu.classList.add('active-mode-text');
+    } else {
+        vaultMenu.selectMenu.setText("Select Multiple");
+        vaultMenu.selectMenu.classList.remove('active-mode-text');
+    }
+}
+
+function refreshAddRenDelMenubar() {
+    // 1. Check Permissions (The Master Gate)
+    const writeable = !inReadOnlyMode();
+
+    // 2. Check Navigation Depth
+    const depth = sessionState.path.length;
+
+    // 3. Logic: What is physically possible at this depth?
+    let canAdd = true;          // Possible at Root (Add Group) and Group (Add Item)
+    let canRenameDelete = true; // Possible at Group and Item Detail
+
+    if (depth === 1) {
+        // At Root: No existing target to Rename or Delete
+        canRenameDelete = false;
+    } else if (depth === 3) {
+        // At Item Detail: "Add" logic happens back in the Item List (Depth 2)
+        canAdd = false;
+    }
+
+    // 4. Apply: Must be logically possible AND the vault must be writeable
+    vaultMenuBar.addBtn.setVisible(canAdd && writeable);
+    vaultMenuBar.renameBtn.setVisible(canRenameDelete && writeable);
+    vaultMenuBar.deleteBtn.setVisible(canRenameDelete && writeable);
+
+    //log("vaultUI.refreshAddRenDelBtnVisibility", `depth:${depth} add:${canAdd} renDel:${canRenameDelete} writeable:${writeable}`);
+}
+
+function refreshMainMenuItemsState(readOnly) {
+    log("vaultUI.refreshMainMenuItemsState", "called");
+
+    const visible = !readOnly;
+    const genesis = AU.isGenesisUser();
+    const admin = AU.isAdmin();
+
+    // These only care about read-only/admin status, not depth
+    vaultMenu.saveMenu.setVisible(visible);
+    vaultMenu.toggleEditMenu.setVisible(visible);
+
+    vaultMenu.rawDataMenu.setVisible(genesis || (visible && admin));
+
+    vaultMenu.syncAccessMenu.setVisible(visible && admin);
+    vaultMenu.runBackupMenu.setVisible(admin);
+    vaultMenu.recoveryRotationMenu.setVisible(visible && admin);
+
+    // moved out of refreshMenuUI as part of explorer.js refactor
+    vaultMenu.privateVaultMenu.setText((isPrivateVaultUnlocked() && isPrivateMode ? "🔒 Close" : "🛡️ Open") + " Private Vault");
+    vaultMenu.discardChangesMenu.setVisible(hasVaultChanges());
+
+    // NOTE: addBtn, renameBtn, and deleteBtn are intentionally removed from here
+    // as they are handled by the render loop.
+}
+
 /**
  * EXPORTED FUNCTIONS
  */
@@ -1635,47 +896,93 @@ export async function loadVault(pwd, data, options) {
     }
     pwd = null;
 
-    window.ScreenManager.register('explorer', vaultUI.mainSection, {
-        onShow: async () => {
-            log("Explorer", "Refreshing file list from Drive...");
-
-            // 1. Create a fresh copy of all original options
-            // 2. Overwrite 'readOnly' with the ACTUAL current status
-            const currentContext = {
-                ...options,
-                readOnly: inReadOnlyMode()
-            };
-
-            // Now 'currentContext' has all the original properties
-            // (theme, language, flags, etc.) but the CORRECT read-only status.
-            await showVaultUI(currentContext);
+    const vaultContext = () => ({
+        activeData: getActiveVaultData(),
+        path: sessionState.path,
+        depth: sessionState.path.length,
+        groupId: sessionState.path[1],
+        itemId: sessionState.path[2],
+        isSelectionMode: sessionState.isSelectionMode,
+        isEditable: sessionState.isEditable,
+        showSecure: sessionState.showSecure,
+        isPrivateMode,
+        currentFilterMap,
+        currentSearchQuery,
+        vaultClipboard,
+        atRoot: () => sessionState.path.length === 1 && sessionState.path[0] === 'root',
+        hasPrivateVaultData: () => !!privateVaultData,
+        privateDataPointer: (emailHash) => vaultData.meta.extensions?.private_vaults?.[emailHash],
+        toggleShowSecure: () => {
+            sessionState.showSecure = !sessionState.showSecure;
+            refreshVault();
         },
-        onHide: () => {
-            vaultMenuBar.addBtn.setVisible(false);
-            vaultMenuBar.renameBtn.setVisible(false);
-            vaultMenuBar.deleteBtn.setVisible(false);
-            return true;
-        }
+        onNavigate: (id) => {
+            sessionState.path.push(id);
+            refreshVault();
+        },
+        onAttachmentDelete: (fileId) => {
+            pendingFileDeletions.push(fileId);
+            log("vault.handleDelete", `Added ${fileId} to pending deletes.`);
+        },
+        onAttachmentUpload: (fileId) => {
+            pendingFileUploads.push(fileId);
+            log("vaultUI.handleUploadAttachment", `Tracking new file for discard-safety: ${fileId}`);
+        },
+        refresh: () => {
+            refreshVault();
+        },
+        refreshMenu: () => {
+            refreshVault();
+        },
     });
 
-    // --- THE STARTING PISTOL ---
-    // This is what actually triggers the UI transition!
-    ScreenManager.switchView('explorer');
+    await loadExplorer(vaultContext, async () => {
+        log("vaultUI.loadExplorer", "Refreshing vault data from Drive...");
+
+        // 1. Create a fresh copy of all original options
+        // 2. Overwrite 'readOnly' with the ACTUAL current status
+        const currentContext = {
+            ...options,
+            readOnly: inReadOnlyMode()
+        };
+
+        // Now 'currentContext' has all the original properties
+        // (theme, language, flags, etc.) but the CORRECT read-only status.
+        await showVaultUI(currentContext);
+    });
 
     setTimeout(async () => runSharedVaultCleanup(vaultData), 5000); // 5-second delay to prioritize the initial UI render
 }
 
-export function refreshVaultView(readOnly) {
+export function resetToRoot() {
+    sessionState.path = ['root'];
+    refreshVault();
+}
+
+export function navigateToPath(index) {
+    sessionState.path = sessionState.path.slice(0, index);
+    refreshVault();
+}
+
+export function refreshVault(readOnly = false) {
+    log("vaultUI.refreshVault", "called");
+
     if (readOnly)
-        warn("vaultUI.refreshVaultView", "Read-Only mode, app will be limited to view info only!");
+        warn("vaultUI.refreshVault", "Read-Only mode, app will be limited to view info only!");
 
     vaultUI.title.classList.value = AU.isGenesisUser() ? 'genesis-user' : AU.isAdmin() ? 'admin-user' : 'member-user';
 
-    vaultRawDataUI.textContent.setReadOnly(readOnly || !AU.isGenesisUser());
+    refreshMoveMenu();
 
+    // 3. Update the Action Bar (Add/Rename/Delete logic)
+    refreshAddRenDelMenubar();
+
+    // 4. Full Re-render
     renderVaultExplorer();
-    manageActionableItems(readOnly);
+    refreshMainMenuItemsState(readOnly);
     applyReadOnlyTheme(readOnly);
+
+    vaultRawDataUI.textContent.setReadOnly(readOnly || !AU.isGenesisUser());
 }
 
 /**
@@ -1754,7 +1061,7 @@ export function handleDriveLockLost(info) {
 
     const wasWriteMode = G.driveLockState?.mode === "write";
 
-    refreshVaultView(wasWriteMode);
+    refreshVault(wasWriteMode);
 
     if (G.driveLockState?.heartbeat?.stop) {
         G.driveLockState.heartbeat.stop();
@@ -1775,16 +1082,16 @@ export function handleDriveLockLost(info) {
 
                 // Success! The heartbeat is back, UI stays in write mode.
                 showSilentToast("Lock re-acquired successfully, save your changes first");
-                refreshVaultView(false);
+                refreshVault(false);
             } catch (err) {
                 error("UI.lockLost", "Re-acquisition failed:", err.message);
                 showSilentToast("Failed to re-acquire lock, downgrading to read-only mode");
-                refreshVaultView(true);
+                refreshVault(true);
             }
         },
         onCancel: async () => {
             showSilentToast("Continuing in read only mode");
-            refreshVaultView(true);
+            refreshVault(true);
         }
     });
 }

@@ -8,7 +8,7 @@ export const loginUI = loadUI(['title', 'signinBtn', 'signinStatus', 'welcomeSpa
     'authMsg', 'pwdSection', 'confirmPwdSection', 'pwdInput', 'confirmPwdInput',
     'unlockBtn', 'recoverBtn', 'recoveryLnk', 'statusMsg', 'restoreBackupLnk'], 'login_', 'loginView');
 
-export const vaultUI = loadUI(['title', 'toggleSecureBtn', 'mainSection', 'headerRightSide', 'explorer', 'statusMsg'], 'vault_', 'vaultView');
+export const vaultUI = loadUI(['header', 'headerLeftSide', 'title', 'toggleSecureBtn', 'mainSection', 'headerRightSide', 'explorer', 'statusMsg'], 'vault_', 'vaultView');
 
 export const vaultRawDataUI = loadUI(['mainSection', 'textContent', 'treeContent', 'toggleViewBtn', 'closeBtn'], 'vaultRawData_', 'vaultView');
 

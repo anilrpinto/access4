@@ -105,6 +105,7 @@ async function setupPrivateVault(userEmail, privatePassword) {
 
     // RETURN EVERYTHING vault.js needs to take over
     return {
+        emailHash,
         pointer: encryptedPointer, // To save in the Main Envelope
         data: genesisData         // To show in the UI immediately
     };
