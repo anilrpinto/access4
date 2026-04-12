@@ -1917,3 +1917,10 @@ header {
 .json-tree li:hover > .json-key {
     background-color: rgba(0, 0, 0, 0.03);
 }
+
+.menu-icon {
+    display: inline-block;
+    width: 1.5rem; /* Set this to match your emoji width */
+    text-align: center;
+    margin-right: 8px;
+}

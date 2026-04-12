@@ -12,9 +12,9 @@ import { showConfirmUI } from '@/ui/confirm.js';
 import { showOverlayConfirmUI, showOverlayAlertUI, showOverlayPasswordUI, showOverlayChoiceUI } from '@/ui/modal.js';
 
 import { generateFilterMap  } from '@/ui/search.js';
-import { showAddNewUI, showRenameUI, showDeleteUI } from '@/ui/add-rename-delete.js';
+
 import { lockPrivateVault, isPrivateVaultUnlocked, savePrivateVaultData } from "@/ui/private-vault.js";
-import { loadExplorer, renderBreadcrumbs, renderVaultExplorer, getCurrentItem } from '@/ui/explorer.js';
+import { loadExplorer, renderVaultExplorer } from '@/ui/explorer.js';
 
 let originalVaultData = null;
 let vaultData = null;
@@ -66,7 +66,6 @@ async function init() {
     });
 
     vaultMenu.saveMenu.onClick(doSaveClick);
-    vaultMenu.toggleEditMenu.onClick(doToggleEditClick);
 
     vaultMenu.rawDataMenu.onClick(doShowRawDataClick);
     vaultMenu.discardChangesMenu.onClick(doDiscardChangesClick);
@@ -76,16 +75,8 @@ async function init() {
     vaultMenu.runBackupMenu.onClick(doRunBackupClick);
     vaultMenu.recoveryRotationMenu.onClick(doRecoveryKeyRotationClick);
 
-
     vaultUI.title.onClick(doToggleSecureClick);
     vaultUI.toggleSecureBtn.onClick(doToggleSecureClick);
-    vaultMenuBar.addBtn.onClick(doAddClick);
-    vaultMenuBar.renameBtn.onClick(doRenameClick);
-    vaultMenuBar.deleteBtn.onClick(doDeleteClick);
-
-    vaultMenu.selectMenu.onClick(doSelectClick);
-    vaultMenu.cutMenu.onClick(doCutClick);
-    vaultMenu.pasteMenu.onClick(doPasteClick);
 
     vaultMenu.logoutMenu.onClick(doLogout);
 
@@ -279,100 +270,6 @@ function doDiscardChangesClick() {
     });
 }
 
-function doSelectClick() {
-    log("vaultUI.doSelectClick", "called");
-
-    // If we were in Cut mode OR Selection mode, clicking this should RESET everything
-    if (vaultClipboard.mode === 'cut' || sessionState.isSelectionMode) {
-        sessionState.isSelectionMode = false;
-        vaultClipboard.mode = null;
-        vaultClipboard.items = []; // This clears the array, so the CSS class will drop
-        vaultClipboard.sourceParentId = null;
-        showStatusMessage("Move cancelled", "info");
-    } else {
-        // Otherwise, just start selection mode normally
-        sessionState.isSelectionMode = true;
-    }
-
-    refreshVault();
-}
-
-function doCutClick() {
-    log("vaultUI.doCutClick", "called");
-
-    if (vaultClipboard.items.length === 0) return;
-
-    vaultClipboard.mode = 'cut';
-    // Remove the single sourceParentId line — it's now in the items array
-    //vaultClipboard.sourceParentId = sessionState.path[1];
-
-    // Turn off selection mode
-    sessionState.isSelectionMode = false;
-
-    // Auto-navigate to root
-    sessionState.path = ['root'];
-
-    showStatusMessage(`${vaultClipboard.items.length} items cut. Select a group to paste.`, "info");
-
-    // Re-render so we see the Group List now
-    refreshVault();
-}
-
-async function doPasteClick() {
-    log("vaultUI.doPasteClick", "called");
-
-    const activeData = getActiveVaultData();
-    const targetGroupId = sessionState.path[1];
-
-    // 1. Validation: Must be in a group to paste
-    if (!targetGroupId || targetGroupId === 'root') {
-        showStatusMessage("Open a group to paste items", "error");
-        return;
-    }
-
-    const targetGroup = activeData.groups.find(g => g.id === targetGroupId);
-    if (!targetGroup) {
-        error("Paste failed: Target group not found");
-        return;
-    }
-
-    let movedCount = 0;
-
-    // 2. Loop through every item in the clipboard
-    vaultClipboard.items.forEach(clipboardEntry => {
-        // Find the source group for THIS specific item
-        const sourceGroup = activeData.groups.find(g => g.id === clipboardEntry.parentId);
-
-        // Safety: Don't move if source is the same as target
-        if (sourceGroup && sourceGroup.id !== targetGroupId) {
-            const itemIndex = sourceGroup.items.findIndex(i => i.id === clipboardEntry.id);
-
-            if (itemIndex > -1) {
-                // Perform the move
-                const [movedItem] = sourceGroup.items.splice(itemIndex, 1);
-                targetGroup.items.push(movedItem);
-
-                movedItem.modified = new Date().toISOString();
-                movedCount++;
-            }
-        }
-    });
-
-    // 3. Cleanup
-    vaultClipboard.items = [];
-    vaultClipboard.mode = null;
-    vaultClipboard.sourceParentId = null; // No longer needed, but good to clear
-
-    // 4. Final UI Refresh
-    if (movedCount > 0) {
-        showStatusMessage(`Successfully moved ${movedCount} items`, "success");
-    } else {
-        showStatusMessage("No items were moved (already in target group)", "info");
-    }
-
-    refreshVault();
-}
-
 function doLogout() {
     log("vaultUI.doLogout", "called");
 
@@ -445,73 +342,6 @@ async function doToggleSecureClick() {
 
     const { refreshRawDataTree } = await import('@/ui/raw-data-viewer.js');
     refreshRawDataTree(getActiveVaultData(), !sessionState.showSecure);
-}
-
-async function doAddClick() {
-    const depth = sessionState.path.length;
-    log("vaultUI.doAddClick", "called - depth:", depth);
-
-    if (depth < 3) {
-        showAddNewUI(depth, sessionState.path[depth-1], getActiveVaultData(), {
-            onAdd: (name) => {
-                if (depth === 1) executeAddGroup(name);
-                else if (depth === 2) executeAddItem(name);
-            },
-            onCancel: () => {
-                refreshVault();
-            }
-        });
-    }
-}
-
-async function doRenameClick() {
-    const depth = sessionState.path.length;
-    log("vaultUI.doRenameClick", "called - depth:", depth);
-
-    // We only rename things we are currently "inside" or looking at
-    if (depth < 2) return;
-
-    showRenameUI(depth, getActiveVaultData(), sessionState.path, {
-        onRename: (newName) => {
-            executeRename(newName);
-        },
-        onCancel: () => {
-            refreshVault();
-        }
-    });
-}
-
-async function doDeleteClick() {
-    const depth = sessionState.path.length;
-
-    log("vaultUI.doDeleteClick", "called - depth:", depth);
-
-    if (depth < 2) {
-        warn("vaultUI.doDeleteClick", "Nothing selected to delete, ignoring delete");
-        return; // Can't delete the root vault
-    }
-
-    showDeleteUI(depth, sessionState.path[1], sessionState.path[2], getActiveVaultData(), {
-        onConfirm: () => {
-            executeDeletion();
-        },
-        onCancel: () => {
-            refreshVault();
-        }
-    });
-}
-
-async function doToggleEditClick() {
-    if (sessionState.isEditable) {
-        // We are EXITING edit mode.
-        // Update the timestamp now.
-        const item = getCurrentItem();
-        if (item) item.modified = new Date().toISOString();
-    }
-
-    sessionState.isEditable = !sessionState.isEditable;
-    vaultMenu.toggleEditMenu.setText(sessionState.isEditable ? "Exit Edit Mode" : "Edit Item");
-    refreshVault();
 }
 
 async function doSaveClick() {
@@ -607,96 +437,6 @@ async function doSaveClick() {
         showStatusMessage(`Save failed: ${err.message || err}`, "error");
         // Note: we do NOT clear pendingFileDeletions here so the user can try saving again
     }
-}
-
-function executeAddGroup(name) {
-    log("vaultUI.executeAddGroup", "called - name:", name);
-
-    const activeData = getActiveVaultData();
-    const newId = 'g-' + Date.now();
-    const newGroup = { id: newId, name: name, items: [] };
-
-    activeData.groups.push(newGroup);
-
-    // Auto-navigate into the new group
-    sessionState.path.push(newId);
-    refreshVault();
-}
-
-function executeAddItem(name) {
-    log("vaultUI.executeAddItem", "called - name:", name);
-    const activeData = getActiveVaultData();
-
-    const groupId = sessionState.path[1];
-    const group = activeData.groups.find(g => g.id === groupId);
-    const now = new Date().toISOString();
-    const newItem = {
-        id: 'i-' + Date.now(),
-        label: name,
-        created: now, modified: now,
-        fields: [{ type: 'text', key: 'Username', val: '' }, { type: 'secure', key: 'Password', val: '' }, { type: 'note', key: 'Notes', val: '' }]
-    };
-    group.items.push(newItem);
-    refreshVault();
-}
-
-function executeRename(newName) {
-    log("vaultUI.executeRename", "called - newName:", newName);
-
-    const activeData = getActiveVaultData();
-    const depth = sessionState.path.length;
-    const groupId = sessionState.path[1];
-
-    if (depth === 2) {
-        const group = activeData.groups.find(g => g.id === groupId);
-        if (group) group.name = newName;
-    } else if (depth === 3) {
-        const itemId = sessionState.path[2];
-        const group = activeData.groups.find(g => g.id === groupId);
-        const item = group?.items.find(i => i.id === itemId);
-        if (item) {
-            item.label = newName;
-            item.modified = new Date().toISOString();
-        }
-    }
-
-    refreshVault();
-}
-
-function executeDeletion() {
-    log("vaultUI.executeDeletion", "called");
-
-    const activeData = getActiveVaultData();
-    const depth = sessionState.path.length;
-
-    if (depth === 2) {
-        // --- DELETE GROUP ---
-        const groupId = sessionState.path[1];
-        const index = activeData.groups.findIndex(g => g.id === groupId);
-
-        if (index > -1) {
-            activeData.groups.splice(index, 1);
-            // After deleting a group, we must go back to the root
-            sessionState.path = ['root'];
-        }
-    }
-    else if (depth === 3) {
-        // --- DELETE ITEM ---
-        const groupId = sessionState.path[1];
-        const itemId = sessionState.path[2];
-        const group = activeData.groups.find(g => g.id === groupId);
-
-        if (group) {
-            const index = group.items.findIndex(i => i.id === itemId);
-            if (index > -1) {
-                group.items.splice(index, 1);
-                // After deleting an item, go back to the group list
-                sessionState.path.pop();
-            }
-        }
-    }
-
-    refreshVault();
 }
 
 function hasVaultChanges() {
@@ -816,10 +556,10 @@ export function refreshMoveMenu() {
 
     // 2. Update the "Select Multiple" toggle text to handle 'Cancel Move'
     if (isSelecting || isCutting) {
-        vaultMenu.selectMenu.setText(isCutting ? "Cancel Move" : "Cancel Selection");
+        vaultMenu.selectMenu.setText("\u2800\u2800 Cancel " + (isCutting ? "Move" : "Selection"));
         vaultMenu.selectMenu.classList.add('active-mode-text');
     } else {
-        vaultMenu.selectMenu.setText("Select Multiple");
+        vaultMenu.selectMenu.setText("\u2800\u2800 Select Multiple");
         vaultMenu.selectMenu.classList.remove('active-mode-text');
     }
 }
@@ -910,10 +650,15 @@ export async function loadVault(pwd, data, options) {
         currentSearchQuery,
         vaultClipboard,
         atRoot: () => sessionState.path.length === 1 && sessionState.path[0] === 'root',
+        navigateToRoot: () => { sessionState.path = ['root']; },
         hasPrivateVaultData: () => !!privateVaultData,
         privateDataPointer: (emailHash) => vaultData.meta.extensions?.private_vaults?.[emailHash],
         toggleShowSecure: () => {
             sessionState.showSecure = !sessionState.showSecure;
+            refreshVault();
+        },
+        toggleEditable: () => {
+            sessionState.isEditable = !sessionState.isEditable;
             refreshVault();
         },
         onNavigate: (id) => {
@@ -934,6 +679,14 @@ export async function loadVault(pwd, data, options) {
         refreshMenu: () => {
             refreshVault();
         },
+        cancelMove: () => {
+            sessionState.isSelectionMode = false;
+            vaultClipboard.mode = null;
+            vaultClipboard.items = []; // This clears the array, so the CSS class will drop
+            vaultClipboard.sourceParentId = null;
+            showStatusMessage("Move cancelled", "info");
+        },
+        setSelectionMode: (bool) => { sessionState.isSelectionMode = bool; },
     });
 
     await loadExplorer(vaultContext, async () => {

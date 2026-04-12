@@ -6,13 +6,23 @@ import { hideFilterUI } from '@/ui/search.js';
 import { showOverlayConfirmUI, showOverlayAlertUI } from '@/ui/modal.js';
 import { showSilentToast } from '@/ui/uihelper.js';
 
-import { toggleVaultMode, resetToRoot, navigateToPath, handlePrivateVaultGenesis, handlePrivateVaultUnlock } from '@/ui/vault.js';
+import { toggleVaultMode, resetToRoot, navigateToPath, handlePrivateVaultGenesis, handlePrivateVaultUnlock, showStatusMessage } from '@/ui/vault.js';
 import { promptPrivateVaultPassword, showCreatePrivateVaultUI, lockPrivateVault, isPrivateVaultUnlocked } from "@/ui/private-vault.js";
+import { showAddNewUI, showRenameUI, showDeleteUI } from '@/ui/add-rename-delete.js';
 
 let vaultCtx = null;
 
 async function load(onShowCb) {
     log("explorer.load", "called");
+
+    vaultMenu.toggleEditMenu.onClick(doToggleEditClick);
+    vaultMenuBar.addBtn.onClick(doAddClick);
+    vaultMenuBar.renameBtn.onClick(doRenameClick);
+    vaultMenuBar.deleteBtn.onClick(doDeleteClick);
+
+    vaultMenu.selectMenu.onClick(doSelectClick);
+    vaultMenu.cutMenu.onClick(doCutClick);
+    vaultMenu.pasteMenu.onClick(doPasteClick);
 
     vaultMenu.privateVaultMenu.onClick(doPrivateVaultClick);
 
@@ -757,3 +767,249 @@ export async function loadExplorer(vaultContext, onShowCb) {
 
     window.ScreenManager.switchView(screenKey);
 }
+
+function doSelectClick() {
+    log("explorer.doSelectClick", "called");
+
+    const { vaultClipboard, isSelectionMode, setSelectionMode, cancelMove, refresh } = vaultCtx();
+
+    // If we were in Cut mode OR Selection mode, clicking this should RESET everything
+    if (vaultClipboard.mode === 'cut' || isSelectionMode) {
+        cancelMove();
+    } else {
+        // Otherwise, just start selection mode normally
+        setSelectionMode(true);
+    }
+
+    refresh();
+}
+
+function doCutClick() {
+    log("explorer.doCutClick", "called");
+
+    const { navigateToRoot, vaultClipboard, setSelectionMode, refresh } = vaultCtx();
+    if (vaultClipboard.items.length === 0) return;
+
+    vaultClipboard.mode = 'cut';
+    // Remove the single sourceParentId line — it's now in the items array
+    //vaultClipboard.sourceParentId = sessionState.path[1];
+
+    // Turn off selection mode
+    setSelectionMode(false);
+
+    // Auto-navigate to root
+    navigateToRoot();
+
+    showStatusMessage(`${vaultClipboard.items.length} items cut. Select a group to paste.`, "info");
+
+    // Re-render so we see the Group List now
+    refresh();
+}
+
+async function doPasteClick() {
+    log("explorer.doPasteClick", "called");
+
+    const { activeData, groupId, vaultClipboard, setSelectionMode, refresh } = vaultCtx();
+    const targetGroupId = groupId;
+
+    // 1. Validation: Must be in a group to paste
+    if (!targetGroupId || targetGroupId === 'root') {
+        showStatusMessage("Open a group to paste items", "error");
+        return;
+    }
+
+    const targetGroup = activeData.groups.find(g => g.id === targetGroupId);
+    if (!targetGroup) {
+        error("Paste failed: Target group not found");
+        return;
+    }
+
+    let movedCount = 0;
+
+    // 2. Loop through every item in the clipboard
+    vaultClipboard.items.forEach(clipboardEntry => {
+        // Find the source group for THIS specific item
+        const sourceGroup = activeData.groups.find(g => g.id === clipboardEntry.parentId);
+
+        // Safety: Don't move if source is the same as target
+        if (sourceGroup && sourceGroup.id !== targetGroupId) {
+            const itemIndex = sourceGroup.items.findIndex(i => i.id === clipboardEntry.id);
+
+            if (itemIndex > -1) {
+                // Perform the move
+                const [movedItem] = sourceGroup.items.splice(itemIndex, 1);
+                targetGroup.items.push(movedItem);
+
+                movedItem.modified = new Date().toISOString();
+                movedCount++;
+            }
+        }
+    });
+
+    // 3. Cleanup
+    vaultClipboard.items = [];
+    vaultClipboard.mode = null;
+    vaultClipboard.sourceParentId = null; // No longer needed, but good to clear
+
+    // 4. Final UI Refresh
+    if (movedCount > 0) {
+        showStatusMessage(`Successfully moved ${movedCount} items`, "success");
+    } else {
+        showStatusMessage("No items were moved (already in target group)", "info");
+    }
+
+    refresh();
+}
+
+async function doAddClick() {
+    const { activeData, depth, path, refresh } = vaultCtx();
+    log("explorer.doAddClick", "called - depth:", depth);
+
+    if (depth < 3) {
+        showAddNewUI(depth, path[depth-1], activeData, {
+            onAdd: (name) => {
+                if (depth === 1) executeAddGroup(name);
+                else if (depth === 2) executeAddItem(name);
+            },
+            onCancel: () => {
+                refresh();
+            }
+        });
+    }
+}
+
+async function doRenameClick() {
+    const { activeData, depth, path, refresh } = vaultCtx();
+    log("explorer.doRenameClick", "called - depth:", depth);
+
+    // We only rename things we are currently "inside" or looking at
+    if (depth < 2) return;
+
+    showRenameUI(depth, activeData, path, {
+        onRename: (newName) => {
+            executeRename(newName);
+        },
+        onCancel: () => {
+            refresh();
+        }
+    });
+}
+
+async function doDeleteClick() {
+    const { activeData, depth, groupId, itemId, refresh } = vaultCtx();
+
+    log("explorer.doDeleteClick", "called - depth:", depth);
+
+    if (depth < 2) {
+        warn("explorer.doDeleteClick", "Nothing selected to delete, ignoring delete");
+        return; // Can't delete the root vault
+    }
+
+    showDeleteUI(depth, groupId, itemId, activeData, {
+        onConfirm: () => {
+            executeDeletion();
+        },
+        onCancel: () => {
+            refresh();
+        }
+    });
+}
+
+async function doToggleEditClick() {
+    const { isEditable, toggleEditable } = vaultCtx();
+    
+    if (isEditable) {
+        // We are EXITING edit mode.
+        // Update the timestamp now.
+        const item = getCurrentItem();
+        if (item) item.modified = new Date().toISOString();
+    }
+
+    vaultMenu.toggleEditMenu.setText(isEditable ? "Cancel Editing" : "Edit Item");
+    
+    // Internally refreshes vault 
+    toggleEditable();
+}
+
+function executeAddGroup(name) {
+    log("explorer.executeAddGroup", "called - name:", name);
+
+    const { activeData, path, refresh } = vaultCtx();
+    const newId = 'g-' + CR.generateUUID();
+    const newGroup = { id: newId, name: name, items: [] };
+
+    activeData.groups.push(newGroup);
+
+    // Auto-navigate into the new group
+    path.push(newId);
+    refresh();
+}
+
+function executeAddItem(name) {
+    log("explorer.executeAddItem", "called - name:", name);
+    const { activeData, groupId, refresh } = vaultCtx();
+
+    const group = activeData.groups.find(g => g.id === groupId);
+    const now = new Date().toISOString();
+    const newItem = {
+        id: 'i-' + CR.generateUUID(),
+        label: name,
+        created: now, modified: now,
+        fields: [{ type: 'text', key: 'Username', val: '' }, { type: 'secure', key: 'Password', val: '' }, { type: 'note', key: 'Notes', val: '' }]
+    };
+    group.items.push(newItem);
+    refresh();
+}
+
+function executeRename(newName) {
+    log("explorer.executeRename", "called - newName:", newName);
+
+    const { activeData, depth, groupId, itemId, refresh } = vaultCtx();
+
+    if (depth === 2) {
+        const group = activeData.groups.find(g => g.id === groupId);
+        if (group) group.name = newName;
+    } else if (depth === 3) {
+        const group = activeData.groups.find(g => g.id === groupId);
+        const item = group?.items.find(i => i.id === itemId);
+        if (item) {
+            item.label = newName;
+            item.modified = new Date().toISOString();
+        }
+    }
+
+    refresh();
+}
+
+function executeDeletion() {
+    log("explorer.executeDeletion", "called");
+
+    const { activeData, depth, path, groupId, itemId, navigateToRoot, refresh } = vaultCtx();
+
+    if (depth === 2) {
+        // --- DELETE GROUP ---
+        const index = activeData.groups.findIndex(g => g.id === groupId);
+
+        if (index > -1) {
+            activeData.groups.splice(index, 1);
+            // After deleting a group, we must go back to the root
+            navigateToRoot();
+        }
+    }
+    else if (depth === 3) {
+        // --- DELETE ITEM ---
+        const group = activeData.groups.find(g => g.id === groupId);
+
+        if (group) {
+            const index = group.items.findIndex(i => i.id === itemId);
+            if (index > -1) {
+                group.items.splice(index, 1);
+                // After deleting an item, go back to the group list
+                path.pop();
+            }
+        }
+    }
+
+    refresh();
+}
+
