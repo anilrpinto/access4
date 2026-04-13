@@ -1,15 +1,13 @@
 "use strict";
 
-import { C, G, clearGlobals, isValidSession, SV, log, trace, debug, info, warn, error,
-    setLogLevel, onlyLogLevels, TRACE, DEBUG, INFO, WARN, ERROR } from '@/shared/exports.js';
-
+import { C, G, clearGlobals, isValidSession, SV, log, trace, debug, info, warn, error, setLogLevel, onlyLogLevels, TRACE, DEBUG, INFO, WARN, ERROR } from '@/shared/exports.js';
 import { rootUI } from '@/ui/loader.js';
 import { loadLogin }  from '@/ui/login.js';
 import { copyToClipboard } from '@/ui/uihelper.js';
 
 export let logEl = rootUI.log;
 
-const IdleManager = {
+const _idleManager = {
     timer: null,
     lastReset: 0,
     boundHandler: null,
@@ -17,31 +15,67 @@ const IdleManager = {
     events: ['mousedown', 'mousemove', 'keydown', 'keypress', 'click', 'scroll', 'touchstart']
 };
 
-const resetTimer = (force = false) => {
+const _resetTimer = (force = false) => {
     const now = Date.now();
 
-    if (!force && (now - IdleManager.lastReset < IdleManager.threshold)) {
+    if (!force && (now - _idleManager.lastReset < _idleManager.threshold)) {
         return;
     }
 
-    log("APP.resetTimer", "Refreshing idle timeout");
-    IdleManager.lastReset = now;
+    log("APP._resetTimer", "Refreshing idle timeout");
+    _idleManager.lastReset = now;
 
-    clearTimeout(IdleManager.timer);
+    clearTimeout(_idleManager.timer);
 
-    IdleManager.timer = setTimeout(async () => {
+    _idleManager.timer = setTimeout(async () => {
         logout("Auto logout");
     }, C.IDLE_TIMEOUT_MS);
 };
 
-function onLoad() {
+export function activateIdleChecker() {
+    log("APP.activateIdleChecker", "called");
+
+    // 1. Create a clean wrapper that doesn't pass the Event object
+    _idleManager.boundHandler = () => _resetTimer(false);
+
+    // Events that "wake up" the timer
+    // Clean up old listeners to prevent memory leaks/duplicate triggers
+    _idleManager.events.forEach(evt => {
+        document.removeEventListener(evt, _idleManager.boundHandler);
+        document.addEventListener(evt, _idleManager.boundHandler, { passive: true });
+    });
+
+    _resetTimer(true);
+}
+
+export async function logout(reason = "User initiated") {
+    log("APP.logout", "Initiating logout... reason:", reason);
+
+    // 2️⃣ Clear the rest of the app state
+    clearGlobals();
+    sessionStorage.removeItem("sv_session_private_key");
+
+    // 1️⃣ Wait for the lock to be released properly
+    await _releaseDriveLock();
+
+    _deactivateAutoLogout();
+
+    // 3️⃣ Redirect to login
+    loadLogin();
+
+    G.biometricIntent = false;
+    log("APP.logout", "Logout complete.");
+}
+
+/** INTERNAL FUNCTIONS **/
+function _onLoad() {
 
     //setLogLevel(INFO);
     //onlyLogLevels(INFO, TRACE);
-    log("APP.onLoad", `called for [v${C.APP_VERSION}]`);
+    log("APP._onLoad", `called for [v${C.APP_VERSION}]`);
     loadLogin();
 
-    logEl.onClick(doCopyToClipboardClick);
+    logEl.onClick(_doCopyToClipboardClick);
 
     window.addEventListener('focus', () => {
         if (G.driveLockState && !G.driveLockState.heartbeat) {
@@ -57,25 +91,25 @@ function onLoad() {
     });
 }
 
-function deactivateAutoLogout() {
-    log("vaultUI.deactivateAutoLogout", "called");
+function _deactivateAutoLogout() {
+    log("vaultUI._deactivateAutoLogout", "called");
 
-    IdleManager.events.forEach(evt => {
-        document.removeEventListener(evt, IdleManager.boundHandler);
+    _idleManager.events.forEach(evt => {
+        document.removeEventListener(evt, _idleManager.boundHandler);
     });
 
-    clearTimeout(IdleManager.timer);
-    IdleManager.callback = null;
-    IdleManager.boundHandler = null;
-    IdleManager.lastReset = 0;
+    clearTimeout(_idleManager.timer);
+    _idleManager.callback = null;
+    _idleManager.boundHandler = null;
+    _idleManager.lastReset = 0;
 }
 
-function doCopyToClipboardClick() {
+function _doCopyToClipboardClick() {
     copyToClipboard(logEl.innerText);
 }
 
-async function releaseDriveLock() {
-    log("AP.releaseDriveLock", "called");
+async function _releaseDriveLock() {
+    log("AP._releaseDriveLock", "called");
 
     if (!G.driveLockState) return;
 
@@ -94,9 +128,9 @@ async function releaseDriveLock() {
 
             // 2️⃣ MUST AWAIT this to ensure the server actually receives the "Unlock"
             await SV.writeLockToDrive(cleared, fileId);
-            log("AP.releaseDriveLock", "Drive lock explicitly expired on server");
+            log("AP._releaseDriveLock", "Drive lock explicitly expired on server");
         } catch (err) {
-            warn("AP.releaseDriveLock", "Failed to release on server (network?), proceeding with local wipe", err);
+            warn("AP._releaseDriveLock", "Failed to release on server (network?), proceeding with local wipe", err);
         }
     }
 
@@ -105,44 +139,6 @@ async function releaseDriveLock() {
 }
 
 window.onload = async () => {
-    await onLoad();
+    await _onLoad();
     clearGlobals();
 };
-
-/**
- * EXPORTED FUNCTIONS
- */
-export function activateIdleChecker() {
-    log("APP.activateIdleChecker", "called");
-
-    // 1. Create a clean wrapper that doesn't pass the Event object
-    IdleManager.boundHandler = () => resetTimer(false);
-
-    // Events that "wake up" the timer
-    // Clean up old listeners to prevent memory leaks/duplicate triggers
-    IdleManager.events.forEach(evt => {
-        document.removeEventListener(evt, IdleManager.boundHandler);
-        document.addEventListener(evt, IdleManager.boundHandler, { passive: true });
-    });
-
-    resetTimer(true);
-}
-
-export async function logout(reason = "User initiated") {
-    log("APP.logout", "Initiating logout... reason:", reason);
-
-    // 2️⃣ Clear the rest of the app state
-    clearGlobals();
-    sessionStorage.removeItem("sv_session_private_key");
-
-    // 1️⃣ Wait for the lock to be released properly
-    await releaseDriveLock();
-
-    deactivateAutoLogout();
-
-    // 3️⃣ Redirect to login
-    loadLogin();
-
-    G.biometricIntent = false;
-    log("APP.logout", "Logout complete.");
-}

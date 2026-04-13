@@ -1,17 +1,6 @@
 import { C, G, CR, GD, SV, log, trace, debug, info, warn, error } from '@/shared/exports.js';
 
 /**
- * TEMPORARY DEV HELPER:
- * Creates a readable name for Google Drive to assist in testing.
- * REVERT THIS BEFORE PRODUCTION.
- */
-function getDevDriveName(originalName) {
-    const timestamp = new Date().toLocaleTimeString().replace(/:/g, '-');
-    // We keep the original name but append 'DEV' and a time to avoid collisions
-    return `DEV_${timestamp}_${originalName}.enc`;
-}
-
-/**
  * Handles the encryption and Drive upload of an attachment.
  * Returns the metadata object to be stored in the Vault JSON.
  * @param {string} folderName - The bname of the destination folder.
@@ -23,13 +12,13 @@ export async function saveAttachment(folderName = C.ATTACHMENTS_FOLDER_NAME, nam
     log("AT.saveAttachment", `Processing: ${name}`);
 
     const fileUuid = CR.generateUUID();
-    const encryptedBytes = await encryptAttachment(binary, fileUuid);
+    const encryptedBytes = await _encryptAttachment(binary, fileUuid);
 
     // 1. Get the folder ID (this should be cached in G.attachmentsFolderId eventually)
     const folderId = await GD.findOrCreateFolder(folderName, C.ACCESS4_ROOT_ID);
 
     // --- TEMP DEV LOGIC ---
-    const driveName = getDevDriveName(name);    //`${fileUuid}.bin`
+    const driveName = _getDevDriveName(name);    //`${fileUuid}.bin`
 
     // 2. Use the new wrapper
     const driveFileId = await GD.upsertBinaryFile({
@@ -57,17 +46,6 @@ export async function saveAttachment(folderName = C.ATTACHMENTS_FOLDER_NAME, nam
 }
 
 /**
- * Derives a unique AES-GCM key for a specific file using the Vault CEK.
- */
-async function deriveFileKey(cek, fileUuid) {
-    log("AT.deriveFileKey", `Deriving key for ${fileUuid}`);
-
-    // We pass the CEK, a versioned salt, and the unique UUID.
-    // normalizeBytes in CR handles the string-to-buffer conversion for us.
-    return CR.deriveSubKey(cek, C.ATTACHMENT_FILEKEY_SALT, fileUuid);
-}
-
-/**
  * High-level coordinator to fetch and decrypt an attachment.
  * @param {Object} attachment - The attachment entry from the Vault JSON.
  * @returns {Uint8Array} - The decrypted file bytes.
@@ -81,10 +59,8 @@ export async function openAttachment(attachment) {
     const encryptedCombined = new Uint8Array(buffer);
 
     // 2. Perform the Decryption
-    // This calls your decryptAttachment logic (getting CEK, deriving FEK, splitting IV)
-    const plaintext = await decryptAttachment(encryptedCombined, attachment.uuid);
-
-    return plaintext;
+    // This calls your _decryptAttachment logic (getting CEK, deriving FEK, splitting IV)
+    return await _decryptAttachment(encryptedCombined, attachment.uuid);
 }
 
 /**
@@ -126,17 +102,19 @@ export async function deleteAttachmentFile(fileId) {
     }
 }
 
+/** INTERNAL FUNCTIONS **/
+
 /**
  * Encrypts a binary blob (Uint8Array) for Drive storage.
  */
-async function encryptAttachment(binaryData, fileUuid) {
-    log("AT.encryptAttachment", "called");
+async function _encryptAttachment(binaryData, fileUuid) {
+    log("AT._encryptAttachment", "called");
 
     // Get the CEK (Borrowing your existing unwrap logic)
     const cek = await SV.getTransientCEK();
 
     // Derive the unique key for this specific UUID
-    const fek = await deriveFileKey(cek, fileUuid);
+    const fek = await _deriveFileKey(cek, fileUuid);
 
     // Use existing CR.encrypt (it returns {iv, data} in B64)
     // NOTE: For large binaries, we convert to a flat Uint8Array for Drive efficiency
@@ -156,11 +134,11 @@ async function encryptAttachment(binaryData, fileUuid) {
 /**
  * Decrypts a binary blob from Drive.
  */
-async function decryptAttachment(combinedBuffer, fileUuid) {
-    log("AT.decryptAttachment", "called");
+async function _decryptAttachment(combinedBuffer, fileUuid) {
+    log("AT._decryptAttachment", "called");
 
     const cek = await SV.getTransientCEK();
-    const fek = await deriveFileKey(cek, fileUuid);
+    const fek = await _deriveFileKey(cek, fileUuid);
 
     const iv = combinedBuffer.slice(0, 12);
     const data = combinedBuffer.slice(12);
@@ -172,4 +150,26 @@ async function decryptAttachment(combinedBuffer, fileUuid) {
     };
 
     return CR.decrypt(enc, fek);
+}
+
+/**
+ * Derives a unique AES-GCM key for a specific file using the Vault CEK.
+ */
+async function _deriveFileKey(cek, fileUuid) {
+    log("AT._deriveFileKey", `Deriving key for ${fileUuid}`);
+
+    // We pass the CEK, a versioned salt, and the unique UUID.
+    // normalizeBytes in CR handles the string-to-buffer conversion for us.
+    return CR.deriveSubKey(cek, C.ATTACHMENT_FILEKEY_SALT, fileUuid);
+}
+
+/**
+ * TEMPORARY DEV HELPER:
+ * Creates a readable name for Google Drive to assist in testing.
+ * REVERT THIS BEFORE PRODUCTION.
+ */
+function _getDevDriveName(originalName) {
+    const timestamp = new Date().toLocaleTimeString().replace(/:/g, '-');
+    // We keep the original name but append 'DEV' and a time to avoid collisions
+    return `DEV_${timestamp}_${originalName}.enc`;
 }

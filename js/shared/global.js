@@ -1,5 +1,3 @@
-"use strict";
-
 const _G = {
     tokenClient: null,
     accessToken: null,

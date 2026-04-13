@@ -1,28 +1,12 @@
 import { log, trace, debug, info, warn, error } from '@/shared/exports.js';
-
 import { vaultAddNewUI } from '@/ui/loader.js';
 import { showConfirmUI } from '@/ui/confirm.js';
-
-function ensureEditorRegistered() {
-    // ScreenManager.register already handles the "if exists" check,
-    // so we can just call it safely.
-    window.ScreenManager.register(window.ScreenManager.EDITOR_SCREENKEY, vaultAddNewUI.mainSection, {
-        onShow: () => {
-            log("vaultAddRenDel.ensureEditorRegistered", "Focusing input.");
-            vaultAddNewUI.input.focus();
-        },
-        onHide: () => {
-            vaultAddNewUI.input.clear();
-            return true;
-        }
-    });
-}
 
 export function showAddNewUI(depth, toParentId, vaultData, {onAdd = () => {},  onCancel = () => {}} = {}) {
     log("vaultAddRenDel.showAddNewUI", "called - depth:", depth);
 
     // 1. Ensure registration (Happens only once per session/reload)
-    ensureEditorRegistered();
+    _ensureEditorRegistered();
     window.ScreenManager.switchView(window.ScreenManager.EDITOR_SCREENKEY);
 
     const title = vaultAddNewUI.title;
@@ -74,7 +58,7 @@ export function showRenameUI(depth, vaultData, path, {onRename = () => {}, onCan
     log("vaultAddRenDel.showRenameUI", "called - depth:", depth);
 
     // 1. Ensure registration (Happens only once per session/reload)
-    ensureEditorRegistered();
+    _ensureEditorRegistered();
     window.ScreenManager.switchView(window.ScreenManager.EDITOR_SCREENKEY);
 
     const title = vaultAddNewUI.title;
@@ -148,5 +132,21 @@ export function showDeleteUI(depth, groupId, itemId, vaultData, {onConfirm = () 
         message: msg,
         okText: okBtnText,
         onConfirm: onConfirm
+    });
+}
+
+/** INTERNAL FUNCTIONS **/
+function _ensureEditorRegistered() {
+    // ScreenManager.register already handles the "if exists" check,
+    // so we can just call it safely.
+    window.ScreenManager.register(window.ScreenManager.EDITOR_SCREENKEY, vaultAddNewUI.mainSection, {
+        onShow: () => {
+            log("vaultAddRenDel._ensureEditorRegistered", "Focusing input.");
+            vaultAddNewUI.input.focus();
+        },
+        onHide: () => {
+            vaultAddNewUI.input.clear();
+            return true;
+        }
     });
 }

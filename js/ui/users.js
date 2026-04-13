@@ -1,36 +1,25 @@
 import { C, G, LS, GD, inReadOnlyMode, log, trace, debug, info, warn, error } from '@/shared/exports.js';
-
 import { showSilentToast } from '@/ui/uihelper.js';
 import { vaultUsersUI } from '@/ui/loader.js';
 
-let originalAuthSnapshot = null; // To track changes
+let _originalAuthSnapshot = null; // To track changes
 
-async function unload() {
-    log("users.unload", "called");
+export async function showUsersUI() {
+    const screenKey = window.ScreenManager.USERS_SCREENKEY;
+    window.ScreenManager.register(screenKey, vaultUsersUI.mainSection, {
+        onShow: _load,
+        onHide: _unload
+    });
 
-    const currentAuthSnapshot = JSON.stringify(G.auth);
-
-    if (currentAuthSnapshot !== originalAuthSnapshot) {
-        if (!confirm("You have unsaved changes. Discard them?")) {
-            return false;
-        }
-        // User said OK to discard: Revert G.auth so it's not "dirty"
-        G.auth = JSON.parse(originalAuthSnapshot);
-    }
-
-    // --- UI CLEANUP ---
-    // Hide sub-elements so they are fresh for the next time the screen is opened
-    vaultUsersUI.formFields.setVisible(false);
-    vaultUsersUI.userSelect.value = ""; // Clear selection
-
-    return true; // ✅ Proceed with the switch
+    window.ScreenManager.switchView(screenKey);
 }
 
-async function load() {
-    log("users.load", "called");
+/** INTERNAL FUNCTIONS **/
+async function _load() {
+    log("users._load", "called");
 
     // Capture the state before any edits happen
-    originalAuthSnapshot = JSON.stringify(G.auth);
+    _originalAuthSnapshot = JSON.stringify(G.auth);
 
     //swapVisibility(vaultUI.mainSection, vaultUsersUI.mainSection);
 
@@ -64,25 +53,46 @@ async function load() {
         }
     });
 
-    select.onchange = selectUser;
+    select.onchange = _selectUser;
 
     // Attach "Live Update" listeners to all form fields
     vaultUsersUI.formFields.onchange = (e) => {
-        log("users.load.onchange", "Field change detected via delegation");
-        updateLocalMemberState();
+        log("users._load.onchange", "Field change detected via delegation");
+        _updateLocalMemberState();
     };
 
-    vaultUsersUI.closeBtn.onClick(exitUsersUI);
-    vaultUsersUI.cancelBtn.onClick(exitUsersUI);
-    vaultUsersUI.saveBtn.onClick(save);
-    vaultUsersUI.removeBtn.onClick(remove);
+    vaultUsersUI.closeBtn.onClick(_exitUsersUI);
+    vaultUsersUI.cancelBtn.onClick(_exitUsersUI);
+    vaultUsersUI.saveBtn.onClick(_save);
+    vaultUsersUI.removeBtn.onClick(_remove);
 }
 
-function updateLocalMemberState() {
+async function _unload() {
+    log("users._unload", "called");
+
+    const currentAuthSnapshot = JSON.stringify(G.auth);
+
+    if (currentAuthSnapshot !== _originalAuthSnapshot) {
+        if (!confirm("You have unsaved changes. Discard them?")) {
+            return false;
+        }
+        // User said OK to discard: Revert G.auth so it's not "dirty"
+        G.auth = JSON.parse(_originalAuthSnapshot);
+    }
+
+    // --- UI CLEANUP ---
+    // Hide sub-elements so they are fresh for the next time the screen is opened
+    vaultUsersUI.formFields.setVisible(false);
+    vaultUsersUI.userSelect.value = ""; // Clear selection
+
+    return true; // ✅ Proceed with the switch
+}
+
+function _updateLocalMemberState() {
     const email = vaultUsersUI.userSelect.value;
     if (!email) return;
 
-    log("users.updateLocalMemberState", `Drafting changes for ${email}`);
+    log("users._updateLocalMemberState", `Drafting changes for ${email}`);
 
     G.auth.members[email] = {
         ...G.auth.members[email], // Preserve existing fields like 'added' or 'id'
@@ -93,15 +103,15 @@ function updateLocalMemberState() {
     };
 }
 
-async function exitUsersUI() {
-    log("users.exitUsersUI", "Requesting return to explorer");
+async function _exitUsersUI() {
+    log("users._exitUsersUI", "Requesting return to explorer");
 
-    // The ScreenManager will run 'unload' before this happens.
-    // If 'unload' returns false, this switch will never complete.
+    // The ScreenManager will run '_unload' before this happens.
+    // If '_unload' returns false, this switch will never complete.
     window.ScreenManager.goHome();
 }
 
-function selectUser() {
+function _selectUser() {
     const email = vaultUsersUI.userSelect.value;
     const form = vaultUsersUI.formFields;
 
@@ -129,63 +139,50 @@ function selectUser() {
     vaultUsersUI.forcePwdCheck.setEnabled(!isLocked);
 }
 
-async function save() {
+async function _save() {
     const email = vaultUsersUI.userSelect.value;
     // We don't need to manually update G.auth here anymore,
-    // because updateLocalMemberState did it live!
+    // because _updateLocalMemberState did it live!
 
     try {
-        await persistUserChanges();
+        await _persistUserChanges();
 
         // Update the snapshot so we can exit without a prompt
-        originalAuthSnapshot = JSON.stringify(G.auth);
+        _originalAuthSnapshot = JSON.stringify(G.auth);
 
         showSilentToast(`All changes saved to Drive`);
     } catch (e) {
-        error("users.save", e);
-        showSilentToast("Failed to save changes", true);
+        error("users._save", e);
+        showSilentToast("Failed to _save changes", true);
     }
 }
 
-async function remove() {
+async function _remove() {
     const email = vaultUsersUI.userSelect.value;
     if (!confirm(`Are you sure you want to revoke all access for ${email}?`)) return;
 
     try {
         delete G.auth.members[email];
-        await persistUserChanges();
+        await _persistUserChanges();
 
         // ✅ ADD THIS: Reset the snapshot so the exit guard knows we are "clean"
-        originalAuthSnapshot = JSON.stringify(G.auth);
+        _originalAuthSnapshot = JSON.stringify(G.auth);
 
         showSilentToast(`${email} removed from vault`);
         showUsersUI(); // Refresh list
     } catch (e) {
-        error("users.remove", e);
+        error("users._remove", e);
     }
 }
 
 /**
  * Helper to handle the "Heavy Lifting" of saving to Drive
  */
-async function persistUserChanges() {
-    log("users.persistUserChanges", "Pushing registry updates to Drive...");
+async function _persistUserChanges() {
+    log("users._persistUserChanges", "Pushing registry updates to Drive...");
 
     G.auth.modified = new Date().toISOString();
     await GD.drivePatchJsonFile(LS.get(C.AUTH_FILE_ID_CACHE), G.auth);
 
-    log("users.persistUserChanges", "authorized.json updated successfully.");
-}
-
-/**
- * EXPORTED FUNCTIONS
- */
-export async function showUsersUI() {
-    const screenKey = window.ScreenManager.USERS_SCREENKEY;
-    window.ScreenManager.register(screenKey, vaultUsersUI.mainSection, {
-        onShow: load,
-        onHide: unload
-    });
-
-    window.ScreenManager.switchView(screenKey);
+    log("users._persistUserChanges", "authorized.json updated successfully.");
 }

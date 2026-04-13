@@ -1,4 +1,4 @@
-import { C, G, LS, AU, GD, SV, EN, ID, RG, AT, log, info, warn, error } from '@/shared/exports.js';
+import { C, G, LS, AU, GD, SV, EN, RG, AT, log, info, warn, error } from '@/shared/exports.js';
 
 /**
  * Sweeps the Attachments folder for files owned by the current user
@@ -11,6 +11,60 @@ export async function runSharedVaultCleanup(vaultData) {
 export async function runPrivateVaultCleanup(privateVaultData) {
     _runVaultCleanup(privateVaultData, C.PRIVATE_ATTACHMENTS_FOLDER_NAME, 'private');
 }
+
+/**
+ * Runs silently after login to ensure the
+ * Registry is fresh and the Envelope is fully wrapped.
+ */
+export async function runVaultAccessHousekeeping(envelope = null) {
+    if (!AU.isAdmin() && !G.recoverySession) return;
+
+    info("janitor.runVaultAccessHousekeeping", "Vault access housekeeping started");
+
+    try {
+        // 1️⃣ Sync the Registry first
+        await RG.syncRegistryDeltas(true);
+
+        // 2️⃣ Escalate ONLY if needed
+        if (G.driveLockState?.mode !== "write") {
+            log("janitor.runVaultAccessHousekeeping", "Escalating to write lock...");
+
+            // We use the 'try' version because we want a boolean, not an exception
+            const success = await SV.tryAcquireEnvelopeWriteLock();
+
+            log("janitor.runVaultAccessHousekeeping", `Escalation result: ${success ? 'SUCCESS' : 'FAILED'}`);
+
+            if (!success) {
+                warn("janitor.runVaultAccessHousekeeping", "Maintenance deferred: Lock held by another device.");
+                return; // Exit early; we can't do maintenance in Read-Only
+            }
+        }
+
+        // 3️⃣ Perform Maintenance (We definitely have a write lock now)
+        // 3️⃣ FETCH TRUTH: Get the absolute latest envelope from Drive
+        const driveData = await EN.readEnvelopeFromDrive();
+        const freshEnvelope = driveData?.json;
+
+        if (freshEnvelope) {
+            // Reconcile and write back to Drive
+            await SV.wrapCEKForRegistryKeys(freshEnvelope);
+
+            if (G.recoverySession) {
+                log("janitor.housekeeping", "Recovery complete. Wiping session transients.");
+                G.recoverySession = false;
+                G.recoveryCEK = null;
+            }
+            log("janitor.runVaultAccessHousekeeping", "Vault access fully synchronized.");
+        }
+
+    } catch (err) {
+        error("janitor.runVaultAccessHousekeeping", "Background maintenance failed:", err.message);
+    } finally {
+        log("janitor.runVaultAccessHousekeeping", "Maintenance cycle ended.");
+    }
+}
+
+/** INTERNAL FUNCTIONS **/
 
 /**
  * Core vault Cleanup Logic
@@ -80,57 +134,5 @@ async function _runVaultCleanup(vaultData, folderName = C.ATTACHMENTS_FOLDER_NAM
 
     } catch (err) {
         error(`janitor.${vaultType}`, "Cleanup failure: " + err.message);
-    }
-}
-
-/**
- * Runs silently after login to ensure the
- * Registry is fresh and the Envelope is fully wrapped.
- */
-export async function runVaultAccessHousekeeping(envelope = null) {
-    if (!AU.isAdmin() && !G.recoverySession) return;
-
-    info("janitor.runVaultAccessHousekeeping", "Vault access housekeeping started");
-
-    try {
-        // 1️⃣ Sync the Registry first
-        await RG.syncRegistryDeltas(true);
-
-        // 2️⃣ Escalate ONLY if needed
-        if (G.driveLockState?.mode !== "write") {
-            log("janitor.runVaultAccessHousekeeping", "Escalating to write lock...");
-
-            // We use the 'try' version because we want a boolean, not an exception
-            const success = await SV.tryAcquireEnvelopeWriteLock();
-
-            log("janitor.runVaultAccessHousekeeping", `Escalation result: ${success ? 'SUCCESS' : 'FAILED'}`);
-
-            if (!success) {
-                warn("janitor.runVaultAccessHousekeeping", "Maintenance deferred: Lock held by another device.");
-                return; // Exit early; we can't do maintenance in Read-Only
-            }
-        }
-
-        // 3️⃣ Perform Maintenance (We definitely have a write lock now)
-        // 3️⃣ FETCH TRUTH: Get the absolute latest envelope from Drive
-        const driveData = await EN.readEnvelopeFromDrive();
-        const freshEnvelope = driveData?.json;
-
-        if (freshEnvelope) {
-            // Reconcile and write back to Drive
-            await SV.wrapCEKForRegistryKeys(freshEnvelope);
-
-            if (G.recoverySession) {
-                log("janitor.housekeeping", "Recovery complete. Wiping session transients.");
-                G.recoverySession = false;
-                G.recoveryCEK = null;
-            }
-            log("janitor.runVaultAccessHousekeeping", "Vault access fully synchronized.");
-        }
-
-    } catch (err) {
-        error("janitor.runVaultAccessHousekeeping", "Background maintenance failed:", err.message);
-    } finally {
-        log("janitor.runVaultAccessHousekeeping", "Maintenance cycle ended.");
     }
 }

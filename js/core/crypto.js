@@ -20,37 +20,6 @@ export const CR_ALG = {
     RSA_MODULUS_LENGTH: 2048,
 };
 
-// Helpers
-function normalizeBytes(data) {
-    if (data instanceof Uint8Array) {
-        return data;
-    }
-
-    if (data instanceof ArrayBuffer) {
-        return new Uint8Array(data);
-    }
-
-    if (typeof data === "string") {
-        return new TextEncoder().encode(data);
-    }
-
-    throw new Error("CR.encrypt: Unsupported input type");
-}
-
-function assertKeyUsage(key, requiredUsage) {
-
-    if (!key.usages.includes(requiredUsage)) {
-        throw new Error(
-            `CryptoKey missing required usage '${requiredUsage}'. ` +
-            `Actual usages: [${key.usages.join(", ")}]`
-        );
-    }
-}
-
-/**
- * EXPORTED FUNCTIONS
- */
-
 export function randomBytes(len = CR_ALG.SALT_LENGTH) {
     return crypto.getRandomValues(new Uint8Array(len));
 }
@@ -85,16 +54,6 @@ export async function deriveKey(pwd, kdf) {
     );
 }
 
-/**
- * INTERNAL CORE: Hashes any Uint8Array/ArrayBuffer
- * This is the "single source of truth" for SHA-256 hashing in your app.
- */
-async function _hashBuffer(buf) {
-    const data = buf instanceof ArrayBuffer ? new Uint8Array(buf) : buf;
-    const hashBuffer = await crypto.subtle.digest(CR_ALG.HASH.SHA256, data);
-    return new Uint8Array(hashBuffer);
-}
-
 export async function hashString(str) {
     log("CR.hashString", "called");
     const encoder = new TextEncoder();
@@ -114,7 +73,7 @@ export async function computePublicKeyFingerprint(pubBytes) {
 export async function encrypt(data, key) {
     log("CR.encrypt", "called");
 
-    const bytes = normalizeBytes(data);
+    const bytes = _normalizeBytes(data);
     const iv = crypto.getRandomValues(new Uint8Array(CR_ALG.AES_GCM_IV_LENGTH));
 
     const enc = await crypto.subtle.encrypt({
@@ -146,7 +105,7 @@ export async function decrypt(enc, key) {
 export async function wrapCEKForPublicKey(cek, publicKey) {
     log("CR.wrapCEKForPublicKey", "called");
 
-    assertKeyUsage(publicKey, "wrapKey");
+    _assertKeyUsage(publicKey, "wrapKey");
 
     const wrapped = await crypto.subtle.wrapKey(
         "raw",
@@ -166,7 +125,7 @@ export async function unwrapCEKWithPrivateKey(wrappedKeyB64, privateKey) {
         throw new Error("unwrapCEKWithPrivateKey: privateKey must be CryptoKey");
     }
 
-    assertKeyUsage(privateKey, "unwrapKey");
+    _assertKeyUsage(privateKey, "unwrapKey");
 
     const wrappedBytes = b64ToBuf(wrappedKeyB64);
 
@@ -277,8 +236,8 @@ export async function deriveSubKey(baseKey, salt, info) {
     return crypto.subtle.deriveKey(
         {
             name: CR_ALG.HKDF,
-            salt: normalizeBytes(salt),
-            info: normalizeBytes(info),
+            salt: _normalizeBytes(salt),
+            info: _normalizeBytes(info),
             hash: CR_ALG.HASH.SHA256
         },
         hkdfBase,
@@ -312,4 +271,42 @@ export function b64ToBuf(b64) {
     }
 
     return bytes;
+}
+
+/** INTERNAL FUNCTIONS **/
+
+function _normalizeBytes(data) {
+    if (data instanceof Uint8Array) {
+        return data;
+    }
+
+    if (data instanceof ArrayBuffer) {
+        return new Uint8Array(data);
+    }
+
+    if (typeof data === "string") {
+        return new TextEncoder().encode(data);
+    }
+
+    throw new Error("CR.encrypt: Unsupported input type");
+}
+
+function _assertKeyUsage(key, requiredUsage) {
+
+    if (!key.usages.includes(requiredUsage)) {
+        throw new Error(
+            `CryptoKey missing required usage '${requiredUsage}'. ` +
+            `Actual usages: [${key.usages.join(", ")}]`
+        );
+    }
+}
+
+/**
+ * INTERNAL CORE: Hashes any Uint8Array/ArrayBuffer
+ * This is the "single source of truth" for SHA-256 hashing in your app.
+ */
+async function _hashBuffer(buf) {
+    const data = buf instanceof ArrayBuffer ? new Uint8Array(buf) : buf;
+    const hashBuffer = await crypto.subtle.digest(CR_ALG.HASH.SHA256, data);
+    return new Uint8Array(hashBuffer);
 }

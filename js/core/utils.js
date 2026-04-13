@@ -1,34 +1,12 @@
 import { G } from '@/shared/global.js';
 import { log, trace, debug, info, warn, error } from '@/shared/log.js';
 
+export const delay = (ms) => new Promise(res => setTimeout(res, ms));
+
 export function format(json) {
     // Determine indentation: undefined (minified), otherwise indent by 2 spaces
     return JSON.stringify(json, null, (G.settings?.minifyJson ? undefined : 2));
 }
-
-export function dumpLocalStorageForDebug() {
-    trace("U.dumpLocalStorageForDebug", "LocalStorage Dump");
-
-    if (!localStorage.length) {
-        trace("U.dumpLocalStorageForDebug", "localStorage is empty");
-        return;
-    }
-
-    for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        const value = localStorage.getItem(key);
-
-        trace("U.dumpLocalStorageForDebug", `------ Key: ${key}`);
-        try {
-            trace("U.dumpLocalStorageForDebug", "Parsed:", JSON.parse(value));
-        } catch {
-            trace("U.dumpLocalStorageForDebug", "Raw:", value);
-        }
-        trace("U.dumpLocalStorageForDebug", "-------------");
-    }
-}
-
-export const delay = (ms) => new Promise(res => setTimeout(res, ms));
 
 export function getCurrentTime() {
     return new Date().toLocaleTimeString([], {
@@ -69,4 +47,27 @@ export function getLocalTimestamp() {
     const now = new Date();
     const offset = now.getTimezoneOffset() * 60000;
     return new Date(now - offset).toISOString().slice(0, -1).replace('T', ' ');
+}
+
+
+export function dumpLocalStorageForDebug() {
+    trace("U.dumpLocalStorageForDebug", "LocalStorage Dump");
+
+    if (!localStorage.length) {
+        trace("U.dumpLocalStorageForDebug", "localStorage is empty");
+        return;
+    }
+
+    for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        const value = localStorage.getItem(key);
+
+        trace("U.dumpLocalStorageForDebug", `------ Key: ${key}`);
+        try {
+            trace("U.dumpLocalStorageForDebug", "Parsed:", JSON.parse(value));
+        } catch {
+            trace("U.dumpLocalStorageForDebug", "Raw:", value);
+        }
+        trace("U.dumpLocalStorageForDebug", "-------------");
+    }
 }

@@ -1,82 +1,19 @@
-import { C, G, CR, SV, EN, GD, log, trace, debug, info, warn, error } from '@/shared/exports.js';
+import { C, G, CR, EN, GD, log, trace, debug, info, warn, error } from '@/shared/exports.js';
 
-function constantTimeEqual(a, b) {
-    if (a.length !== b.length) return false;
-    let result = 0;
-    for (let i = 0; i < a.length; i++) {
-        result |= a[i] ^ b[i];
-    }
-    return result === 0;
-}
-
-/**
- * Load the recovery.private.json blob from the shared "recovery" folder
- * on Google Drive.
- *
- * @returns {Promise<Object>} Parsed JSON of recovery private key
- */
-// referenced internally in decryptRecoveryPassword and unlockRecoveryIdentity
-async function loadRecoveryPrivateBlob() {
-    log("R.loadRecoveryPrivateBlob", "called");
-
-    const recoveryFolderId = await ensureRecoveryFolder();
-
-    const result = await GD.readJsonByName(C.RECOVERY_KEY_PRIVATE_FILE, recoveryFolderId);
-
-    if (!result)
-        throw new Error(`${C.RECOVERY_KEY_PRIVATE_FILE} not found`);
-
-    return result.json;
-}
-
-/**
- * Returns the decrypted private key bytes if the recovery password is correct.
- * Returns null if password is invalid or recovery key is missing/corrupted.
- */
-// referenced internally in [verifyRecoveryPassword, handleRecovery]
-async function decryptRecoveryPassword(pwd) {
-    log("R.decryptRecoveryPassword", "called");
-
-    try {
-        // Load encrypted recovery private key
-        const recoveryBlob = await loadRecoveryPrivateBlob();
-        if (!recoveryBlob) return null;
-
-        // Derive key
-        const recoveryKey = await CR.deriveKey(pwd, recoveryBlob.kdf);
-
-        // Attempt decrypt
-        const decryptedPrivateKeyBytes = await CR.decrypt(recoveryBlob.encryptedPrivateKey, recoveryKey);
-
-        // Success
-        return decryptedPrivateKeyBytes;
-    } catch (err) {
-        log("R.verifyRecoveryPassword", "failed:", err?.message || err?.name || err);
-        return null;
-    }
-}
-
-/**
- * EXPORTED FUNCTIONS
- */
-
-// Referenced in login.js AND internally by loadRecoveryPrivateBlob and [hasRecoveryKeyOnDrive]
 export async function ensureRecoveryFolder() {
     return GD.findOrCreateFolder(C.RECOVERY_FOLDER_NAME, C.ACCESS4_ROOT_ID);
 }
 
-// Only referenced by login.js
 export async function verifyRecoveryPassword(pwd) {
-    return !!(await decryptRecoveryPassword(pwd));
+    return !!(await _decryptRecoveryPassword(pwd));
 }
 
-// Only referenced by login.js
 export async function handleRecovery(pwd, onCEKSuccessCb) {
 
     log("R.handleRecovery", "called");
 
     // 1️⃣ Verify password and get decrypted key
-    const recoveryPrivateKeyBytes = await decryptRecoveryPassword(pwd);
+    const recoveryPrivateKeyBytes = await _decryptRecoveryPassword(pwd);
     if (!recoveryPrivateKeyBytes) throw new Error("Incorrect recovery password or corrupted recovery key");
 
     // Import decrypted private key into crypto subtle
@@ -109,7 +46,6 @@ export async function handleRecovery(pwd, onCEKSuccessCb) {
         await onCEKSuccessCb();
 }
 
-// Only referenced by login.js
 export async function hasRecoveryKeyOnDrive() {
     log("R.hasRecoveryKeyOnDrive", "called");
 
@@ -136,5 +72,54 @@ export async function hasRecoveryKeyOnDrive() {
     } catch (e) {
         error("R.hasRecoveryKeyOnDrive", `Recovery key check failed: ${e.message}`);
         throw e;
+    }
+}
+
+/** INTERNAL FUNCTIONS **/
+
+/**
+ * Load the recovery.private.json blob from the shared "recovery" folder
+ * on Google Drive.
+ *
+ * @returns {Promise<Object>} Parsed JSON of recovery private key
+ */
+// referenced internally in _decryptRecoveryPassword and unlockRecoveryIdentity
+async function _loadRecoveryPrivateBlob() {
+    log("R._loadRecoveryPrivateBlob", "called");
+
+    const recoveryFolderId = await ensureRecoveryFolder();
+
+    const result = await GD.readJsonByName(C.RECOVERY_KEY_PRIVATE_FILE, recoveryFolderId);
+
+    if (!result)
+        throw new Error(`${C.RECOVERY_KEY_PRIVATE_FILE} not found`);
+
+    return result.json;
+}
+
+/**
+ * Returns the decrypted private key bytes if the recovery password is correct.
+ * Returns null if password is invalid or recovery key is missing/corrupted.
+ */
+// referenced internally in [verifyRecoveryPassword, handleRecovery]
+async function _decryptRecoveryPassword(pwd) {
+    log("R._decryptRecoveryPassword", "called");
+
+    try {
+        // Load encrypted recovery private key
+        const recoveryBlob = await _loadRecoveryPrivateBlob();
+        if (!recoveryBlob) return null;
+
+        // Derive key
+        const recoveryKey = await CR.deriveKey(pwd, recoveryBlob.kdf);
+
+        // Attempt decrypt
+        const decryptedPrivateKeyBytes = await CR.decrypt(recoveryBlob.encryptedPrivateKey, recoveryKey);
+
+        // Success
+        return decryptedPrivateKeyBytes;
+    } catch (err) {
+        log("R.verifyRecoveryPassword", "failed:", err?.message || err?.name || err);
+        return null;
     }
 }

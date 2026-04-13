@@ -1,7 +1,5 @@
 import { U, log, trace, debug, info, warn, error } from '@/shared/exports.js';
-
 import { restoreFromRawString } from '@/core/backup.js';
-
 import { rootUI, backupRestoreUI } from '@/ui/loader.js';
 import { swapVisibility, showSilentToast, copyToClipboard } from '@/ui/uihelper.js';
 
@@ -31,7 +29,8 @@ export function openRecoveryModal() {
     backupRestoreUI.outputTxa.setText('');
 }
 
-async function doDecryptClick() {
+/** INTERNAL FUNCTIONS **/
+async function _doDecryptClick() {
     log("backupRestoreUI.decrypt", "called");
 
     // 1. Capture and Deep Clean the string
@@ -57,17 +56,17 @@ async function doDecryptClick() {
     }
 }
 
-async function doCopyToClipboardClick() {
+async function _doCopyToClipboardClick() {
     backupRestoreUI.outputTxa.select();
     backupRestoreUI.outputTxa.setSelectionRange(0, 99999); // For mobile
     copyToClipboard(backupRestoreUI.outputTxa.value);
 }
 
 // 1. Decrypt Action
-backupRestoreUI.decryptBtn.onClick(doDecryptClick);
+backupRestoreUI.decryptBtn.onClick(_doDecryptClick);
 
 // 2. Copy Action
-backupRestoreUI.copyBtn.onClick(doCopyToClipboardClick);
+backupRestoreUI.copyBtn.onClick(_doCopyToClipboardClick);
 
 // 3. Close Action
 backupRestoreUI.closeBtn.onClick(() => {

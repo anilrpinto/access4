@@ -1,73 +1,5 @@
 import { C, G, ID, CR, SV, GD, log, trace, debug, info, warn, error, isTraceEnabled } from '@/shared/exports.js';
-
 import { updateLockStatusUI }  from '@/ui/vault.js';
-
-async function createEnvelope(plainText, devicePublicKeyRecord) {
-    log("EN.createEnvelope", "called");
-
-    // 1️⃣ Generate the master Content Encryption Key (CEK)
-    const cek = await CR.generateCEK();
-
-    // 2️⃣ Encrypt the initial vault JSON (the "Starter" data)
-    const payload = await CR.encrypt(plainText, cek);
-
-    // 3️⃣ Wrap the CEK for this specific device immediately
-    // Note: identity.publicKey is already the Base64/PEM data needed
-    const wrappedKey = await SV.wrapContentKeyForDevice(cek, devicePublicKeyRecord.publicKey.data);
-
-    const now = new Date().toISOString();
-
-    return {
-        version:"1.0",
-        cipher: {
-            payload:"AES-256-GCM",
-            keyWrap:"RSA-OAEP-SHA256"
-        },
-        payload,
-        keys: [{
-            role: "device",
-            account: devicePublicKeyRecord.account,
-            deviceId: devicePublicKeyRecord.deviceId,
-            keyId: devicePublicKeyRecord.fingerprint,
-            keyVersion: devicePublicKeyRecord.version,
-            created: now,
-            updated: null,
-            publicKeyCreated: devicePublicKeyRecord.created,
-            wrappedKey
-        }],
-        created: now,
-    };
-}
-
-async function openEnvelope(envelope) {
-    log("EN.openEnvelope", "called");
-
-    validateEnvelope(envelope);
-
-    let cek = null;
-
-    // ✅ Use the recovery CEK if it's there, otherwise do the standard unwrap
-    if (G.recoverySession && G.recoveryCEK) {
-        cek = G.recoveryCEK;
-    } else {
-        const entry = await selectDecryptableKey(envelope);
-        log("EN.openEnvelope", `Using keyId: ${entry.keyId}`);
-        cek = await SV.unwrapContentKey(entry.wrappedKey, entry.keyId);
-    }
-
-    const decrypted = await CR.decrypt(envelope.payload, cek);
-
-    return new TextDecoder().decode(decrypted);
-}
-
-function keyMatchesOrIsSuperseded(entryKeyId, localIdentity) {
-    if (!localIdentity?.fingerprint) return false;
-    // Exact match (current key)
-    if (entryKeyId === localIdentity.fingerprint) return true;
-    // Superseded key (previous rotation)
-    if (localIdentity.previousKeys?.some(k => k.fingerprint === entryKeyId)) return true;
-    return false;
-}
 
 export async function selectDecryptableKey(envelope) {
     log("EN.selectDecryptableKey", "called");
@@ -86,7 +18,7 @@ export async function selectDecryptableKey(envelope) {
         if (k.deviceId !== id.deviceId) return false;
 
         // Allow current or superseded key
-        return keyMatchesOrIsSuperseded(k.keyId, id);
+        return _keyMatchesOrIsSuperseded(k.keyId, id);
     });
 
     if (deviceEntry) {
@@ -105,51 +37,6 @@ export async function selectDecryptableKey(envelope) {
     }
 
     throw new Error("No decryptable key found for this device or recovery");
-}
-
-function _createStarterVaultJson() {
-    return {
-        "meta": {
-            "version": "1.0",
-            "lastModified": null,
-            "type": "shared",
-            "extensions": {
-                "private_vaults": {}
-            }
-        },
-        "groups": [
-            {
-                "id": "g-12345567890",
-                "name": "Genesis",
-                "items": [
-                    {
-                        "id": "i-1234567890",
-                        "label": "Access4",
-                        "created": "2026-01-10T08:00:00Z",
-                        "modified": "2026-02-20T15:30:00Z",
-                        "fields": [
-                            {
-                                "type": "text",
-                                "key": "username",
-                                "val": "username1234"
-                            },
-                            {
-                                "type": "secure",
-                                "key": "Password",
-                                "val": "password1234"
-                            },
-                            {
-                                "type": "note",
-                                "key": "Notes",
-                                "val": "Some important notes"
-                            }
-                        ],
-                        "attachments": []
-                    }
-                ]
-            }
-        ]
-    };
 }
 
 export async function readEnvelopeFromDrive() {
@@ -205,8 +92,8 @@ export async function ensureEnvelope(deviceRecord) {
         }
     }
 
-    const envelope = await createEnvelope(JSON.stringify(_createStarterVaultJson()), deviceRecord);
-    return await writeEnvelopeWithLock(envelope);
+    const envelope = await _createEnvelope(JSON.stringify(_createStarterVaultJson()), deviceRecord);
+    return await _writeEnvelopeWithLock(envelope);
 }
 
 export async function checkEnvelopeAuthorization(envelope) {
@@ -248,9 +135,8 @@ export async function checkEnvelopeAuthorization(envelope) {
     }
 }
 
-//rename to registerRecoveryKey()
-export async function addRecoveryKeyToEnvelope({ publicKey, keyId }) {
-    log("EN.addRecoveryKeyToEnvelope", "called - Adding recovery key to envelope...");
+export async function registerRecoveryKey({ publicKey, keyId }) {
+    log("EN.registerRecoveryKey", "called - Adding recovery key to envelope...");
 
     // 1️⃣ Load existing envelope from Drive
     const envelopeFile = await readEnvelopeFromDrive();
@@ -264,24 +150,24 @@ export async function addRecoveryKeyToEnvelope({ publicKey, keyId }) {
 
     // 2️⃣ Check if recovery key already exists
     if (envelope.keys?.some(k => k.role === "recovery" && k.keyId === keyId)) {
-        warn("EN.addRecoveryKeyToEnvelope", "Recovery key already present in envelope, skipping add");
+        warn("EN.registerRecoveryKey", "Recovery key already present in envelope, skipping add");
     } else {
         // 3️⃣ Select decryptable envelope entry safely
-        log("EN.addRecoveryKeyToEnvelope", "Selecting decryptable envelope key...");
+        log("EN.registerRecoveryKey", "Selecting decryptable envelope key...");
         const entry = await selectDecryptableKey(envelope);
 
         const cek = await SV.unwrapContentKey(entry.wrappedKey, entry.keyId);
-        log("EN.addRecoveryKeyToEnvelope", "CEK unwrapped");
+        log("EN.registerRecoveryKey", "CEK unwrapped");
 
         // 4️⃣ Wrap CEK for the new recovery key
-        log("EN.addRecoveryKeyToEnvelope", "Wrapping CEK for recovery key...");
+        log("EN.registerRecoveryKey", "Wrapping CEK for recovery key...");
 
         let wrappedKey;
         try {
             wrappedKey = await SV.wrapContentKeyForDevice(cek, publicKey);
-            log("EN.addRecoveryKeyToEnvelope", "CEK wrapped for recovery key");
+            log("EN.registerRecoveryKey", "CEK wrapped for recovery key");
         } catch (err) {
-            error("EN.addRecoveryKeyToEnvelope", "Error wrapping recovery CEK:", err);
+            error("EN.registerRecoveryKey", "Error wrapping recovery CEK:", err);
             throw err;
         }
 
@@ -297,7 +183,7 @@ export async function addRecoveryKeyToEnvelope({ publicKey, keyId }) {
             publicKeyCreated: now
         });
 
-        log("EN.addRecoveryKeyToEnvelope", "Added recovery key to envelope.keys:" + envelope.keys.map(k => ({
+        log("EN.registerRecoveryKey", "Added recovery key to envelope.keys:" + envelope.keys.map(k => ({
             role: k.role,
             keyId: k.keyId,
             hasWrappedKey: !!k.wrappedKey
@@ -306,10 +192,10 @@ export async function addRecoveryKeyToEnvelope({ publicKey, keyId }) {
 
     // ---- Housekeeping CEK wrap for all devices & recovery keys (force write) ----
     if (G.driveLockState?.self && G.driveLockState.envelopeName === C.ENVELOPE_NAME) {
-        log("EN.addRecoveryKeyToEnvelope", "Performing CEK housekeeping with force write");
+        log("EN.registerRecoveryKey", "Performing CEK housekeeping with force write");
         const updatedEnvelope = await SV.wrapCEKForRegistryKeys(envelope, true); // <- forceWrite = true
 
-        log("EN.addRecoveryKeyToEnvelope", "Updated envelope after wrapCEKForRegistryKeys:" + updatedEnvelope.keys.map(k => ({
+        log("EN.registerRecoveryKey", "Updated envelope after wrapCEKForRegistryKeys:" + updatedEnvelope.keys.map(k => ({
             role: k.role,
             keyId: k.keyId,
             hasWrappedKey: !!k.wrappedKey
@@ -319,7 +205,7 @@ export async function addRecoveryKeyToEnvelope({ publicKey, keyId }) {
         await writeEnvelopeSafely(updatedEnvelope);
     }
 
-    log("EN.addRecoveryKeyToEnvelope", "Recovery key added to envelope and saved");
+    log("EN.registerRecoveryKey", "Recovery key added to envelope and saved");
 }
 
 export async function writeEnvelopeSafely(envelopeData, maxRetries = 3, retryDelayMs = 1000) {
@@ -345,7 +231,7 @@ export async function writeEnvelopeSafely(envelopeData, maxRetries = 3, retryDel
         await assertEnvelopeWrite(C.ENVELOPE_NAME);
 
         try {
-            const result = await writeEnvelopeWithLock(envelopeData);
+            const result = await _writeEnvelopeWithLock(envelopeData);
             return result;
         } catch (err) {
             warn("EN.writeEnvelopeSafely", `Write attempt failed: ${err.message} retrying...`);
@@ -378,104 +264,6 @@ export async function assertEnvelopeWrite(envelopeName) {
     // log(`[housekeeping] Envelope ownership confirmed for "${envelopeName}"`);
 }
 
-function validateEnvelope(envelope) {
-    log("EN.validateEnvelope", "called");
-
-    if (!envelope.version) {
-        throw new Error("Envelope missing version");
-    }
-
-    if (!Array.isArray(envelope.keys) || envelope.keys.length === 0) {
-        throw new Error("Envelope has no key entries");
-    }
-
-    let hasUsableKey = false;
-
-    for (const k of envelope.keys) {
-        // wrapped CEK is always required
-        if (!k.wrappedKey) {
-            throw new Error("Key entry missing wrappedKey");
-        }
-
-        // keyId is REQUIRED for rotation safety (all key types)
-        if (!k.keyId) {
-            throw new Error("Key entry missing keyId (rotation unsafe)");
-        }
-
-        // Type-aware validation
-        if (k.role === "device") {
-            if (!k.deviceId) {
-                throw new Error("Device key entry missing deviceId");
-            }
-            hasUsableKey = true;
-        } else if (k.role === "recovery") {
-            // recovery entries intentionally do NOT have deviceId
-            // optional: validate recoveryId / method if you want
-            hasUsableKey = true;
-        } else {
-            throw new Error(`Unknown key entry role: ${k.role || "missing"}`);
-        }
-    }
-
-    if (!hasUsableKey) {
-        throw new Error("Envelope contains no usable key entries");
-    }
-}
-
-async function writeEnvelopeWithLock(envelopeData) {
-    log("EN.writeEnvelopeWithLock", "called");
-
-    // 🛡️ If we are still "waiting for the 4s lock" from login, pause here.
-    if (G.lockAcquisitionPromise) {
-        log("EN.writeEnvelopeWithLock", "Write requested but lock still pending... pausing for sync.");
-        await G.lockAcquisitionPromise;
-        log("EN.writeEnvelopeWithLock", "Lock sync complete, proceeding with write.");
-    }
-
-    await assertEnvelopeWrite(C.ENVELOPE_NAME);
-
-    try {
-
-        // 1️⃣ Read envelope (includes fileId)
-        const existing = await readEnvelopeFromDrive();
-
-        const currentEnvelope = existing?.json ?? null;
-        const fileId = existing?.fileId ?? null;
-
-        // 2️⃣ Increment generation
-        const newGeneration = (currentEnvelope?.generation ?? 0) + 1;
-
-        // 3️⃣ Build new envelope
-        const newEnvelopeContent = {
-            ...envelopeData,
-            generation: newGeneration,
-            lastModifiedBy: G.driveLockState.self.deviceId,
-            lastModifiedAt: new Date().toISOString()
-        };
-
-        // 4️⃣ Write envelope
-        if (fileId)
-            await GD.drivePatchJsonFile(fileId, newEnvelopeContent);
-        else
-            await GD.upsertJsonFile({ name: C.ENVELOPE_NAME, parentId: C.ACCESS4_ROOT_ID, json: newEnvelopeContent });
-
-        // 5️⃣ Update lock generation
-        G.driveLockState.lock.generation = newGeneration;
-
-        await SV.writeLockToDrive(G.driveLockState.lock, G.driveLockState.fileId);
-
-        // Update UI to reflect new lock generation
-        updateLockStatusUI();
-
-        log("EN.writeEnvelopeWithLock", `Envelope "${C.ENVELOPE_NAME}" written, generation=${newGeneration}`);
-        return newEnvelopeContent;
-
-    } catch (err) {
-        error("writeEnvelopeWithLock", `Failed to write envelope "${C.ENVELOPE_NAME}": ${err.message}`);
-        throw err;
-    }
-}
-
 export async function loadEnvelopePayloadToUI(envelope, uiCallback) {
     log("EN.loadEnvelopePayloadToUI", "called");
 
@@ -485,8 +273,8 @@ export async function loadEnvelopePayloadToUI(envelope, uiCallback) {
     }
 
     try {
-        // 2️⃣ Decrypt payload using openEnvelope()
-        const plaintext = await openEnvelope(envelope);
+        // 2️⃣ Decrypt payload using _openEnvelope()
+        const plaintext = await _openEnvelope(envelope);
 
         //trace("EN.loadEnvelopePayloadToUI", `plaintext: |${plaintext}|`);
 
@@ -500,8 +288,6 @@ export async function loadEnvelopePayloadToUI(envelope, uiCallback) {
     }
 }
 
-
-// UNUSED
 /**
  * Logs envelope structure and optionally validates key usability.
  * Non-throwing, meant for debugging/testing multi-device/recovery envelopes.
@@ -566,5 +352,216 @@ export async function validateEnvelopeDecryption(envelope, devicePrivateKey) {
     } catch (err) {
         error("Envelope decrypt validation FAILED", err);
         return false;
+    }
+}
+
+/** INTERNAL FUNCTIONS **/
+async function _createEnvelope(plainText, devicePublicKeyRecord) {
+    log("EN._createEnvelope", "called");
+
+    // 1️⃣ Generate the master Content Encryption Key (CEK)
+    const cek = await CR.generateCEK();
+
+    // 2️⃣ Encrypt the initial vault JSON (the "Starter" data)
+    const payload = await CR.encrypt(plainText, cek);
+
+    // 3️⃣ Wrap the CEK for this specific device immediately
+    // Note: identity.publicKey is already the Base64/PEM data needed
+    const wrappedKey = await SV.wrapContentKeyForDevice(cek, devicePublicKeyRecord.publicKey.data);
+
+    const now = new Date().toISOString();
+
+    return {
+        version:"1.0",
+        cipher: {
+            payload:"AES-256-GCM",
+            keyWrap:"RSA-OAEP-SHA256"
+        },
+        payload,
+        keys: [{
+            role: "device",
+            account: devicePublicKeyRecord.account,
+            deviceId: devicePublicKeyRecord.deviceId,
+            keyId: devicePublicKeyRecord.fingerprint,
+            keyVersion: devicePublicKeyRecord.version,
+            created: now,
+            updated: null,
+            publicKeyCreated: devicePublicKeyRecord.created,
+            wrappedKey
+        }],
+        created: now,
+    };
+}
+
+async function _openEnvelope(envelope) {
+    log("EN._openEnvelope", "called");
+
+    _validateEnvelope(envelope);
+
+    let cek = null;
+
+    // ✅ Use the recovery CEK if it's there, otherwise do the standard unwrap
+    if (G.recoverySession && G.recoveryCEK) {
+        cek = G.recoveryCEK;
+    } else {
+        const entry = await selectDecryptableKey(envelope);
+        log("EN._openEnvelope", `Using keyId: ${entry.keyId}`);
+        cek = await SV.unwrapContentKey(entry.wrappedKey, entry.keyId);
+    }
+
+    const decrypted = await CR.decrypt(envelope.payload, cek);
+
+    return new TextDecoder().decode(decrypted);
+}
+
+function _keyMatchesOrIsSuperseded(entryKeyId, localIdentity) {
+    if (!localIdentity?.fingerprint) return false;
+    // Exact match (current key)
+    if (entryKeyId === localIdentity.fingerprint) return true;
+    // Superseded key (previous rotation)
+    if (localIdentity.previousKeys?.some(k => k.fingerprint === entryKeyId)) return true;
+    return false;
+}
+
+function _createStarterVaultJson() {
+    return {
+        "meta": {
+            "version": "1.0",
+            "lastModified": null,
+            "type": "shared",
+            "extensions": {
+                "private_vaults": {}
+            }
+        },
+        "groups": [
+            {
+                "id": "g-12345567890",
+                "name": "Genesis",
+                "items": [
+                    {
+                        "id": "i-1234567890",
+                        "label": "Access4",
+                        "created": "2026-01-10T08:00:00Z",
+                        "modified": "2026-02-20T15:30:00Z",
+                        "fields": [
+                            {
+                                "type": "text",
+                                "key": "username",
+                                "val": "username1234"
+                            },
+                            {
+                                "type": "secure",
+                                "key": "Password",
+                                "val": "password1234"
+                            },
+                            {
+                                "type": "note",
+                                "key": "Notes",
+                                "val": "Some important notes"
+                            }
+                        ],
+                        "attachments": []
+                    }
+                ]
+            }
+        ]
+    };
+}
+
+function _validateEnvelope(envelope) {
+    log("EN._validateEnvelope", "called");
+
+    if (!envelope.version) {
+        throw new Error("Envelope missing version");
+    }
+
+    if (!Array.isArray(envelope.keys) || envelope.keys.length === 0) {
+        throw new Error("Envelope has no key entries");
+    }
+
+    let hasUsableKey = false;
+
+    for (const k of envelope.keys) {
+        // wrapped CEK is always required
+        if (!k.wrappedKey) {
+            throw new Error("Key entry missing wrappedKey");
+        }
+
+        // keyId is REQUIRED for rotation safety (all key types)
+        if (!k.keyId) {
+            throw new Error("Key entry missing keyId (rotation unsafe)");
+        }
+
+        // Type-aware validation
+        if (k.role === "device") {
+            if (!k.deviceId) {
+                throw new Error("Device key entry missing deviceId");
+            }
+            hasUsableKey = true;
+        } else if (k.role === "recovery") {
+            // recovery entries intentionally do NOT have deviceId
+            // optional: validate recoveryId / method if you want
+            hasUsableKey = true;
+        } else {
+            throw new Error(`Unknown key entry role: ${k.role || "missing"}`);
+        }
+    }
+
+    if (!hasUsableKey) {
+        throw new Error("Envelope contains no usable key entries");
+    }
+}
+
+async function _writeEnvelopeWithLock(envelopeData) {
+    log("EN._writeEnvelopeWithLock", "called");
+
+    // 🛡️ If we are still "waiting for the 4s lock" from login, pause here.
+    if (G.lockAcquisitionPromise) {
+        log("EN._writeEnvelopeWithLock", "Write requested but lock still pending... pausing for sync.");
+        await G.lockAcquisitionPromise;
+        log("EN._writeEnvelopeWithLock", "Lock sync complete, proceeding with write.");
+    }
+
+    await assertEnvelopeWrite(C.ENVELOPE_NAME);
+
+    try {
+
+        // 1️⃣ Read envelope (includes fileId)
+        const existing = await readEnvelopeFromDrive();
+
+        const currentEnvelope = existing?.json ?? null;
+        const fileId = existing?.fileId ?? null;
+
+        // 2️⃣ Increment generation
+        const newGeneration = (currentEnvelope?.generation ?? 0) + 1;
+
+        // 3️⃣ Build new envelope
+        const newEnvelopeContent = {
+            ...envelopeData,
+            generation: newGeneration,
+            lastModifiedBy: G.driveLockState.self.deviceId,
+            lastModifiedAt: new Date().toISOString()
+        };
+
+        // 4️⃣ Write envelope
+        if (fileId)
+            await GD.drivePatchJsonFile(fileId, newEnvelopeContent);
+        else
+            await GD.upsertJsonFile({ name: C.ENVELOPE_NAME, parentId: C.ACCESS4_ROOT_ID, json: newEnvelopeContent });
+
+        // 5️⃣ Update lock generation
+        G.driveLockState.lock.generation = newGeneration;
+
+        await SV.writeLockToDrive(G.driveLockState.lock, G.driveLockState.fileId);
+
+        // Update UI to reflect new lock generation
+        updateLockStatusUI();
+
+        log("EN._writeEnvelopeWithLock", `Envelope "${C.ENVELOPE_NAME}" written, generation=${newGeneration}`);
+        return newEnvelopeContent;
+
+    } catch (err) {
+        error("_writeEnvelopeWithLock", `Failed to write envelope "${C.ENVELOPE_NAME}": ${err.message}`);
+        throw err;
     }
 }

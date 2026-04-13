@@ -1,79 +1,5 @@
 import { C, G, LS, CR, GD, log, trace, debug, info, warn, error } from '@/shared/exports.js';
 
-function saveIdentity(id) {
-    LS.set(C.IDENTITY_KEY, JSON.stringify(id));
-}
-
-function loadIdentityFromStorage() {
-    log("ID.loadIdentityFromStorage", "called");
-
-    const raw = LS.get(C.IDENTITY_KEY);
-    log("ID.loadIdentityFromStorage", "Identity in localStorage exists:", !!raw);
-
-    if (!raw) return null;
-
-    try {
-        const id = JSON.parse(raw);
-        //trace("ID.loadIdentityFromStorage", "Identity loaded from localStorage:", JSON.stringify(id));
-        if (G.sessionUnlocked && G.currentPrivateKey) {
-            id._sessionPrivateKey = G.currentPrivateKey;
-        }
-        return id;
-    } catch (e) {
-        error("ID.loadIdentityFromStorage", "Failed to parse identity:", e);
-        return null;
-    }
-}
-
-async function generateDeviceKeypair() {
-    log("ID.generateDeviceKeypair", "called");
-
-    const pair = await CR.generateRSAKeypair();
-    const privateKeyPkcs8 = await CR.exportPrivateKey(pair.privateKey);
-    const publicKeySpki = await CR.exportPublicKey(pair.publicKey);
-
-    return { privateKeyPkcs8, publicKeySpki };
-}
-
-async function buildIdentityFromKeypair({privateKeyPkcs8, publicKeySpki}, pwd, opts = {}) {
-    log("ID.buildIdentityFromKeypair", "called");
-
-    const pubB64 = CR.bufToB64(publicKeySpki);
-
-    if (pubB64.length < 300) {
-        throw new Error("Invalid RSA public key export");
-    }
-
-    const fingerprint = await CR.computePublicKeyFingerprint(publicKeySpki);
-
-    const saltBytes = CR.randomBytes(CR.CR_ALG.SALT_LENGTH);
-    const kdf = { salt: CR.bufToB64(saltBytes), iterations: CR.CR_ALG.PBKDF2_ITERATIONS };
-
-    const key = await CR.deriveKey(pwd, kdf);
-    const passwordVerifier = await createPasswordVerifier(key);
-    const encryptedPrivateKey = await CR.encrypt(privateKeyPkcs8, key);
-
-    return {
-        passwordVerifier,
-        encryptedPrivateKey,
-        publicKey: pubB64,
-        fingerprint,
-        kdf,
-        deviceId: getDeviceId(),
-        email: G.userEmail,
-        created: new Date().toISOString(),
-        ...opts
-    };
-}
-
-async function createPasswordVerifier(key) {
-    log("ID.createPasswordVerifier", "called");
-    return CR.encrypt(C.PASSWORD_VERIFIER_TEXT, key);
-}
-
-/**
- * EXPORTED FUNCTIONS
- */
 export function getDeviceId() {
     // If no email is loaded yet, we can't reliably get a scoped ID
     if (!G.userEmail) {
@@ -95,10 +21,10 @@ export function getDeviceId() {
 export async function createIdentity(pwd) {
     log("ID.createIdentity", "called - Generating new device identity key pair");
 
-    const keypair = await generateDeviceKeypair();
-    const identity = await buildIdentityFromKeypair(keypair, pwd);
+    const keypair = await _generateDeviceKeypair();
+    const identity = await _buildIdentityFromKeypair(keypair, pwd);
 
-    saveIdentity(identity);
+    _saveIdentity(identity);
 
     // Use SAME Layer 1 initializer as unlock
     await cacheDecryptedPrivateKey(keypair.privateKeyPkcs8);
@@ -118,7 +44,7 @@ export async function loadIdentity() {
         return G.unlockedIdentity;
     }
 
-    return loadIdentityFromStorage();
+    return _loadIdentityFromStorage();
 }
 
 export function removeDeviceIdentity() {
@@ -137,9 +63,9 @@ export async function migrateIdentityWithVerifier(id, pwd) {
     await CR.decrypt(id.encryptedPrivateKey, key);
 
     // Create and attach verifier
-    id.passwordVerifier = await createPasswordVerifier(key);
+    id.passwordVerifier = await _createPasswordVerifier(key);
 
-    saveIdentity(id);
+    _saveIdentity(id);
 
     log("ID.migrateIdentityWithVerifier", "Identity auto-migrated with password verifier");
 }
@@ -161,9 +87,9 @@ export async function rotateDeviceIdentity(pwd) {
         throw new Error("Cannot rotate — no existing identity");
     }
 
-    const keypair = await generateDeviceKeypair();
+    const keypair = await _generateDeviceKeypair();
 
-    const newIdentity = await buildIdentityFromKeypair(keypair, pwd, {
+    const newIdentity = await _buildIdentityFromKeypair(keypair, pwd, {
         supersedes: oldIdentity.fingerprint,
         previousKeys: [
             ...(oldIdentity.previousKeys || []),
@@ -177,7 +103,7 @@ export async function rotateDeviceIdentity(pwd) {
     }
     );
 
-    saveIdentity(newIdentity);
+    _saveIdentity(newIdentity);
 
     log("ID.rotateDeviceIdentity", "Device identity rotated");
     log("ID.rotateDeviceIdentity", `New KeyId: ${newIdentity.fingerprint} supersedes Old keyId: ${oldIdentity.fingerprint}`);
@@ -215,10 +141,10 @@ export async function createRecoveryIdentity(pwd) {
     log("ID.createRecoveryIdentity", "called");
 
     // 1️⃣ Generate RSA keypair
-    const keypair = await generateDeviceKeypair();
+    const keypair = await _generateDeviceKeypair();
 
     // 2️⃣ Build recovery identity
-    const recoveryIdentity = await buildIdentityFromKeypair(
+    const recoveryIdentity = await _buildIdentityFromKeypair(
         keypair,
         pwd,
         { type: "recovery", createdBy: getDeviceId() }
@@ -250,4 +176,76 @@ export async function decryptPreviousKeys(id, pwd) {
             warn("ID.decryptPreviousKeys", `Failed to decrypt previous key ${prev.fingerprint}`);
         }
     }
+}
+
+/** INTERNAL FUNCTIONS **/
+function _saveIdentity(id) {
+    LS.set(C.IDENTITY_KEY, JSON.stringify(id));
+}
+
+function _loadIdentityFromStorage() {
+    log("ID._loadIdentityFromStorage", "called");
+
+    const raw = LS.get(C.IDENTITY_KEY);
+    log("ID._loadIdentityFromStorage", "Identity in localStorage exists:", !!raw);
+
+    if (!raw) return null;
+
+    try {
+        const id = JSON.parse(raw);
+        //trace("ID._loadIdentityFromStorage", "Identity loaded from localStorage:", JSON.stringify(id));
+        if (G.sessionUnlocked && G.currentPrivateKey) {
+            id._sessionPrivateKey = G.currentPrivateKey;
+        }
+        return id;
+    } catch (e) {
+        error("ID._loadIdentityFromStorage", "Failed to parse identity:", e);
+        return null;
+    }
+}
+
+async function _generateDeviceKeypair() {
+    log("ID._generateDeviceKeypair", "called");
+
+    const pair = await CR.generateRSAKeypair();
+    const privateKeyPkcs8 = await CR.exportPrivateKey(pair.privateKey);
+    const publicKeySpki = await CR.exportPublicKey(pair.publicKey);
+
+    return { privateKeyPkcs8, publicKeySpki };
+}
+
+async function _buildIdentityFromKeypair({privateKeyPkcs8, publicKeySpki}, pwd, opts = {}) {
+    log("ID._buildIdentityFromKeypair", "called");
+
+    const pubB64 = CR.bufToB64(publicKeySpki);
+
+    if (pubB64.length < 300) {
+        throw new Error("Invalid RSA public key export");
+    }
+
+    const fingerprint = await CR.computePublicKeyFingerprint(publicKeySpki);
+
+    const saltBytes = CR.randomBytes(CR.CR_ALG.SALT_LENGTH);
+    const kdf = { salt: CR.bufToB64(saltBytes), iterations: CR.CR_ALG.PBKDF2_ITERATIONS };
+
+    const key = await CR.deriveKey(pwd, kdf);
+    const passwordVerifier = await _createPasswordVerifier(key);
+    const encryptedPrivateKey = await CR.encrypt(privateKeyPkcs8, key);
+
+    return {
+        passwordVerifier,
+        encryptedPrivateKey,
+        publicKey: pubB64,
+        fingerprint,
+        kdf,
+        deviceId: getDeviceId(),
+        email: G.userEmail,
+        created: new Date().toISOString(),
+        ...opts
+    };
+}
+
+async function _createPasswordVerifier(key) {
+    log("ID._createPasswordVerifier", "called");
+    return CR.encrypt(C.PASSWORD_VERIFIER_TEXT, key);
 }

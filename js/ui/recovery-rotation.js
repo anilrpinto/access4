@@ -1,40 +1,50 @@
 import { C, AU, CR, ID, R, EN, RG, GD, log, trace, debug, info, warn, error } from '@/shared/exports.js';
-
 import { vaultRecoveryKeyUI  } from '@/ui/loader.js';
 
-async function load() {
-    log("vaultRecoveryKeyUI.load", "called");
+export async function showRecoveryRotationUI() {
+    const screenKey = window.ScreenManager.RECOVERY_KEY_ROTATION_SCREENKEY;
+    window.ScreenManager.register(screenKey, vaultRecoveryKeyUI.mainSection, {
+        onShow: _load,
+        onHide: _unload
+    });
+
+    window.ScreenManager.switchView(screenKey);
+}
+
+/** INTERNAL FUNCTIONS **/
+async function _load() {
+    log("vaultRecoveryKeyUI._load", "called");
 
     const rotateMode = await R.hasRecoveryKeyOnDrive();
 
     vaultRecoveryKeyUI.currentPwdSection.setVisible(rotateMode);
     vaultRecoveryKeyUI.rotateBtn.setText(rotateMode ? "Rotate recovery" : "Create recovery");
 
-    vaultRecoveryKeyUI.rotateBtn.onClick((e) => doRotateRecoveryKeyClick(rotateMode));
-    vaultRecoveryKeyUI.cancelBtn.onClick((e) => doCancelRecoveryRotationClick());
+    vaultRecoveryKeyUI.rotateBtn.onClick((e) => _doRotateRecoveryKeyClick(rotateMode));
+    vaultRecoveryKeyUI.cancelBtn.onClick((e) => _doCancelRecoveryRotationClick());
 
-    showRecoveryRotationStatusMessage(rotateMode ? "Rotate the recovery key regularly for tightened security, memorize the new password!"
+    _showRecoveryRotationStatusMessage(rotateMode ? "Rotate the recovery key regularly for tightened security, memorize the new password!"
         : "Create a recovery key. This allows account recovery if all devices are lost.", "status-message");
 }
 
-async function unload() {
-    log("vaultRecoveryKeyUI.unload", "called");
-    showRecoveryRotationStatusMessage("");
+async function _unload() {
+    log("vaultRecoveryKeyUI._unload", "called");
+    _showRecoveryRotationStatusMessage("");
 }
 
-function showRecoveryRotationStatusMessage(msg, type = "error") {
+function _showRecoveryRotationStatusMessage(msg, type = "error") {
     if (!vaultRecoveryKeyUI.statusMsg) return;
 
     vaultRecoveryKeyUI.statusMsg.textContent = msg;
     vaultRecoveryKeyUI.statusMsg.className = `status-message ${type}`;
 }
 
-function doCancelRecoveryRotationClick() {
+function _doCancelRecoveryRotationClick() {
     window.ScreenManager.goHome();
 }
 
-async function doRotateRecoveryKeyClick(rotateMode) {
-    log("vaultRecoveryKeyUI.doRotateRecoveryKeyClick", "called - Starting recovery key creation in rotateMode:", rotateMode);
+async function _doRotateRecoveryKeyClick(rotateMode) {
+    log("vaultRecoveryKeyUI._doRotateRecoveryKeyClick", "called - Starting recovery key creation in rotateMode:", rotateMode);
 
     try {
 
@@ -62,18 +72,18 @@ async function doRotateRecoveryKeyClick(rotateMode) {
         vaultRecoveryKeyUI.confirmPwdInput.clear();
 
         vaultRecoveryKeyUI.rotateBtn.setEnabled(false);
-        showRecoveryRotationStatusMessage("Creating recovery key please wait...");
+        _showRecoveryRotationStatusMessage("Creating recovery key please wait...");
 
         const recoveryIdentity = await ID.createRecoveryIdentity(pwd);
 
-        log("recKeyRotUI.doRotateRecoveryKeyClick", "Private key encrypted with recovery password");
+        log("recKeyRotUI._doRotateRecoveryKeyClick", "Private key encrypted with recovery password");
 
         // 4️⃣ Ensure recovery folder
         const recoveryFolderId = await R.ensureRecoveryFolder();
 
         // 5️⃣ Write private recovery file
         await GD.upsertJsonFile({ name: C.RECOVERY_KEY_PRIVATE_FILE, parentId: recoveryFolderId, json: recoveryIdentity, overwrite: true });
-        log("recKeyRotUI.doRotateRecoveryKeyClick", `${C.RECOVERY_KEY_PRIVATE_FILE} written`);
+        log("recKeyRotUI._doRotateRecoveryKeyClick", `${C.RECOVERY_KEY_PRIVATE_FILE} written`);
 
         // 6️⃣ Write public recovery file (matching device key structure)
         const recoveryPublicJson = {
@@ -96,38 +106,25 @@ async function doRotateRecoveryKeyClick(rotateMode) {
         };
 
         await GD.upsertJsonFile({name: C.RECOVERY_KEY_PUBLIC_FILE, parentId: recoveryFolderId, json: recoveryPublicJson, overwrite: true });
-        log("recKeyRotUI.doRotateRecoveryKeyClick", `${C.RECOVERY_KEY_PUBLIC_FILE} written`);
+        log("recKeyRotUI._doRotateRecoveryKeyClick", `${C.RECOVERY_KEY_PUBLIC_FILE} written`);
 
         // Refresh registry with newly uploaded recovery public key
         await RG.buildKeyRegistryFromDrive();
 
         // 7️⃣ Add to envelope for CEK housekeeping
-        await EN.addRecoveryKeyToEnvelope({
+        await EN.registerRecoveryKey({
             publicKey: recoveryIdentity.publicKey,
             keyId: recoveryIdentity.fingerprint
         });
 
-        log("recKeyRotUI.doRotateRecoveryKeyClick", "Recovery key successfully established");
+        log("recKeyRotUI._doRotateRecoveryKeyClick", "Recovery key successfully established");
 
         vaultRecoveryKeyUI.rotateBtn.setEnabled(true);
-        doCancelRecoveryRotationClick();
+        _doCancelRecoveryRotationClick();
         showStatusMessage("Recovery key created!", "status-message success");
 
     } catch (err) {
         vaultRecoveryKeyUI.rotateBtn.setEnabled(true);
-        showRecoveryRotationStatusMessage(err.message || "Recovery setup failed", "status-message error");
+        _showRecoveryRotationStatusMessage(err.message || "Recovery setup failed", "status-message error");
     }
-}
-
-/**
- * EXPORTED FUNCTIONS
- */
-export async function showRecoveryRotationUI() {
-    const screenKey = window.ScreenManager.RECOVERY_KEY_ROTATION_SCREENKEY;
-    window.ScreenManager.register(screenKey, vaultRecoveryKeyUI.mainSection, {
-        onShow: load,
-        onHide: unload
-    });
-
-    window.ScreenManager.switchView(screenKey);
 }

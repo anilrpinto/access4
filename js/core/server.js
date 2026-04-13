@@ -1,5 +1,4 @@
 import { C, G, CR, ID, GD, EN, log, trace, debug, info, warn, error, isTraceEnabled } from '@/shared/exports.js';
-
 import { handleDriveLockLost, updateLockStatusUI }  from '@/ui/vault.js';
 
 let _transientCEK = null;
@@ -13,29 +12,6 @@ export async function getDriveLockSelf() {
     const self = { account: G.userEmail, deviceId: identity.deviceId };
     return { identity, self };
 }
-
-function isKeyUsableForDecryption(pubKeyRecord) {
-    return pubKeyRecord.state === "active" || pubKeyRecord.state === "deprecated";
-}
-
-function createLockPayload(self, generation) {
-    log("SV.createLockPayload", "called");
-
-    const now = Date.now();
-    return {
-        version: 1,
-        envelope: C.ENVELOPE_NAME,
-        owner: {
-            account: self.account,
-            deviceId: self.deviceId
-        },
-        mode:"write",
-        generation,
-        acquiredAt: new Date(now).toISOString(),
-        expiresAt: new Date(now + C.LOCK_TTL_MS).toISOString()
-    };
-}
-
 
 export function evaluateEnvelopeLock(lock, self) {
     //trace("EN.evaluateEnvelopeLock", "called");
@@ -84,34 +60,6 @@ export async function tryAcquireEnvelopeWriteLock(options = {}) {
     }
 }
 
-function extendLock(lock, ttlMs) {
-    return { ...lock, expiresAt: new Date(Date.now() + ttlMs).toISOString() };
-}
-
-async function reconcileWrapSet({ envelope, cek, registryItems, role, forceWrite, buildEntryMeta }) {
-    let updated = false;
-
-    for (const item of registryItems) {
-        const keyId = item.fingerprint;
-
-        const existing = envelope.keys.find(k => k.keyId === keyId && k.role === role);
-
-        const now = new Date().toISOString();
-
-        if (!existing) {
-            const wrappedKey = await wrapContentKeyForDevice(cek, item.publicKey.data);
-            envelope.keys.push({ role, keyId, created: now, updated: null, publicKeyCreated: item.created || now, wrappedKey, ...buildEntryMeta(item) });
-            updated = true;
-        } else if (forceWrite) {
-            existing.wrappedKey = await wrapContentKeyForDevice(cek, item.publicKey.data);
-            existing.updated = now;
-            existing.publicKeyCreated = existing.publicKeyCreated || item.created || now;
-            updated = true;
-        }
-    }
-    return updated;
-}
-
 /* ---Unwrap CEK Using Local Private Key (rotation-safe) --- */
 export async function unwrapContentKey(wrappedKeyBase64, keyId) {
 
@@ -144,7 +92,6 @@ export async function unwrapContentKey(wrappedKeyBase64, keyId) {
     error("SV.unwrapContentKey", `No private key available for keyId ${keyId}`);
     throw new Error("No private key available for keyId:" + keyId);
 }
-
 
 /* --- Wrap CEK for a Device Public Key --- */
 export async function wrapContentKeyForDevice(cek, devicePublicKeyBase64) {
@@ -188,7 +135,7 @@ export async function acquireDriveWriteLock({ onUpdate = () => {} } = {}) {
             const envelope = await EN.readEnvelopeFromDrive().catch(() => null);
             const generation = envelope?.generation ?? 0;
 
-            const lock = createLockPayload(self, generation);
+            const lock = _createLockPayload(self, generation);
 
             log("SV.acquireDriveWriteLock", "writing lock to Drive...");
             const fileId = await writeLockToDrive(lock, lockFile?.fileId);
@@ -206,7 +153,7 @@ export async function acquireDriveWriteLock({ onUpdate = () => {} } = {}) {
                 lock,
                 self,
                 mode: "write",
-                heartbeat: startLockHeartbeat({
+                heartbeat: _startLockHeartbeat({
                     self,
                     readLockFromDrive: () => readLockFromDrive(),
                     writeLockToDrive: (lock, id) => writeLockToDrive(lock, id),
@@ -228,90 +175,11 @@ export async function acquireDriveWriteLock({ onUpdate = () => {} } = {}) {
     return await _pendingLockAcquisition;
 }
 
-function startLockHeartbeat({self, readLockFromDrive, writeLockToDrive, onLost}) {
-    log("SV.startLockHeartbeat", "called");
-
-    let stopped = false;
-
-    const tick = async () => {
-
-        //const now = new Date().toLocaleTimeString();
-        //trace("SV.startLockHeartbeat.tick", `[PROBE] ${now} - Mode: ${G.driveLockState?.mode} - Gen: ${G.driveLockState?.generation || 0}`);
-
-        if (stopped || !G.driveLockState) return;
-
-        const activeState = G.driveLockState;
-
-        try {
-
-            const lockFile = await readLockFromDrive();
-
-            if (stopped || !G.driveLockState) return;
-
-            const diskLock = lockFile?.json;
-            const evalResult = evaluateEnvelopeLock(diskLock, self);
-
-            if (evalResult.status !== "owned") {
-                // If we were throttled, we might see 'expired' here.
-                // But our new evaluateEnvelopeLock above will return 'owned'
-                // if the deviceId still matches, so this block won't even trigger!
-                stopped = true;
-                onLost?.(evalResult);
-                return;
-            }
-
-            const currentGen = activeState.lock?.generation ?? 0;
-
-            // MERGE: never allow generation to move backwards
-            const mergedLock = {
-                ...diskLock,
-                generation: Math.max(diskLock?.generation ?? 0, currentGen)
-            };
-
-            const extended = extendLock(mergedLock, C.LOCK_TTL_MS);
-
-            if (extended.generation < G.driveLockState.lock.generation) {
-                throw new Error("Heartbeat attempted to regress generation");
-            }
-
-            await writeLockToDrive(extended, lockFile.fileId);
-
-            if (G.driveLockState) {
-                G.driveLockState.lock = extended;   // keep local state authoritative
-                //trace("SV.startLockHeartbeat.tick", `Heartbeat OK (gen=${extended.generation}, expires ${extended.expiresAt})`);
-                updateLockStatusUI();
-            }
-        } catch (err) {
-            const errorMessage = err instanceof Error ? err.stack : JSON.stringify(err, Object.getOwnPropertyNames(err));
-            error("SV.startLockHeartbeat.tick", "CRITICAL FAILURE:", errorMessage);
-
-            stopped = true;
-            onLost?.({ reason:"heartbeat-failed", error: err });
-        }
-    };
-
-    const timer = setInterval(tick, C.HEARTBEAT_INTERVAL);
-
-    return {
-        stop() {
-            stopped = true;
-            clearInterval(timer);
-            log("SV.heartbeat.stop", "Heartbeat stopped.");
-        },
-        isStopped() {
-            return stopped;
-        }
-    };
-}
-
 export async function readLockFromDrive() {
     //trace("SV.readLockFromDrive", "called");
     return await GD.readJsonByName(`${C.ENVELOPE_NAME}.lock`);
 }
 
-/**
- * EXPORTED FUNCTIONS
- */
 export async function ensureDevicePublicKey() {
     log("SV.ensureDevicePublicKey", "called");
 
@@ -494,7 +362,7 @@ export async function wrapCEKForRegistryKeys(envelope = null, forceWrite = false
      */
     for (const { role, items } of ROLE_CONFIG) {
 
-        const roleUpdated = await reconcileWrapSet({ envelope, cek, registryItems: items, role, forceWrite,
+        const roleUpdated = await _reconcileWrapSet({ envelope, cek, registryItems: items, role, forceWrite,
             buildEntryMeta: (item) => {
                 if (role === "device") {
                     return {
@@ -541,7 +409,7 @@ export async function encryptAndPersistPlaintext(plainText, options = {}) {
 
     // Use the centralized helper to get the CEK
     // This handles the Drive fetch, the self-entry lookup, and the unwrap
-    const cek = await getActiveCEK(envelope);
+    const cek = await _getActiveCEK(envelope);
 
     // Encrypt new payload
     const payload = await CR.encrypt(plainText, cek);
@@ -568,9 +436,8 @@ export async function getTransientCEK() {
         _transientEnvelope = envelopeFile.json;
     }
 
-    return await getActiveCEK(_transientEnvelope);
+    return await _getActiveCEK(_transientEnvelope);
 }
-
 
 /**
  * Wipes the cached CEK.
@@ -582,26 +449,28 @@ export function flushCachedTransients() {
     log("SV.flushCachedTransients", "Transient CEK and envelope wiped from memory, if cached.");
 }
 
+/** INTERNAL FUNCTIONS **/
+
 /**
  * Internal helper to retrieve and unwrap the CEK for the current session.
  * Reuses the existing logic from encryptAndPersistPlaintext but returns the key object.
  */
-async function getActiveCEK(envelope) {
+async function _getActiveCEK(envelope) {
     // 1. Check if we already unwrapped it this session/view
     if (_transientCEK) {
-        trace("SV.getActiveCEK", "Returning cached transient CEK");
+        trace("SV._getActiveCEK", "Returning cached transient CEK");
         return _transientCEK;
     }
 
-    log("SV.getActiveCEK", "Cache miss - unwrapping CEK from envelope");
+    log("SV._getActiveCEK", "Cache miss - unwrapping CEK from envelope");
 
     /*if (isTraceEnabled())
-        trace("SV.getActiveCEK", "envelope:", envelope);*/
+        trace("SV._getActiveCEK", "envelope:", envelope);*/
 
     const selfEntry = envelope.keys.find(k => k.deviceId === G.driveLockState.self.deviceId);
 
     if (!selfEntry) {
-        error("SV.getActiveCEK", "This device is not authorized in the current envelope.");
+        error("SV._getActiveCEK", "This device is not authorized in the current envelope.");
         throw new Error("Device authorization missing.");
     }
 
@@ -612,4 +481,126 @@ async function getActiveCEK(envelope) {
     _transientCEK = cek;
 
     return _transientCEK;
+}
+
+function _createLockPayload(self, generation) {
+    log("SV._createLockPayload", "called");
+
+    const now = Date.now();
+    return {
+        version: 1,
+        envelope: C.ENVELOPE_NAME,
+        owner: {
+            account: self.account,
+            deviceId: self.deviceId
+        },
+        mode:"write",
+        generation,
+        acquiredAt: new Date(now).toISOString(),
+        expiresAt: new Date(now + C.LOCK_TTL_MS).toISOString()
+    };
+}
+
+function _extendLock(lock, ttlMs) {
+    return { ...lock, expiresAt: new Date(Date.now() + ttlMs).toISOString() };
+}
+
+async function _reconcileWrapSet({ envelope, cek, registryItems, role, forceWrite, buildEntryMeta }) {
+    let updated = false;
+
+    for (const item of registryItems) {
+        const keyId = item.fingerprint;
+
+        const existing = envelope.keys.find(k => k.keyId === keyId && k.role === role);
+
+        const now = new Date().toISOString();
+
+        if (!existing) {
+            const wrappedKey = await wrapContentKeyForDevice(cek, item.publicKey.data);
+            envelope.keys.push({ role, keyId, created: now, updated: null, publicKeyCreated: item.created || now, wrappedKey, ...buildEntryMeta(item) });
+            updated = true;
+        } else if (forceWrite) {
+            existing.wrappedKey = await wrapContentKeyForDevice(cek, item.publicKey.data);
+            existing.updated = now;
+            existing.publicKeyCreated = existing.publicKeyCreated || item.created || now;
+            updated = true;
+        }
+    }
+    return updated;
+}
+
+function _startLockHeartbeat({self, readLockFromDrive, writeLockToDrive, onLost}) {
+    log("SV._startLockHeartbeat", "called");
+
+    let stopped = false;
+
+    const tick = async () => {
+
+        //const now = new Date().toLocaleTimeString();
+        //trace("SV._startLockHeartbeat.tick", `[PROBE] ${now} - Mode: ${G.driveLockState?.mode} - Gen: ${G.driveLockState?.generation || 0}`);
+
+        if (stopped || !G.driveLockState) return;
+
+        const activeState = G.driveLockState;
+
+        try {
+
+            const lockFile = await readLockFromDrive();
+
+            if (stopped || !G.driveLockState) return;
+
+            const diskLock = lockFile?.json;
+            const evalResult = evaluateEnvelopeLock(diskLock, self);
+
+            if (evalResult.status !== "owned") {
+                // If we were throttled, we might see 'expired' here.
+                // But our new evaluateEnvelopeLock above will return 'owned'
+                // if the deviceId still matches, so this block won't even trigger!
+                stopped = true;
+                onLost?.(evalResult);
+                return;
+            }
+
+            const currentGen = activeState.lock?.generation ?? 0;
+
+            // MERGE: never allow generation to move backwards
+            const mergedLock = {
+                ...diskLock,
+                generation: Math.max(diskLock?.generation ?? 0, currentGen)
+            };
+
+            const extended = _extendLock(mergedLock, C.LOCK_TTL_MS);
+
+            if (extended.generation < G.driveLockState.lock.generation) {
+                throw new Error("Heartbeat attempted to regress generation");
+            }
+
+            await writeLockToDrive(extended, lockFile.fileId);
+
+            if (G.driveLockState) {
+                G.driveLockState.lock = extended;   // keep local state authoritative
+                //trace("SV._startLockHeartbeat.tick", `Heartbeat OK (gen=${extended.generation}, expires ${extended.expiresAt})`);
+                updateLockStatusUI();
+            }
+        } catch (err) {
+            const errorMessage = err instanceof Error ? err.stack : JSON.stringify(err, Object.getOwnPropertyNames(err));
+            error("SV._startLockHeartbeat.tick", "CRITICAL FAILURE:", errorMessage);
+
+            stopped = true;
+            onLost?.({ reason:"heartbeat-failed", error: err });
+        }
+    };
+
+    const timer = setInterval(tick, C.HEARTBEAT_INTERVAL);
+
+    return {
+        stop() {
+            stopped = true;
+            clearInterval(timer);
+            log("SV.heartbeat.stop", "Heartbeat stopped.");
+        },
+        isStopped() {
+            return stopped;
+        }
+    };
 }

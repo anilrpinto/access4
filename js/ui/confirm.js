@@ -1,23 +1,10 @@
 import { log, trace, debug, info, warn, error } from '@/shared/exports.js';
 import { confirmUI } from '@/ui/loader.js';
 
-function ensureConfirmRegistered() {
-    window.ScreenManager.register(window.ScreenManager.CONFIRM_SCREENKEY, confirmUI.mainSection, {
-        onShow: () => {
-            log("Confirm", "Confirmation screen active.");
-        },
-        onHide: () => {
-            // Optional: reset colors if you use danger-btn/success-btn
-            confirmUI.okBtn.classList.remove('danger-btn', 'success-btn');
-            return true;
-        }
-    });
-}
-
 export function showConfirmUI({title = "Confirm", message = "Are you sure?", okText = "Confirm", cancelText = "Cancel", onConfirm, onCancel }) {
 
     // 1. Ensure it's in the Manager
-    ensureConfirmRegistered();
+    _ensureConfirmRegistered();
     window.ScreenManager.switchView(window.ScreenManager.CONFIRM_SCREENKEY);
 
     confirmUI.title.setText(title);
@@ -44,5 +31,19 @@ export function showConfirmUI({title = "Confirm", message = "Are you sure?", okT
     confirmUI.cancelBtn.onClick(() => {
         window.ScreenManager.goHome();
         if (onCancel) onCancel();
+    });
+}
+
+/** INTERNAL FUNCTIONS **/
+function _ensureConfirmRegistered() {
+    window.ScreenManager.register(window.ScreenManager.CONFIRM_SCREENKEY, confirmUI.mainSection, {
+        onShow: () => {
+            log("Confirm", "Confirmation screen active.");
+        },
+        onHide: () => {
+            // Optional: reset colors if you use danger-btn/success-btn
+            confirmUI.okBtn.classList.remove('danger-btn', 'success-btn');
+            return true;
+        }
     });
 }

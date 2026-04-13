@@ -4,6 +4,123 @@ import { showSilentToast } from '@/ui/uihelper.js';
 const RECOVERY_STRING_PREFIX = "access4recoveryv1";
 
 /**
+ * BACKUP SHARED VAULT
+ */
+export async function runSharedVaultBackup(pwd, vaultData, isAuto = true, onBackup = null, onSkip = null) {
+    return _runBackup(pwd, vaultData, {
+        isAuto,
+        onBackup,
+        onSkip,
+        siloType: 'shared',
+        attachmentFolder: C.ATTACHMENTS_FOLDER_NAME
+    });
+}
+
+/**
+ * BACKUP PRIVATE VAULT
+ */
+export async function runPrivateVaultBackup(pwd, privateVaultData, isAuto = true, onBackup = null, onSkip = null) {
+    return _runBackup(pwd, privateVaultData, {
+        isAuto,
+        onBackup,
+        onSkip,
+        siloType: 'private',
+        attachmentFolder: C.PRIVATE_ATTACHMENTS_FOLDER_NAME
+    });
+}
+
+/**
+ * FULL BACKUP (Both Silos)
+ * Typically used for manual backups.
+ */
+export async function runFullBackup(pwd, sharedVaultData, privPwd = null, privateVaultData = null, onBackup = null, onSkip = null) {
+    log("backup.runFullBackup", "Executing full manual backup of all available vaults.");
+
+    try {
+        // 1. Shared Vault
+        await runSharedVaultBackup(pwd, sharedVaultData, false);
+
+        // 2. Do Private only if we have both the pwd and the data
+        if (privPwd && privateVaultData) {
+            log("backup.runFullBackup", "Pausing for Safari download manager gap...");
+            await U.delay(2000);
+            await runPrivateVaultBackup(pwd, privateVaultData, false);
+        }
+
+        if (onBackup) onBackup();
+
+    } catch (err) {
+        if (onSkip) onSkip();
+        error(`backup.runFullBackup`, "Full backup Bundle generation failed: " + err);
+        throw err;
+    }
+}
+
+export async function logBackupEvent(timestamp, autoRun) {
+    let manifest = JSON.parse(LS.get(C.BACKUP_MANIFEST_KEY) || "[]");
+    manifest.push({ timestamp, type: autoRun ? 'auto' : 'manual' });
+
+    // Keep only last 20 entries to prevent local storage bloat
+    if (manifest.length > C.MAX_BACKUP_MANIFEST_ENTRIES) {
+        warn("backup.logBackupEvent", "Manifest threshold reached. Removing oldest entry.");
+        manifest = manifest.slice(-C.MAX_BACKUP_MANIFEST_ENTRIES);
+    }
+    LS.set(C.BACKUP_MANIFEST_KEY, JSON.stringify(manifest));
+
+    let counter = parseInt(LS.get(C.BACKUP_CLEANUP_COUNTER_KEY) || 0);
+    counter++;
+    LS.set(C.BACKUP_CLEANUP_COUNTER_KEY, counter);
+
+    log("backup.logBackupEvent", `Event logged. New cleanup count: ${counter}`);
+}
+
+/**
+ * Decrypts a raw Access4 Recovery String
+ * @param {string} rawString - The full recovery string
+ * @param {string} password - The user's master password
+ */
+export async function restoreFromRawString(rawString, password) {
+    log("backup.restoreFromRawString", "called");
+
+    // 1. DEEP CLEAN: Remove BOM, Zero-width spaces, and Non-Printables
+    const cleaned = rawString
+        .replace(/^\uFEFF/, '')         // Remove BOM
+        .replace(/[^\x20-\x7E:]/g, '')  // Remove everything except standard ASCII and colons
+        .replace(/\s/g, '')             // Remove ALL whitespace (spaces, tabs, newlines)
+        .trim();
+
+    const parts = cleaned.split(':');
+
+    if (parts.length !== 4 || parts[0].toLowerCase() !== RECOVERY_STRING_PREFIX.toLowerCase()) {
+        const msg = `Format check failed. Parts: ${parts.length}, Prefix: ${parts[0]}`;
+        error("backup.restoreFromRawString", msg);
+        throw new Error(msg);
+    }
+
+    try {
+        // 1. Re-derive key using your CR logic
+        const key = await CR.deriveKey(password, {
+            salt: parts[1], // Already B64
+            iterations: CR.CR_ALG.PBKDF2_ITERATIONS
+        });
+
+        // 2. Decrypt using your CR logic
+        // We reconstruct the object your CR.decrypt expects
+        const decryptedBuffer = await CR.decrypt({
+            iv: parts[2],
+            data: parts[3]
+        }, key);
+
+        return JSON.parse(new TextDecoder().decode(decryptedBuffer));
+    } catch (e) {
+        error("backup.restoreFromRawString", "Crypto operation failed", e);
+        throw new Error("Decryption succeeded, but data is not valid JSON. The backup may be corrupted.");
+    }
+}
+
+/** INTERNAL FUNCTIONS **/
+
+/**
  * Internal Generalized Backup Engine
  * Handles shared and private silos based on options.
  */
@@ -116,16 +233,16 @@ async function _runBackup(pwd, vaultData, options = {}) {
         const internalZipBlob = await internalZipWriter.close();
         await masterZipWriter.add("1-Encrypted_Data.zip", new window.zip.BlobReader(internalZipBlob));
 
-        const htmlBlob = await generateRecoveryHTML(vaultJson, pwd);
+        const htmlBlob = await _generateRecoveryHTML(vaultJson, pwd);
         await masterZipWriter.add("2-Recovery_Standalone.html", new window.zip.BlobReader(htmlBlob));
 
-        const recoveryString = await generateRecoveryString(vaultJson, pwd);
+        const recoveryString = await _generateRecoveryString(vaultJson, pwd);
         const txtBlob = new Blob([recoveryString], { type: 'text/plain' });
         await masterZipWriter.add("3-Recovery_String.txt", new window.zip.BlobReader(txtBlob));
 
         // --- STEP B: Close and Download the Single Master Bundle ---
         const finalBundleBlob = await masterZipWriter.close();
-        downloadFile(finalBundleBlob, bundleName);
+        _downloadFile(finalBundleBlob, bundleName);
 
         // 3. SUCCESS STATE
         if (isAuto) {
@@ -145,78 +262,7 @@ async function _runBackup(pwd, vaultData, options = {}) {
     }
 }
 
-/**
- * BACKUP SHARED VAULT
- */
-export async function runSharedVaultBackup(pwd, vaultData, isAuto = true, onBackup = null, onSkip = null) {
-    return _runBackup(pwd, vaultData, {
-        isAuto,
-        onBackup,
-        onSkip,
-        siloType: 'shared',
-        attachmentFolder: C.ATTACHMENTS_FOLDER_NAME
-    });
-}
-
-/**
- * BACKUP PRIVATE VAULT
- */
-export async function runPrivateVaultBackup(pwd, privateVaultData, isAuto = true, onBackup = null, onSkip = null) {
-    return _runBackup(pwd, privateVaultData, {
-        isAuto,
-        onBackup,
-        onSkip,
-        siloType: 'private',
-        attachmentFolder: C.PRIVATE_ATTACHMENTS_FOLDER_NAME
-    });
-}
-
-/**
- * FULL BACKUP (Both Silos)
- * Typically used for manual backups.
- */
-export async function runFullBackup(pwd, sharedVaultData, privPwd = null, privateVaultData = null, onBackup = null, onSkip = null) {
-    log("backup.runFullBackup", "Executing full manual backup of all available vaults.");
-
-    try {
-        // 1. Shared Vault
-        await runSharedVaultBackup(pwd, sharedVaultData, false);
-
-        // 2. Do Private only if we have both the pwd and the data
-        if (privPwd && privateVaultData) {
-            log("backup.runFullBackup", "Pausing for Safari download manager gap...");
-            await U.delay(2000);
-            await runPrivateVaultBackup(pwd, privateVaultData, false);
-        }
-
-        if (onBackup) onBackup();
-
-    } catch (err) {
-        if (onSkip) onSkip();
-        error(`backup.runFullBackup`, "Full backup Bundle generation failed: " + err);
-        throw err;
-    }
-}
-
-export async function logBackupEvent(timestamp, autoRun) {
-    let manifest = JSON.parse(LS.get(C.BACKUP_MANIFEST_KEY) || "[]");
-    manifest.push({ timestamp, type: autoRun ? 'auto' : 'manual' });
-
-    // Keep only last 20 entries to prevent local storage bloat
-    if (manifest.length > C.MAX_BACKUP_MANIFEST_ENTRIES) {
-        warn("backup.logBackupEvent", "Manifest threshold reached. Removing oldest entry.");
-        manifest = manifest.slice(-C.MAX_BACKUP_MANIFEST_ENTRIES);
-    }
-    LS.set(C.BACKUP_MANIFEST_KEY, JSON.stringify(manifest));
-
-    let counter = parseInt(LS.get(C.BACKUP_CLEANUP_COUNTER_KEY) || 0);
-    counter++;
-    LS.set(C.BACKUP_CLEANUP_COUNTER_KEY, counter);
-
-    log("backup.logBackupEvent", `Event logged. New cleanup count: ${counter}`);
-}
-
-function downloadFile(blob, name) {
+function _downloadFile(blob, name) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -233,11 +279,11 @@ function downloadFile(blob, name) {
     // 5000ms (5 seconds) is the "Safe Zone" for mobile OS handoffs
     setTimeout(() => {
         URL.revokeObjectURL(url);
-        log("backup.downloadFile", "Blob URL revoked successfully.");
+        log("backup._downloadFile", "Blob URL revoked successfully.");
     }, 5000);
 }
 
-async function generateRecoveryHTML(json, password) {
+async function _generateRecoveryHTML(json, password) {
     // 1. Generate unique Salt and IV for this specific HTML file
     const salt = CR.randomBytes(CR.CR_ALG.SALT_LENGTH);
     const iv = CR.randomBytes(CR.CR_ALG.AES_GCM_IV_LENGTH);
@@ -374,7 +420,7 @@ async function generateRecoveryHTML(json, password) {
  * Creates a single, portable string containing all encrypted vault data.
  * Format: ACCESS4-RECOVERY-v1:Base64Salt:Base64Iv:Base64Data
  */
-async function generateRecoveryString(vaultJson, password) {
+async function _generateRecoveryString(vaultJson, password) {
     // 1. Generate Salt and IV using your established lengths
     const salt = CR.randomBytes(CR.CR_ALG.SALT_LENGTH);
 
@@ -394,48 +440,4 @@ async function generateRecoveryString(vaultJson, password) {
 
     // We return the same format, but built with your safer helpers
     return `${RECOVERY_STRING_PREFIX}:${b64Salt}:${encrypted.iv}:${encrypted.data}`;
-}
-
-/**
- * Decrypts a raw Access4 Recovery String
- * @param {string} rawString - The full recovery string
- * @param {string} password - The user's master password
- */
-export async function restoreFromRawString(rawString, password) {
-    log("backup.restoreFromRawString", "called");
-
-    // 1. DEEP CLEAN: Remove BOM, Zero-width spaces, and Non-Printables
-    const cleaned = rawString
-        .replace(/^\uFEFF/, '')         // Remove BOM
-        .replace(/[^\x20-\x7E:]/g, '')  // Remove everything except standard ASCII and colons
-        .replace(/\s/g, '')             // Remove ALL whitespace (spaces, tabs, newlines)
-        .trim();
-
-    const parts = cleaned.split(':');
-
-    if (parts.length !== 4 || parts[0].toLowerCase() !== RECOVERY_STRING_PREFIX.toLowerCase()) {
-        const msg = `Format check failed. Parts: ${parts.length}, Prefix: ${parts[0]}`;
-        error("backup.restoreFromRawString", msg);
-        throw new Error(msg);
-    }
-
-    try {
-        // 1. Re-derive key using your CR logic
-        const key = await CR.deriveKey(password, {
-            salt: parts[1], // Already B64
-            iterations: CR.CR_ALG.PBKDF2_ITERATIONS
-        });
-
-        // 2. Decrypt using your CR logic
-        // We reconstruct the object your CR.decrypt expects
-        const decryptedBuffer = await CR.decrypt({
-            iv: parts[2],
-            data: parts[3]
-        }, key);
-
-        return JSON.parse(new TextDecoder().decode(decryptedBuffer));
-    } catch (e) {
-        error("backup.restoreFromRawString", "Crypto operation failed", e);
-        throw new Error("Decryption succeeded, but data is not valid JSON. The backup may be corrupted.");
-    }
 }

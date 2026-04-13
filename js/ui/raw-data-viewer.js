@@ -1,44 +1,71 @@
 import { AU, U, log, trace, debug, isDebugEnabled, info, warn, error } from '@/shared/exports.js';
-
 import { vaultRawDataUI  } from '@/ui/loader.js';
 import { swapVisibility } from '@/ui/uihelper.js';
 
-let isTreeView = false;
-let lastDataFingerprint = "";
+let _isTreeView = false;
+let _lastDataFingerprint = "";
 
-async function load(data, masked, onClose) {
-    log("rawDataViewer.load", "Loading raw vault data");
+export async function showRawDataUI(stateProvider, onClose) {
+    log("rawDataViewer.showRawDataUI", "called");
 
-    vaultRawDataUI.closeBtn.onClick((e) => doCloseViewerClick(data, onClose));
-    vaultRawDataUI.toggleViewBtn.onClick((e) => doToggleViewerClick());
+    const screenKey = window.ScreenManager.RAW_DATA_SCREENKEY;
+    window.ScreenManager.register(screenKey, vaultRawDataUI.mainSection, {
+        onShow: () => {
+            const { data, isMasked } = stateProvider();
+            _load(data, isMasked, onClose)
+        },
+        onHide: _unload
+    });
+    window.ScreenManager.switchView(screenKey);
+}
+
+/**
+ * Force the tree to rebuild (used by vault.js toggle)
+ */
+export function refreshRawDataTree(data, masked) {
+    if (vaultRawDataUI.mainSection?.isVisible()) {
+        log("rawDataViewer.refreshRawDataTree", "Viewer is visible, refreshing tree.");
+        _renderJSONTree(data, masked);
+    } else {
+        log("rawDataViewer.refreshRawDataTree", "Viewer hidden, skipping refresh.");
+        _lastDataFingerprint = "";
+    }
+}
+
+/** INTERNAL FUNCTIONS **/
+async function _load(data, masked, onClose) {
+    log("rawDataViewer._load", "Loading raw vault data");
+
+    vaultRawDataUI.closeBtn.onClick((e) => _doCloseViewerClick(data, onClose));
+    vaultRawDataUI.toggleViewBtn.onClick((e) => _doToggleViewerClick());
 
     const currentFingerprint = JSON.stringify(data);
 
     // Only re-render the tree if the data has actually changed
-    if (currentFingerprint !== lastDataFingerprint) {
-        log("rawDataViewer.load", "Data changed or first load, rendering tree...");
-        renderJSONTree(data, masked);
-        lastDataFingerprint = currentFingerprint;
+    if (currentFingerprint !== _lastDataFingerprint) {
+        log("rawDataViewer._load", "Data changed or first _load, rendering tree...");
+        _renderJSONTree(data, masked);
+        _lastDataFingerprint = currentFingerprint;
     } else {
-        log("rawDataViewer.load", "Data unchanged, preserving tree state.");
+        log("rawDataViewer._load", "Data unchanged, preserving tree state.");
     }
 
     vaultRawDataUI.textContent.setText(U.format(data));
-    vaultRawDataUI.toggleViewBtn.setText(isTreeView ? 'Text View' : 'Tree View');
+    vaultRawDataUI.toggleViewBtn.setText(_isTreeView ? 'Text View' : 'Tree View');
 }
 
-async function unload() {
-    log("rawDataViewer.unload", "called");
+async function _unload() {
+    log("rawDataViewer._unload", "called");
 }
 
-function doCloseViewerClick(data, onClose) {
+function _doCloseViewerClick(data, onClose) {
 
-    log("rawDataViewer.doCloseViewerClick", "called");
+    log("rawDataViewer._doCloseViewerClick", "called");
 
     if (AU.isGenesisUser()) {
         const activeData = JSON.parse(vaultRawDataUI.textContent.value);
         if (isDebugEnabled())
-            debug("rawDataViewer.doCloseViewerClick", `prevLen:${JSON.stringify(data).length} currLen:${JSON.stringify(activeData).length}`);
+            debug("rawDataViewer._doCloseViewerClick", `prevLen:${JSON.stringify(data).length} currLen:${JSON.stringify(activeData).length}`);
 
         if (onClose)
             onClose(activeData);
@@ -47,10 +74,10 @@ function doCloseViewerClick(data, onClose) {
     window.ScreenManager.goHome();
 }
 
-function doToggleViewerClick() {
-    isTreeView = !isTreeView;
+function _doToggleViewerClick() {
+    _isTreeView = !_isTreeView;
 
-    if (isTreeView) {
+    if (_isTreeView) {
         swapVisibility(vaultRawDataUI.textContent, vaultRawDataUI.treeContent);
         vaultRawDataUI.toggleViewBtn.setText('Text View');
     } else {
@@ -59,16 +86,16 @@ function doToggleViewerClick() {
     }
 }
 
-function renderJSONTree(data, masked) {
+function _renderJSONTree(data, masked) {
 
-    log("rawDataViewer.renderJSONTree", "masked:", masked);
+    log("rawDataViewer._renderJSONTree", "masked:", masked);
 
     vaultRawDataUI.treeContent.innerHTML = "";
     // Start recursion at depth 0
-    vaultRawDataUI.treeContent.appendChild(createTreeBranch("root", data, 0, masked));
+    vaultRawDataUI.treeContent.appendChild(_createTreeBranch("root", data, 0, masked));
 }
 
-function createTreeBranch(key, value, depth = 0, masked = true) {
+function _createTreeBranch(key, value, depth = 0, masked = true) {
     const li = document.createElement("li");
 
     if (typeof value === 'object' && value !== null) {
@@ -103,7 +130,7 @@ function createTreeBranch(key, value, depth = 0, masked = true) {
                     childValue = "••••••••"; // Use a distinct mask
                 }
 
-                ul.appendChild(createTreeBranch(childKey, childValue, depth + 1, masked) );
+                ul.appendChild(_createTreeBranch(childKey, childValue, depth + 1, masked) );
             });
 
             label.onclick = (e) => {
@@ -126,34 +153,4 @@ function createTreeBranch(key, value, depth = 0, masked = true) {
         li.innerHTML = `<span class="json-key">${key}</span>: <span class="${valClass}">${value}</span>`;
     }
     return li;
-}
-
-/**
- * EXPORTED FUNCTIONS
- */
-export async function showRawDataUI(stateProvider, onClose) {
-    log("rawDataViewer.showRawDataUI", "called");
-
-    const screenKey = window.ScreenManager.RAW_DATA_SCREENKEY;
-    window.ScreenManager.register(screenKey, vaultRawDataUI.mainSection, {
-        onShow: () => {
-            const { data, isMasked } = stateProvider();
-            load(data, isMasked, onClose)
-        },
-        onHide: unload
-    });
-    window.ScreenManager.switchView(screenKey);
-}
-
-/**
- * Force the tree to rebuild (used by vault.js toggle)
- */
-export function refreshRawDataTree(data, masked) {
-    if (vaultRawDataUI.mainSection?.isVisible()) {
-        log("rawDataViewer.refreshRawDataTree", "Viewer is visible, refreshing tree.");
-        renderJSONTree(data, masked);
-    } else {
-        log("rawDataViewer.refreshRawDataTree", "Viewer hidden, skipping refresh.");
-        lastDataFingerprint = "";
-    }
 }
