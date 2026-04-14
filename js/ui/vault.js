@@ -23,9 +23,10 @@ let _pendingFileDeletions = [];  // Google Drive File IDs to DELETE on Save
 let _pendingFileUploads = [];   // Google Drive File IDs to DELETE on Discard/Logout
 
 let _vaultClipboard = {
-    mode: null,      // 'cut' (we can add 'copy' later if needed)
-    items: [],       // We will store just the IDs here for simplicity
-    sourceParentId: null
+    mode: null,             // 'cut'
+    type: null,             // 'groups' or 'items'
+    items: [],              // [{id, parentId}]
+    sourceVault: null       // 'shared' or 'private'
 };
 
 let _sessionState = {
@@ -99,10 +100,10 @@ export async function loadVault(pwd, data, options) {
             _sessionState.isSelectionMode = false;
             _vaultClipboard.mode = null;
             _vaultClipboard.items = []; // This clears the array, so the CSS class will drop
-            _vaultClipboard.sourceParentId = null;
             showStatusMessage("Move cancelled", "info");
         },
         setSelectionMode: (bool) => { _sessionState.isSelectionMode = bool; },
+        executeCrossVaultPaste: (targetId) => _executeCrossVaultPaste(targetId)
     });
 
     await loadExplorer(vaultContext, async () => {
@@ -196,6 +197,8 @@ export function refreshMoveMenu() {
     const count = _vaultClipboard.items.length;
     const isCutting = _vaultClipboard.mode === 'cut';
     const isSelecting = _sessionState.isSelectionMode;
+    const clipboardType = _vaultClipboard.type; // 'groups' or 'items'
+    const depth = _sessionState.path.length;
 
     // --- SECTION 1: APP TITLE (vaultUI.title) ---
     if (isCutting) {
@@ -215,8 +218,18 @@ export function refreshMoveMenu() {
     // 1. Only show 'Cut' if we are selecting AND not already in 'Cut' mode
     vaultMenu.cutMenu.setVisible(isSelecting && count > 0 && !isCutting);
 
-    const inGroup = _sessionState.path.length === 2;
-    vaultMenu.pasteMenu.setVisible(isCutting && inGroup);
+// FIX: Smarter Paste Visibility
+    let canPaste = false;
+    if (isCutting) {
+        if (clipboardType === 'groups' && depth === 1) {
+            // Groups can be pasted at the Root
+            canPaste = true;
+        } else if (clipboardType === 'items' && depth === 2) {
+            // Items must be pasted inside a Group
+            canPaste = true;
+        }
+    }
+    vaultMenu.pasteMenu.setVisible(canPaste);
 
     // 2. Update the "Select Multiple" toggle text to handle 'Cancel Move'
     if (isSelecting || isCutting) {
@@ -448,6 +461,69 @@ function _setActiveVaultData(activeData) {
     else _vaultData = activeData;
 }
 
+function _executeCrossVaultPaste(targetGroupId) {
+    const targetVaultData = getActiveVaultData();
+    // THE MAGIC: Identify the source regardless of what is currently "active"
+    const sourceVaultData = _vaultClipboard.sourceVault === 'private' ? _privateVaultData : _vaultData;
+
+    let movedCount = 0;
+
+    // --- CASE 1: MOVING ENTIRE GROUPS ---
+    // Handle Groups (Moving a folder to the root of a vault)
+    if (_vaultClipboard.type === 'groups') {
+        _vaultClipboard.items.forEach(entry => {
+            const idx = sourceVaultData.groups.findIndex(g => g.id === entry.id);
+            if (idx > -1) {
+                const [group] = sourceVaultData.groups.splice(idx, 1);
+                // Move the whole group object to the target vault
+                targetVaultData.groups.push(group);
+                movedCount++;
+            }
+        });
+    }
+        // --- CASE 2: MOVING INDIVIDUAL ITEMS ---
+    // Handle Items (Moving items between folders)
+    else {
+        const targetGroup = targetVaultData.groups.find(g => g.id === targetGroupId);
+        if (!targetGroup) return { success: false, message: "Open a group to paste items" };
+
+        _vaultClipboard.items.forEach(clipboardEntry => {
+            // 1. Find the source group using the parentId stored during selection
+            let sourceGroup = sourceVaultData.groups.find(g => g.id === clipboardEntry.parentId);
+
+            // 2. Fallback: If parentId is missing, scan all groups (safety net)
+            if (!sourceGroup) {
+                sourceGroup = sourceVaultData.groups.find(g =>
+                    g.items.some(i => i.id === clipboardEntry.id)
+                );
+            }
+
+            if (sourceGroup) {
+                const itemIdx = sourceGroup.items.findIndex(i => i.id === clipboardEntry.id);
+                if (itemIdx > -1) {
+                    // Determine if we are actually moving to a new location
+                    const isCrossVault = _vaultClipboard.sourceVault !== (_isPrivateMode ? 'private' : 'shared');
+                    const isDifferentGroup = sourceGroup.id !== targetGroupId;
+
+                    if (isDifferentGroup || isCrossVault) {
+                        const [item] = sourceGroup.items.splice(itemIdx, 1);
+                        item.modified = new Date().toISOString();
+                        targetGroup.items.push(item);
+                        movedCount++;
+                    }
+                }
+            }
+        });
+    }
+
+    // Standard Cleanup
+    _vaultClipboard.mode = null;
+    _vaultClipboard.items = [];
+    _vaultClipboard.sourceVault = null;
+
+    return { success: true, count: movedCount, type: _vaultClipboard.type };
+}
+
 async function _doUsersClick() {
     log("vaultUI._doUsersClick", "Lazy loading module...");
 
@@ -621,7 +697,6 @@ function _doSecure() {
     _sessionState.path = ['root']; // Reset breadcrumbs to root
 
     _vaultClipboard.mode = null;
-    _vaultClipboard.sourceParentId = null;
     _vaultClipboard.items = [];
 
     // 3. Clear the DOM (Prevents seeing old data for a split second on re-login)

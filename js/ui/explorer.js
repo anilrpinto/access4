@@ -169,12 +169,16 @@ function _doSelectClick() {
 function _doCutClick() {
     log("explorer._doCutClick", "called");
 
-    const { navigateToRoot, vaultClipboard, setSelectionMode, refresh } = _vaultCtx();
+    const { depth, navigateToRoot, vaultClipboard, isPrivateMode, setSelectionMode, refresh } = _vaultCtx();
     if (vaultClipboard.items.length === 0) return;
 
     vaultClipboard.mode = 'cut';
-    // Remove the single sourceParentId line — it's now in the items array
-    //vaultClipboard.sourceParentId = sessionState.path[1];
+    vaultClipboard.sourceVault = isPrivateMode ? 'private' : 'shared';
+
+    // IMPORTANT: Determine type based on the items themselves, not just depth
+    // This handles cases where someone might be at root but has items from subgroups selected
+    const hasGroups = vaultClipboard.items.some(i => i.parentId === 'root');
+    vaultClipboard.type = hasGroups ? 'groups' : 'items';
 
     // Turn off selection mode
     setSelectionMode(false);
@@ -189,58 +193,17 @@ function _doCutClick() {
 }
 
 async function _doPasteClick() {
-    log("explorer._doPasteClick", "called");
+    const { groupId, executeCrossVaultPaste, refresh } = _vaultCtx();
 
-    const { activeData, groupId, vaultClipboard, setSelectionMode, refresh } = _vaultCtx();
-    const targetGroupId = groupId;
+    // The vault does the heavy lifting and tells us if it worked
+    const result = executeCrossVaultPaste(groupId);
 
-    // 1. Validation: Must be in a group to paste
-    if (!targetGroupId || targetGroupId === 'root') {
-        showStatusMessage("Open a group to paste items", "error");
-        return;
-    }
-
-    const targetGroup = activeData.groups.find(g => g.id === targetGroupId);
-    if (!targetGroup) {
-        error("Paste failed: Target group not found");
-        return;
-    }
-
-    let movedCount = 0;
-
-    // 2. Loop through every item in the clipboard
-    vaultClipboard.items.forEach(clipboardEntry => {
-        // Find the source group for THIS specific item
-        const sourceGroup = activeData.groups.find(g => g.id === clipboardEntry.parentId);
-
-        // Safety: Don't move if source is the same as target
-        if (sourceGroup && sourceGroup.id !== targetGroupId) {
-            const itemIndex = sourceGroup.items.findIndex(i => i.id === clipboardEntry.id);
-
-            if (itemIndex > -1) {
-                // Perform the move
-                const [movedItem] = sourceGroup.items.splice(itemIndex, 1);
-                targetGroup.items.push(movedItem);
-
-                movedItem.modified = new Date().toISOString();
-                movedCount++;
-            }
-        }
-    });
-
-    // 3. Cleanup
-    vaultClipboard.items = [];
-    vaultClipboard.mode = null;
-    vaultClipboard.sourceParentId = null; // No longer needed, but good to clear
-
-    // 4. Final UI Refresh
-    if (movedCount > 0) {
-        showStatusMessage(`Successfully moved ${movedCount} items`, "success");
+    if (result.success) {
+        showStatusMessage(`Successfully moved ${result.count} ${result.type}`, "success");
+        refresh(); // UI updates to show the items now exist in the new data
     } else {
-        showStatusMessage("No items were moved (already in target group)", "info");
+        showStatusMessage(result.message, "error");
     }
-
-    refresh();
 }
 
 async function _doAddClick() {
@@ -487,16 +450,20 @@ function _renderGroupList(container) {
             });
         }
 
-        // Check if any item in the clipboard is from THIS group
-        const hasCutItems = vaultClipboard.items.some(i => i.parentId === group.id);
+        // 1. Check if the GROUP ITSELF is selected (the root-level move)
+        const isGroupSelected = vaultClipboard.items.some(i => i.id === group.id && i.parentId === 'root');
 
-        // HIGHLIGHT CHECK: Is this group name a match?
-        const isMatch = currentFilterMap?.highlighted.has(group.id);
+        // 2. Check if ITEMS INSIDE this group are selected (the item-level move)
+        const hasSelectedItems = vaultClipboard.items.some(i => i.parentId === group.id);
+
+        // 3. Determine the CSS classes
+        let classList = ['list-row'];
+        if (isGroupSelected) classList.push(vaultClipboard.mode === 'cut' ? 'to-be-moved' : 'selected');
+        if (hasSelectedItems) classList.push('source-group-active'); // Children are moving
+        if (currentFilterMap?.highlighted.has(group.id)) classList.push('search-highlight');
 
         const div = document.createElement('div');
-        // Add 'source-group' class if items are being cut from here
-        // Add 'search-highlight' class if it's a match
-        div.className = `list-row ${hasCutItems ? 'source-group-active' : ''} ${isMatch ? 'search-highlight' : ''}`;
+        div.className = classList.join(' ');
 
         // Only show badge if density > 0
         const matchBadge = (currentFilterMap && matchDensity > 0)
@@ -504,7 +471,7 @@ function _renderGroupList(container) {
             : '';
 
         div.innerHTML = `
-            <span class="row-label">📁 ${group.name} ${hasCutItems ? '<small>(moving items...)</small>' : ''}</span>
+            <span class="row-label">📁 ${group.name}</span>
             <div class="row-status-area">
                 ${matchBadge}
                 <span class="count">${group.items.length}</span>
@@ -512,9 +479,20 @@ function _renderGroupList(container) {
         `;
 
         div.onclick = () => {
-            hideFilterUI();
-            const { onNavigate } = _vaultCtx();
-            onNavigate(group.id);
+            const { isSelectionMode, depth, vaultClipboard, onNavigate } = _vaultCtx();
+
+            // Check: Are we already "cherry-picking" items?
+            // If we have items in the clipboard that AREN'T groups, we are in Item-Mode.
+            const isPickingItems = vaultClipboard.items.some(i => i.parentId !== 'root');
+
+            if (isSelectionMode && depth === 1 && !isPickingItems) {
+                _toggleGroupSelection(group.id, div);
+            } else {
+                // Otherwise: Navigate (even if selection mode is ON).
+                // This allows you to go inside groups to cherry-pick items.
+                hideFilterUI();
+                onNavigate(group.id);
+            }
         };
         container.appendChild(div);
     });
@@ -523,6 +501,26 @@ function _renderGroupList(container) {
     if (container.children.length === 0 && currentFilterMap) {
         container.innerHTML = `<div class="empty-state">No data matching "${currentSearchQuery}".</div>`;
     }
+}
+
+function _toggleGroupSelection(id, element) {
+    const { vaultClipboard, refresh } = _vaultCtx();
+
+    const index = vaultClipboard.items.findIndex(i => i.id === id);
+
+    // Use a consistent class name based on the mode
+    const activeClass = vaultClipboard.mode === 'cut' ? 'to-be-moved' : 'selected';
+
+    if (index > -1) {
+        vaultClipboard.items.splice(index, 1);
+        element.classList.remove('selected', 'to-be-moved');
+    } else {
+        // Parent is 'root' because these are top-level groups
+        vaultClipboard.items.push({ id: id, parentId: 'root' });
+        element.classList.add(activeClass);
+    }
+
+    refresh();
 }
 
 function _renderItemList(container, groupId) {
@@ -591,7 +589,7 @@ function _renderItemList(container, groupId) {
             // 2. If we are selecting OR if the item is already "Cut",
             // clicking should only toggle selection/do nothing, not navigate.
             if (isSelectionMode || vaultClipboard.mode === 'cut') {
-                _toggleItemSelection(vaultClipboard, item.id, div, groupId);
+                _toggleItemSelection(item.id, div, groupId);
             } else {
                 // Normal navigation
                 hideFilterUI();
@@ -609,20 +607,28 @@ function _renderItemList(container, groupId) {
     }
 }
 
-function _toggleItemSelection(vaultClipboard, id, element, groupId) {
+function _toggleItemSelection(id, element, groupId) {
+    const { vaultClipboard, refresh } = _vaultCtx();
+
+    // Safety: If user accidentally has groups selected, clear them to prevent mixed-type move
+    if (vaultClipboard.items.some(i => i.parentId === 'root')) {
+        vaultClipboard.items = [];
+    }
+
     const index = vaultClipboard.items.findIndex(i => i.id === id);
 
     if (index > -1) {
         vaultClipboard.items.splice(index, 1);
-        element.classList.remove('to-be-moved');
+        element.classList.remove('selected', 'to-be-moved');
     } else {
         // WE MUST STORE THE PARENT ID HERE
         vaultClipboard.items.push({ id: id, parentId: groupId });
-        element.classList.add('to-be-moved');
-    }
 
-    const { refreshMenu } = _vaultCtx();
-    refreshMenu();
+        const { vaultClipboard: clipboardState } = _vaultCtx();
+        const activeClass = clipboardState.mode === 'cut' ? 'to-be-moved' : 'selected';
+        element.classList.add(activeClass);
+    }
+    refresh();
 }
 
 function _renderItemDetails(container, groupId, itemId) {

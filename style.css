@@ -920,9 +920,20 @@ body.vault-frozen .list-row:active {
 
 /* Highlight for items marked for moving */
 .list-row.to-be-moved {
-    opacity: 0.5;
-    border-left: 4px dashed var(--primary-color);
-    background-color: #f9f9f9;
+    opacity: 0.8;
+    background-color: rgba(255, 152, 0, 0.2); /* Orange tint for "Cut" */
+    border-left: 4px dashed #FF9800;
+}
+
+.list-row.selected {
+    background-color: rgb(189 166 248 / 0.15) !important;
+    border-left: 4px solid #3d21f3 !important;
+}
+
+/* When items INSIDE the group are selected */
+.list-row.source-group-active {
+    background-color: rgb(189 166 248 / 0.15) !important;
+    border-left: 5px solid #3d21f3; /* Distinct Blue stripe */
 }
 
 /* Visual cue when selection mode is active */
