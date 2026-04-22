@@ -18,14 +18,14 @@ export const vaultRecoveryKeyUI = loadUI(['mainSection', 'currentPwdSection', 'c
 export const vaultCreatePrivateUI = loadUI(['mainSection', 'pwdInput', 'confirmPwdInput', 'createBtn', 'cancelBtn', 'statusMsg'],
     'vaultCreatePrivate_', 'vaultBody');
 
-export const vaultAddNewUI = loadUI(['mainSection', 'title', 'label', 'input', 'cancelBtn', 'addBtn'], 'vaultAddNew_', 'vaultBody');
+export const vaultAddNewUI = loadUI(['mainSection', 'title', 'label', 'input', 'archiveSection', 'archiveCheck', 'cancelBtn', 'addBtn'], 'vaultAddNew_', 'vaultBody');
 
 export const confirmUI = loadUI(['mainSection', 'title', 'message', 'cancelBtn', 'okBtn'], 'vaultConfirm_', 'vaultBody');
 
 export const backupRestoreUI = loadUI(['title' , 'closeBtn', 'inputSection', 'encInput', 'pwdInput', 'decryptBtn', 'outputSection', 'outputTxa', 'copyBtn'],
     'restoreBackup_', 'restoreBackup_mainSection');
 
-export const vaultNavBarUI = loadUI(['mainSection', 'breadcrumbs', 'filterSection', 'filterInput', 'filterToggle'], 'vaultNavBar_', 'vault_mainSection');
+export const vaultNavBarUI = loadUI(['mainSection', 'breadcrumbs', 'filterSection', 'filterInput', 'filterToggle', 'sortToggle'], 'vaultNavBar_', 'vault_mainSection');
 
 export const vaultUsersUI = loadUI(['mainSection', 'title', 'closeBtn', 'userSelect', 'formFields', 'roleSelect', 'readonlyCheck',
         'attachmentsCheck', 'forcePwdCheck', 'cancelBtn', 'saveBtn', 'removeBtn'], 'vaultUsers_', 'vaultBody');
@@ -33,15 +33,15 @@ export const vaultUsersUI = loadUI(['mainSection', 'title', 'closeBtn', 'userSel
 
 export const vaultMenuBar = loadUI(['addBtn', 'renameBtn', 'deleteBtn'], 'vaultMenuBar_', 'vault_headerRightSide');
 
-export const vaultMenu = loadUI(['menuBtn', 'menuDropdown', 'saveMenu', 'toggleEditMenu', 'rawDataMenu',
+export const vaultMenu = loadUI(['menuBtn', 'menuDropdown', 'saveMenu', 'toggleEditMenu', 'archivedMenu', 'rawDataMenu',
     'discardChangesMenu', 'copyLogsMenu', 'toggleLogsMenu', 'usersMenu', 'syncAccessMenu', 'runBackupMenu',
     'recoveryRotationMenu', 'privateVaultMenu', 'selectMenu', 'cutMenu', 'pasteMenu', 'logoutMenu'],
     'vaultMenu_', 'vault_headerRightSide');
 
 export const systemModalUI = loadUI(['mainSection', 'title', 'message', 'cancelBtn', 'okBtn'], 'systemModal_');
 
-export const advSearchUI = loadUI(['mainSection', 'close', 'scope', 'dynamicLabels', 'attach', 'case', 'logic', 'reset', 'run'],
-    'advSearch_', 'vaultBody');
+export const advSearchUI = loadUI(['mainSection', 'close', 'scope', 'dynamicLabels', 'attach', 'case',
+        'dateType', 'dateVal', 'dateUnit', 'logic', 'reset', 'run'], 'advSearch_', 'vaultBody');
 
 export async function copyLogsToClipboard() {
     if (!logEl) return;

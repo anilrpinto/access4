@@ -1312,61 +1312,7 @@ body.vault-frozen .list-row:active {
 }
 
 
-/** NAV BAR **/
-#vaultNavBar_mainSection {
-    display: flex;
-    align-items: center;
-    padding: 0 10px;
-    height: 40px; /* Adjust to your design */
-    background: #f4f4f4;
-    border-bottom: 1px solid #ddd;
-    margin-bottom: 5px; /* Adds 15px of space between the nav and folders */
-}
 
-/* The Green Confirmation State */
-#vaultNavBar_mainSection.filter-mode-active {
-    background-color: #e8f5e9 !important; /* Soft emerald background */
-    border-bottom: 1px solid #2ecc71;    /* Vibrant green bottom edge */
-    transition: background-color 0.3s ease;
-    margin-bottom: 5px; /* Keep the margin consistent in both modes */
-}
-
-#vaultNavBar_filterInput {
-    width: 100%;
-    height: 30px;        /* Fixed height looks better than 100% */
-    margin: 5px 0;       /* Centers it vertically within the 40px bar */
-    padding: 0 10px;
-    border: 1px solid transparent; /* Hidden until focus */
-    border-radius: 4px;
-    background: transparent;
-    outline: none;
-    font-size: 0.95rem;
-    color: #2c3e50;
-    box-sizing: border-box;
-}
-
-#vaultNavBar_mainSection.filter-mode-active #vaultNavBar_filterInput {
-    background: rgba(255, 255, 255, 0.7); /* Slightly higher opacity white to ensure text pops */
-
-    /* THE BORDER FIX: We are switching from a primary green to a muted sage green */
-    border: 1px solid #99bba5 !important;
-
-    border-radius: 6px; /* A softer corner than the original 4px helps reduce the "hard" edge feel */
-    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.05); /* Adds a subtle depth that makes it feel like an input */
-    transition: border-color 0.2s, box-shadow 0.2s; /* Ensures a smooth visual transition */
-}
-
-#vaultNavBar_filterToggle {
-    cursor: pointer;
-    font-size: 1.2rem;
-    padding: 0 10px;
-    user-select: none;
-    min-width: 44px; /* Minimum recommended touch target size */
-    min-height: 44px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
 
 .hidden { display: none !important; }
 
@@ -1691,6 +1637,52 @@ button.danger-btn:active {
     line-height: 1 !important; /* Prevents vertical offset */
 }
 
+.date-filter-row {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important; /* This is the vertical center */
+    justify-content: space-between !important;
+    width: 100% !important;
+    gap: 6px !important;
+    margin-top: 0px;
+}
+
+/* The Dropdowns (Created/Modified and Days/Weeks) */
+.date-select-mini {
+    flex: 1 1 30% !important; /* Grow and shrink, but aim for 30% width */
+    width: 30% !important;    /* Force override of global 100% */
+    height: 40px !important;
+    min-width: 0 !important;   /* Critical for flex shrinking */
+    padding: 0 4px !important;
+    font-size: 12px !important;
+}
+
+/* The "within" text */
+.date-label {
+    flex: 0 0 auto !important;
+    font-size: 12px;
+    color: #888;
+    white-space: nowrap;
+    /* Force alignment if flex-center isn't enough */
+    line-height: 40px !important;
+    height: 40px !important;
+    display: flex;
+    align-items: center;
+}
+
+/* The Number Input */
+.date-input-mini {
+    flex: 0 0 70px !important;
+    width: 70px !important;
+    height: 40px !important;
+    text-align: center;
+    border: 1px solid #ccc !important;
+    border-radius: 6px !important;
+    padding: 0 !important;
+    margin-top: 12px !important;
+    box-sizing: border-box !important;
+}
+
 /* Footer & Separator */
 .modal-sep {
     border: 0;
@@ -1769,19 +1761,47 @@ button.danger-btn:active {
 
 /* 1. Lower the z-index so it doesn't bury the dropdown menu */
 #vaultRawData_mainSection {
-    position: fixed;
-    top: 60px;
-    left: 0;
-    width: 100vw;
-    height: calc(100vh - 60px);
-    background: #fff;
-    padding: 15px;
-    /* Changed from 2000 to 900 to stay under .menuDropdown-content (1001) */
-    z-index: 900;
-    box-sizing: border-box;
-    display: flex;
+    display: none;
     flex-direction: column;
-    overflow: hidden;
+    height: calc(100dvh - 70px); /* Fill available space below main header */
+    padding: 0 15px;
+    box-sizing: border-box;
+}
+
+/* 2. Header - Clean and Spaced */
+.raw-data-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 5px 0;
+    flex-shrink: 0;
+}
+
+.view-title {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #888;
+}
+
+.header-actions {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+
+/* Clean, modern icon buttons for the header */
+.sub-icon-btn {
+    width: 32px !important;
+    height: 32px !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: rgb(62 62 62 / 0.25) !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+    cursor: pointer;
+    box-shadow: none !important;
 }
 
 /* 2. Ensure your Menu and Header stay on top */
@@ -1793,18 +1813,15 @@ header {
     z-index: 1001 !important; /* Highest point in the vault */
 }
 
-/* 2. Fix the "Invisible Layer" on Content */
 #vaultRawData_textContent,
 #vaultRawData_treeContent {
+    flex: 1;         /* This makes them fill all remaining space */
     width: 100%;
-    margin-bottom: 10px;
+    overflow: auto;  /* Content scrolls inside, buttons stay put */
+    margin-bottom: 15px;
+    background: #f8f9fa;
     border: 1px solid #ddd;
-    border-radius: 4px;
-    background: #fdfdfd;
-    overflow-y: auto !important;
-    overflow-x: auto;
-    /* This ensures that if the element is hidden (display: none),
-       it absolutely cannot block clicks */
+    border-radius: 8px;
 }
 
 /* 3. Keep the expansion logic we fixed earlier */
@@ -1826,15 +1843,6 @@ header {
 #vaultRawData_textContent[style*="display: none"],
 #vaultRawData_treeContent[style*="display: none"] {
     display: none !important; /* Force browser to ignore it entirely */
-}
-
-/* 5. Buttons remain at the bottom */
-.button-group {
-    flex-shrink: 0;
-    display: flex;
-    gap: 10px;
-    margin-top: auto;
-    padding-bottom: 5px;
 }
 
 /* Fix for the "Menu Click" issue */
@@ -1934,4 +1942,306 @@ header {
     width: 1.5rem; /* Set this to match your emoji width */
     text-align: center;
     margin-right: 8px;
+}
+
+/* --- Mobile Usability & Font Scaling --- */
+
+/* Fix 4: Disable Pull-to-Refresh when in Vault */
+/* Apply to both html and body for maximum browser compliance */
+html.vault-active,
+body.vault-active {
+    overscroll-behavior-y: none !important;
+    overflow: hidden; /* This prevents the 'rubber-banding' entirely */
+    height: 100%;
+}
+
+/* Ensure the explorer section is the only thing that scrolls */
+body.vault-active #vaultView {
+    height: 100vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* Fix 3: Detail View Scaling */
+.detail-view {
+    padding: 10px 4px;
+}
+
+.field-input {
+    font-size: 0.9rem !important; /* Slightly smaller for mobile density */
+    padding: 10px !important;
+}
+
+.item-meta-bar {
+    font-size: 0.6rem; /* Even tighter meta text */
+}
+
+/* Fix 2: Full-Screen Note Modal */
+.note-expand-wrapper {
+    position: relative;
+}
+
+.field-actions .expand-note-btn {
+    cursor: pointer;
+    font-size: 1.1rem !important; /* Slightly smaller because it's a 'heavier' symbol */
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--primary-color) !important;
+    transition: transform 0.1s;
+}
+
+.expand-note-btn:active {
+    transform: scale(0.9);
+}
+
+.full-screen-note-overlay {
+    position: fixed;
+    inset: 0; /* Ensures it covers the whole screen */
+    background: #fff;
+    z-index: 10002;
+    display: flex;
+    flex-direction: column;
+    /* Support for mobile notches/safe areas */
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+}
+
+.note-overlay-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px;
+    background: var(--vault-header-bg);
+    border-bottom: 1px solid #ddd;
+    font-weight: bold;
+}
+
+.note-overlay-content {
+    flex: 1;
+    width: 100%;
+    border: none !important;
+    padding: 20px !important;
+    font-family: monospace;
+    font-size: 1rem !important;
+    resize: none;
+    outline: none; /* Removes the blue box when typing */
+}
+
+/** NAV BAR **/
+#vaultNavBar_mainSection {
+    display: flex;
+    align-items: center;
+    padding: 0 10px;
+    height: 48px; /* Slightly taller for easier thumb tapping */
+    background: #f4f4f4;
+    border-bottom: 1px solid #ddd;
+    overflow: hidden; /* Keep the search icon from moving */
+}
+
+/* 1. Ensure the container doesn't squeeze its children */
+#vaultNavBar_content {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    overflow: hidden;
+    position: relative;
+    /* Add a tiny bit of internal padding so borders don't touch the edge */
+    padding: 0 4px;
+}
+
+/* 2. Give the filter section a clear flex behavior */
+#vaultNavBar_filterSection {
+    display: flex;
+    flex: 1;
+    width: 100%;
+    align-items: center;
+    padding-left: 2px; /* Small buffer to prevent left-side clipping */
+}
+
+/* 3. The Input Field */
+#vaultNavBar_filterInput {
+    flex: 1;
+    width: 100%;
+    height: 34px;
+
+    /* THE CLIP FIX: Added a small margin so the border isn't on the pixel-edge */
+    margin: 4px 2px;
+
+    padding: 0 12px;
+
+    /* Ensure padding/border are calculated INSIDE the width */
+    box-sizing: border-box;
+
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: transparent;
+    outline: none;
+    font-size: 1rem;
+    color: #2c3e50;
+    -webkit-appearance: none; /* Remove default iOS/Chrome input styling shadow */
+}
+
+/* 4. The Main Bar State - Moved transition here */
+#vaultNavBar_mainSection {
+    transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+#vaultNavBar_mainSection.filter-mode-active {
+    background-color: #e8f5e9 !important;
+    border-bottom: 1px solid #2ecc71;
+    margin-bottom: 5px;
+}
+
+/* 5. Input Active State - Simplified */
+#vaultNavBar_mainSection.filter-mode-active #vaultNavBar_filterInput {
+    background: rgba(255, 255, 255, 0.8);
+    border: 1px solid #99bba5 !important;
+    border-radius: 6px;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+/* 6. Interaction Elements */
+#vaultNavBar_filterToggle {
+    cursor: pointer;
+    font-size: 1.2rem;
+    flex-shrink: 0; /* Prevents the magnifying glass from getting squished */
+    margin-left: 4px;
+    padding: 0 12px;
+    user-select: none;
+    min-width: 44px;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* 7. Hide breadcrumbs when filtering */
+/*
+#vaultNavBar_mainSection.filter-mode-active #vaultNavBar_breadcrumbs {
+    display: none;
+}
+*/
+
+#vaultNavBar_breadcrumbs {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    white-space: nowrap; /* CRITICAL: Prevents text from wrapping to the next line */
+    overflow-x: auto;    /* Enables horizontal scrolling */
+    overflow-y: hidden;
+    scrollbar-width: none; /* Hide scrollbar Firefox */
+    -webkit-overflow-scrolling: touch; /* Smooth momentum scrolling on iOS */
+    padding-right: 10px;
+}
+
+/* Hide scrollbar for Chrome/Safari */
+#vaultNavBar_breadcrumbs::-webkit-scrollbar {
+    display: none;
+}
+
+.breadcrumb-item {
+    flex-shrink: 0; /* Prevents the text from squishing */
+    white-space: nowrap;
+}
+
+@media (max-width: 400px) {
+    .breadcrumb-item {
+        font-size: 0.75rem;
+    }
+}
+
+/* Breadcrumb for Archive */
+/* Group archive section */
+.archive-toggle-container {
+    display: none; /* Controlled by JS show/hide */
+    align-items: center;
+    gap: 8px;           /* Space between check and text */
+    margin-top: 5px;    /* Reduced space below the textbox */
+    margin-bottom: 25px;
+    padding-left: 2px;
+}
+
+.archive-toggle-container input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    margin: 0;          /* Removes default browser margins that break alignment */
+    cursor: pointer;
+}
+
+.archive-toggle-container label {
+    font-size: 0.9rem;
+    color: #444;
+    cursor: pointer;
+    user-select: none;
+    line-height: 1;     /* Helps vertical centering */
+}
+
+/* 1. The "Ghostly" look for rows in the Archive view */
+.archive-mode-item {
+    opacity: 0.6;
+    filter: saturate(0.4) contrast(0.9);
+    border: 1px dashed #ccc !important;
+    background: #fdfdfd;
+    transition: opacity 0.2s ease;
+}
+
+/* Optional: Bring it back to full opacity on hover if on desktop */
+.archive-mode-item:hover {
+    opacity: 0.8;
+}
+
+/* Ensure icons inside archived rows also look de-emphasized */
+.archive-mode-item .row-label {
+    color: #7f8c8d;
+}
+
+/* Ensure highlights still pop slightly even when archived */
+.archive-mode-item.search-highlight {
+    background-color: rgba(255, 255, 0, 0.2) !important;
+    opacity: 0.9; /* Give matched items a bit more 'life' */
+}
+
+/* 2. Style the 📦 icon specifically when in Archive Mode */
+.breadcrumb-item.archive-root {
+    color: #9b59b6; /* A distinct purple to signal 'Archive' */
+    font-weight: bold;
+    font-size: 1.2rem;
+}
+
+/* 3. Global root icon behavior (Shared, Private, or Archive) */
+.breadcrumb-item.link:first-child {
+    transition: transform 0.2s ease;
+    display: inline-block;
+}
+
+.breadcrumb-item.link:first-child:active {
+    transform: scale(0.85); /* Visual feedback on tap/click */
+}
+
+
+#vaultNavBar_sortToggle,
+#vaultNavBar_filterToggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;  /* Fixed width ensures no "jumping" when switching icons */
+    height: 40px;
+    font-size: 1.2rem;
+    cursor: pointer;
+    transition: opacity 0.2s;
+    user-select: none;
+}
+
+#vaultNavBar_sortToggle:hover,
+#vaultNavBar_filterToggle:hover {
+    opacity: 0.7;
+}
+
+/* Optional: Subtle distinction for the Sort icon text */
+#vaultNavBar_sortToggle {
+    font-family: 'Segoe UI', Roboto, sans-serif;
+    font-weight: bold;
+    letter-spacing: -1px; /* Tighter look for A↓ */
 }

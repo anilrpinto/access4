@@ -130,23 +130,25 @@
             <div class="menu-container">
                 <button id="vaultMenu_menuBtn" class="icon-button" aria-label="Options">⋮</button>
                 <div id="vaultMenu_menuDropdown" class="menuDropdown-content">
-                    <button id="vaultMenu_saveMenu">&#10240;&#10240; Save</button>
-                    <button id="vaultMenu_discardChangesMenu">&#10240;&#10240; Discard changes</button>
-                    <button id="vaultMenu_toggleEditMenu">&#10240;&#10240; Toggle Edit</button>
+                    <button id="vaultMenu_saveMenu">💾 Save</button>
+                    <button id="vaultMenu_discardChangesMenu">✖️ Discard changes</button>
                     <hr>
+                    <button id="vaultMenu_usersMenu">👥 Users</button>
+                    <button id="vaultMenu_syncAccessMenu">🔄 Sync Access</button>
+                    <button id="vaultMenu_recoveryRotationMenu">🔑 Recovery Rotation</button>
+                    <hr>
+                    <button id="vaultMenu_archivedMenu">📦 Archived</button>
+                    <button id="vaultMenu_privateVaultMenu">🛡️ Open Private vault</button>
+                    <hr>
+                    <button id="vaultMenu_toggleEditMenu">✏️ Toggle Edit</button>
+                    <button id="vaultMenu_selectMenu">✅ Select</button>
+                    <button id="vaultMenu_cutMenu" style="display:none;">✂️ Cut</button>
+                    <button id="vaultMenu_pasteMenu" style="display:none;">📋 Paste</button>
+                    <hr>
+                    <button id="vaultMenu_runBackupMenu">&#10240;&#10240; Run Backup</button>
                     <button id="vaultMenu_rawDataMenu">&#10240;&#10240; Raw data</button>
                     <button id="vaultMenu_copyLogsMenu">&#10240;&#10240; Copy logs</button>
                     <button id="vaultMenu_toggleLogsMenu" style="display: none;">&#10240;&#10240; Toggle logs</button>
-                    <hr>
-                    <button id="vaultMenu_usersMenu">&#10240;&#10240; Users</button>
-                    <button id="vaultMenu_syncAccessMenu">&#10240;&#10240; Sync Access</button>
-                    <button id="vaultMenu_runBackupMenu">&#10240;&#10240; Run Backup</button>
-                    <button id="vaultMenu_recoveryRotationMenu">&#10240;&#10240; Recovery Rotation</button>
-                    <button id="vaultMenu_privateVaultMenu">&#10240;&#10240; Open Private vault</button>
-                    <hr>
-                    <button id="vaultMenu_selectMenu">&#10240;&#10240; Select</button>
-                    <button id="vaultMenu_cutMenu" style="display:none;">&#10240;&#10240; Cut</button>
-                    <button id="vaultMenu_pasteMenu" style="display:none;">&#10240;&#10240; Paste</button>
                     <hr>
                     <button id="vaultMenu_logoutMenu" class="danger-text">&#10240;&#10240; Logout</button>
                 </div>
@@ -155,14 +157,16 @@
     </header>
 
     <div id="vaultRawData_mainSection" style="display:none;">
-        <textarea id="vaultRawData_textContent" spellcheck="false" readonly></textarea>
-
-        <div id="vaultRawData_treeContent" class="json-tree" style="display:none;"></div>
-
-        <div class="button-group">
-            <button id="vaultRawData_toggleViewBtn">Tree View</button>
-            <button id="vaultRawData_closeBtn">Close</button>
+        <div class="raw-data-header">
+            <span class="view-title">Raw Vault Data</span>
+            <div class="header-actions">
+                <button id="vaultRawData_toggleViewBtn" class="sub-icon-btn"></button>
+                <button id="vaultRawData_closeBtn" class="sub-icon-btn" title="Close">✕</button>
+            </div>
         </div>
+
+        <textarea id="vaultRawData_textContent" spellcheck="false" readonly></textarea>
+        <div id="vaultRawData_treeContent" class="json-tree" style="display:none;"></div>
     </div>
 
     <main id="vaultBody">
@@ -180,12 +184,14 @@
                 </div>
 
                 <span id="vaultNavBar_filterToggle" title="Search/Filter">🔍</span>
+                <span id="vaultNavBar_sortToggle" title="Sort Order">"A↑</span>
             </div>
 
             <div id="vault_explorer"></div>
             <div id="vault_statusMsg" class="unlock-message"></div>
         </div>
 
+        <!-- Advanced search card -->
         <div id="advSearch_mainSection" class="modal-overlay hidden">
             <div class="modal-mini-card adv-search-container">
 
@@ -219,6 +225,25 @@
                     </div>
 
                     <div class="search-field">
+                        <label class="input-label">Date Filter</label>
+                        <div class="date-filter-row">
+                            <select id="advSearch_dateType" class="date-select-mini">
+                                <option value="">Off</option>
+                                <option value="modified">Modified</option>
+                                <option value="created">Created</option>
+                            </select>
+                            <span class="date-label">within</span>
+                            <input type="number" id="advSearch_dateVal" class="date-input-mini" value="7" min="1">
+                            <select id="advSearch_dateUnit" class="date-select-mini">
+                                <option value="days">Days</option>
+                                <option value="weeks">Weeks</option>
+                                <option value="months">Months</option>
+                                <option value="years">Years</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="search-field">
                         <label class="input-label">Logic</label>
                         <select id="advSearch_logic">
                             <option value="contains" selected>Contains</option>
@@ -247,6 +272,7 @@
             </div>
         </div>
 
+        <!-- Generic Confirmation card -->
         <div id="vaultConfirm_mainSection" class="inline-ui-view" style="display:none;">
             <div>
                 <h2 id="vaultConfirm_title" class="data-title">Confirm</h2>
@@ -259,13 +285,17 @@
             </div>
         </div>
 
-        <!-- Vault Add new section (group, item etc.)-->
+        <!-- Vault Add and Rename card (group, item etc.)-->
         <div id="vaultAddNew_mainSection" style="display:none;">
             <div>
                 <h3 id="vaultAddNew_title">Add New</h3>
                 <div class="input-group">
                     <label id="vaultAddNew_label">Name</label>
                     <input type="text" id="vaultAddNew_input" placeholder="Enter name...">
+                </div>
+                <div id="vaultAddNew_archiveSection" class="archive-toggle-container">
+                    <input type="checkbox" id="vaultAddNew_archiveCheck">
+                    <label for="vaultAddNew_archiveCheck">Archive?</label>
                 </div>
                 <div class="button-group">
                     <button id="vaultAddNew_cancelBtn" class="secondary-btn">Cancel</button>
@@ -275,7 +305,7 @@
             <div id="vaultAddNew_statusMsg" class="unlock-message"></div>
         </div>
 
-        <!-- Vault Rotate Recovery Key Section -->
+        <!-- Vault Rotate Recovery Key card -->
         <div id="vaultRecoveryKey_mainSection" style="display: none;">
             <div id="vaultRecoveryKey_currentPwdSection" class="input-group" style="display: none;">
                 <label>Current Password</label>
@@ -296,7 +326,7 @@
             <div id="vaultRecoveryKey_statusMsg" class="unlock-message"></div>
         </div>
 
-        <!-- Private Vault Creation Section -->
+        <!-- Private Vault Creation card -->
         <div id="vaultCreatePrivate_mainSection" style="display: none;">
             <div class="input-group">
                 <label>Password</label>
@@ -313,6 +343,7 @@
             <div id="vaultCreatePrivate_statusMsg" class="unlock-message"></div>
         </div>
 
+        <!-- User administration card -->
         <div id="vaultUsers_mainSection" class="inline-ui-view" style="display: none;">
             <div class="inline-view-header">
                 <h3 id="vaultUsers_title">Member Administration</h3>

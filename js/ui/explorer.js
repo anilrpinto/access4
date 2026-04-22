@@ -1,6 +1,6 @@
 import { C, G, SV, AT, CR, log, trace, debug, info, warn, error} from '@/shared/exports.js';
 import { vaultUI, vaultNavBarUI, vaultMenuBar, vaultMenu } from '@/ui/loader.js';
-import { hideFilterUI } from '@/ui/search.js';
+import { hideFilterUI, sortVaultData } from '@/ui/search-and-sort.js';
 import { showOverlayConfirmUI, showOverlayAlertUI } from '@/ui/modal.js';
 import { showSilentToast } from '@/ui/uihelper.js';
 import { toggleVaultMode, resetToRoot, navigateToPath, handlePrivateVaultGenesis, handlePrivateVaultUnlock, showStatusMessage } from '@/ui/vault.js';
@@ -22,71 +22,13 @@ export async function loadExplorer(vaultContext, onShowCb) {
     window.ScreenManager.switchView(screenKey);
 }
 
-export function renderBreadcrumbs() {
-    const breadcrumbs = vaultNavBarUI.breadcrumbs;
-    if (!breadcrumbs) return;
-
-    breadcrumbs.innerHTML = "";
-
-    const { atRoot, path, isPrivateMode } = _vaultCtx();
-
-    // Determine if the user is currently looking at the root of the active vault
-    const isCurrentlyAtRoot = atRoot();
-
-    path.forEach((id, index) => {
-        const isRootNode = (id === 'root');
-        const isLast = index === path.length - 1;
-        const label = _getNameFromId(id, index);
-
-        const span = document.createElement('span');
-
-        // We make the root node ALWAYS look like a link if we are at root
-        // so the user knows they can click it to switch vaults.
-        const canSwitch = isRootNode && isCurrentlyAtRoot;
-        span.className = (isLast && !canSwitch) ? 'breadcrumb-item active' : 'breadcrumb-item link';
-        span.innerText = label;
-
-        span.onclick = async () => {
-            if (isRootNode) {
-                if (isCurrentlyAtRoot) {
-                    // --- VAULT SWITCHER ---
-                    // Triggered by clicking the icon (🏠/🛡️) while already at the top level.
-                    log("explorer.breadcrumb", "Root-to-Root click: Toggling Vaults");
-                    if (isPrivateMode) {
-                        toggleVaultMode('shared');
-                    } else {
-                        await _doPrivateVaultClick();
-                    }
-                } else {
-                    // --- RESET TO ROOT ---
-                    // Triggered by clicking the icon while deep in a group or item.
-                    log("explorer.breadcrumb", "Resetting to current vault root");
-                    resetToRoot();
-                }
-            } else if (!isLast) {
-                // --- STANDARD BACKWARD NAVIGATION ---
-                // Navigating to a specific Group in the path.
-                navigateToPath(index + 1);
-            }
-        };
-
-        breadcrumbs.appendChild(span);
-        if (!isLast) {
-            const sep = document.createElement('span');
-            sep.className = 'sep';
-            sep.innerText = ' › ';
-            breadcrumbs.appendChild(sep);
-        }
-    });
-}
-
 export async function renderVaultExplorer() {
     log("explorer.renderVaultExplorer", "called");
 
     // 1. Wipe transient keys/envelope before any rendering starts
     SV.flushCachedTransients();
 
-    renderBreadcrumbs();
+    _renderBreadcrumbs();
 
     const { activeData, depth, groupId, itemId } = _vaultCtx();
 
@@ -212,8 +154,8 @@ async function _doAddClick() {
 
     if (depth < 3) {
         showAddNewUI(depth, path[depth-1], activeData, {
-            onAdd: (name) => {
-                if (depth === 1) _executeAddGroup(name);
+            onAdd: (name, archived) => {
+                if (depth === 1) _executeAddGroup(name, archived);
                 else if (depth === 2) _executeAddItem(name);
             },
             onCancel: () => {
@@ -231,8 +173,9 @@ async function _doRenameClick() {
     if (depth < 2) return;
 
     showRenameUI(depth, activeData, path, {
-        onRename: (newName) => {
-            _executeRename(newName);
+        onRename: (newName, archived) => {
+            if (depth === 2) _executeRenameGroup(newName, archived);
+            else if (depth === 3) _executeRenameItem(newName);
         },
         onCancel: () => {
             refresh();
@@ -304,12 +247,12 @@ async function _doPrivateVaultClick() {
     }
 }
 
-function _executeAddGroup(name) {
-    log("explorer._executeAddGroup", "called - name:", name);
+function _executeAddGroup(name, archived) {
+    log("explorer._executeAddGroup", `called - name:${name} archived: ${archived}`);
 
     const { activeData, path, refresh } = _vaultCtx();
     const newId = 'g-' + CR.generateUUID();
-    const newGroup = { id: newId, name: name, items: [] };
+    const newGroup = { id: newId, name: name, archived: archived, items: [] };
 
     activeData.groups.push(newGroup);
 
@@ -334,22 +277,31 @@ function _executeAddItem(name) {
     refresh();
 }
 
-function _executeRename(newName) {
-    log("explorer._executeRename", "called - newName:", newName);
+function _executeRenameGroup(newName, archived) {
+    log("explorer._executeRenameGroup", `called - newName:${newName} archived:${archived}`);
 
-    const { activeData, depth, groupId, itemId, refresh } = _vaultCtx();
+    const { activeData, groupId, refresh } = _vaultCtx();
 
-    if (depth === 2) {
-        const group = activeData.groups.find(g => g.id === groupId);
-        if (group) group.name = newName;
-    } else if (depth === 3) {
-        const group = activeData.groups.find(g => g.id === groupId);
-        const item = group?.items.find(i => i.id === itemId);
-        if (item) {
-            item.label = newName;
-            item.modified = new Date().toISOString();
-        }
-    }
+    const group = activeData.groups.find(g => g.id === groupId);
+    if (group) {
+        group.name = newName;
+        group.archived = archived;
+    } else warn("explorer._executeRenameGroup", "no group to rename, skipping");
+
+    refresh();
+}
+
+function _executeRenameItem(newName) {
+    log("explorer._executeRenameItem", `called - newName:${newName}`);
+
+    const { activeData, groupId, itemId, refresh } = _vaultCtx();
+
+    const group = activeData.groups.find(g => g.id === groupId);
+    const item = group?.items.find(i => i.id === itemId);
+    if (item) {
+        item.label = newName;
+        item.modified = new Date().toISOString();
+    } else warn("explorer._executeRenameItem", "no item to rename, skipping");
 
     refresh();
 }
@@ -391,9 +343,13 @@ function _executeDeletion() {
  */
 function _getNameFromId(id, index) {
 
-    const { groupId, activeData, isPrivateMode } = _vaultCtx();
+    const { groupId, activeData, isPrivateMode, isArchiveModeActive } = _vaultCtx();
 
-    if (id === 'root') return isPrivateMode ? "🛡️" : "🏠";
+    if (id === 'root') {
+        // Archive mode takes visual precedence for the root icon
+        if (isArchiveModeActive) return "📦";
+        return isPrivateMode ? "🛡️" : "🏠";
+    }
 
     if (index === 1) { // It's a Group ID
         const group = activeData.groups.find(g => g.id === id);
@@ -407,10 +363,83 @@ function _getNameFromId(id, index) {
     return id;
 }
 
+function _renderBreadcrumbs() {
+    const breadcrumbs = vaultNavBarUI.breadcrumbs;
+    if (!breadcrumbs) return;
+
+    breadcrumbs.innerHTML = "";
+
+    const { atRoot, path, isPrivateMode, isArchiveModeActive } = _vaultCtx();
+
+    // Determine if the user is currently looking at the root of the active vault
+    const isCurrentlyAtRoot = atRoot();
+
+    path.forEach((id, index) => {
+        const isRootNode = (id === 'root');
+        const isLast = index === path.length - 1;
+        const label = _getNameFromId(id, index);
+
+        const span = document.createElement('span');
+
+        // We make the root node ALWAYS look like a link if we are at root
+        // so the user knows they can click it to switch vaults.
+        const canSwitch = isRootNode && isCurrentlyAtRoot;
+
+        let classList = ['breadcrumb-item'];
+        classList.push((isLast && !canSwitch) ? 'active' : 'link');
+
+        // Add a specific hook for Archive styling if active
+        if (isRootNode && isArchiveModeActive) classList.push('archive-root');
+
+        span.className = classList.join(' ');
+        span.innerText = label;
+
+        span.onclick = async () => {
+            if (isRootNode) {
+                if (isCurrentlyAtRoot) {
+                    // --- CONTEXT SWITCHER ---
+                    // Triggered by clicking the icon while already at the top level.
+                    if (isArchiveModeActive) {
+                        // 1. If in Archive, clicking 📦 exits back to the Active Vault
+                        log("explorer.breadcrumb", "Exiting Archive Mode");
+                        toggleVaultMode(isPrivateMode ? 'private' : 'shared');
+                    } else {
+                        // 2. Otherwise, standard toggle between Shared (🏠) and Private (🛡️)
+                        log("explorer.breadcrumb", "Toggling Shared/Private Vaults");
+                        if (isPrivateMode) {
+                            toggleVaultMode('shared');
+                        } else {
+                            await _doPrivateVaultClick();
+                        }
+                    }
+
+                } else {
+                    // --- RESET TO ROOT ---
+                    // Triggered by clicking the icon while deep in a group or item.
+                    log("explorer.breadcrumb", "Resetting to current vault root");
+                    resetToRoot();
+                }
+            } else if (!isLast) {
+                // --- STANDARD BACKWARD NAVIGATION ---
+                // Navigating to a specific Group in the path.
+                navigateToPath(index + 1);
+            }
+        };
+
+        breadcrumbs.appendChild(span);
+        if (!isLast) {
+            const sep = document.createElement('span');
+            sep.className = 'sep';
+            sep.innerText = ' › ';
+            breadcrumbs.appendChild(sep);
+        }
+    });
+}
+
 function _renderGroupList(container) {
     log("explorer._renderGroupList", "called");
 
-    const { activeData, currentFilterMap, currentSearchQuery, vaultClipboard } = _vaultCtx();
+    const { activeData, currentFilterMap, currentSearchQuery, vaultClipboard, isArchiveModeActive } = _vaultCtx();
 
     container.innerHTML = ""; // Clear existing
 
@@ -419,7 +448,12 @@ function _renderGroupList(container) {
         return;
     }
 
-    activeData.groups.forEach(group => {
+    const sortedGroups = sortVaultData(activeData.groups, 'group');
+    sortedGroups.forEach(group => {
+
+        // --- ARCHIVE LOGIC: Filter by mode ---
+        const isGroupArchived = !!group.archived;
+        if (isArchiveModeActive !== isGroupArchived) return;
 
         // FILTER CHECK: Skip if not visible in search
         if (currentFilterMap && !currentFilterMap.visible.has(group.id)) {
@@ -460,6 +494,10 @@ function _renderGroupList(container) {
         let classList = ['list-row'];
         if (isGroupSelected) classList.push(vaultClipboard.mode === 'cut' ? 'to-be-moved' : 'selected');
         if (hasSelectedItems) classList.push('source-group-active'); // Children are moving
+
+        // --- ARCHIVE LOGIC: Ghostly styling for items in Archive view ---
+        if (isArchiveModeActive) classList.push('archive-mode-item');
+
         if (currentFilterMap?.highlighted.has(group.id)) classList.push('search-highlight');
 
         const div = document.createElement('div');
@@ -497,9 +535,12 @@ function _renderGroupList(container) {
         container.appendChild(div);
     });
 
-    // THE EMPTY CHECK: If the loop finished but added nothing
-    if (container.children.length === 0 && currentFilterMap) {
-        container.innerHTML = `<div class="empty-state">No data matching "${currentSearchQuery}".</div>`;
+    // Handle empty state for the specific mode
+    if (container.children.length === 0) {
+        const msg = currentSearchQuery
+            ? `No data matching "${currentSearchQuery}" in ${isArchiveModeActive ? 'archive' : 'vault'}.`
+            : `No ${isArchiveModeActive ? 'archived' : 'active'} groups.`;
+        container.innerHTML = `<div class="empty-state">${msg}</div>`;
     }
 }
 
@@ -525,7 +566,7 @@ function _toggleGroupSelection(id, element) {
 
 function _renderItemList(container, groupId) {
     log("explorer._renderItemList", "called");
-    const { activeData, isSelectionMode, currentFilterMap, vaultClipboard } = _vaultCtx();
+    const { activeData, isSelectionMode, currentFilterMap, vaultClipboard, isArchiveModeActive } = _vaultCtx();
 
     container.innerHTML = "";
 
@@ -538,7 +579,8 @@ function _renderItemList(container, groupId) {
         return;
     }
 
-    group.items.forEach(item => {
+    const sortedItems = sortVaultData(group.items, 'item');
+    sortedItems.forEach(item => {
 
         // FILTER CHECK: Skip if item is hidden by filter
         if (currentFilterMap && !currentFilterMap.visible.has(item.id)) {
@@ -570,7 +612,12 @@ function _renderItemList(container, groupId) {
         // 💡 HIGHLIGHT CHECK: Is this item title a match?
         const isMatch = currentFilterMap?.highlighted.has(item.id);
 
-        div.className = `list-row ${isSelected ? 'to-be-moved' : ''} ${isMatch ? 'search-highlight' : ''}`;
+        let classList = ['list-row'];
+        if (isSelected) classList.push(vaultClipboard.mode === 'cut' ? 'to-be-moved' : 'selected');
+        if (isMatch) classList.push('search-highlight');
+        if (isArchiveModeActive) classList.push('archive-mode-item'); // Ghostly styling
+
+        div.className = classList.join(' ');
 
         // 💡 THE TOGGLE LOGIC:
         // If we have a match, show the badge. If not, show the standard arrow.
@@ -650,9 +697,9 @@ function _renderItemDetails(container, groupId, itemId) {
     const metaBar = document.createElement('div');
     metaBar.className = 'item-meta-bar';
     const dateOpts = { dateStyle: 'short', timeStyle: 'short' };
-    const createdStr = new Date(item.created).toLocaleString(undefined, dateOpts);
-    const modifiedStr = new Date(item.modified).toLocaleString(undefined, dateOpts);
-    const isModified = item.created !== item.modified;
+    const createdStr = item.created ? new Date(item.created).toLocaleString(undefined, dateOpts) : "";
+    const modifiedStr = item.modified ? new Date(item.modified).toLocaleString(undefined, dateOpts) : "";
+    const isModified = item.created !== "" && item.created !== item.modified;
     metaBar.innerHTML = `
         <span class="meta-left">${createdStr}</span>
         ${isModified ? `<span class="meta-right">${modifiedStr}</span>` : ''}
@@ -668,22 +715,27 @@ function _renderItemDetails(container, groupId, itemId) {
         const fieldBox = document.createElement('div');
         fieldBox.className = `field-box ${isEditable ? 'editable' : ''}`;
 
+        // Add the expand icon ONLY if it's a note
+        const expandBtnHtml = (field.type === 'note') ?
+            `<button class="icon-btn expand-note-btn" data-index="${index}" title="Expand Note">⛶</button>` : '';
+
         let html = `
             <div class="field-header">
                 <input type="text" class="label-input ${isMatch ? 'search-label-hit' : ''}"
                    data-index="${index}" value="${field.key}" ${readonlyAttr} placeholder="Label">
                 <div class="field-actions">
+                    ${expandBtnHtml}
                     ${isEditable ?
-            `<button class="icon-btn delete-field-btn" data-index="${index}">🗑️</button>` :
-            `<button class="icon-btn copy-btn" data-val="${field.val}">📋</button>`
-        }
+                        `<button class="icon-btn delete-field-btn" data-index="${index}">🗑️</button>` :
+                        `<button class="icon-btn copy-btn" data-val="${field.val}">📋</button>`
+                    }
                 </div>
             </div>`;
 
         if (field.type === 'secure') {
             html += `<div class="input-wrap"><input type="${showSecure ? 'text' : 'password'}" class="field-input" data-index="${index}" value="${field.val}" ${readonlyAttr} spellcheck="false"></div>`;
         } else if (field.type === 'note') {
-            html += `<textarea class="field-input" data-index="${index}" ${readonlyAttr} rows="4">${field.val}</textarea>`;
+            html += `<textarea class="field-input note-field" data-index="${index}" ${readonlyAttr} rows="4">${field.val}</textarea>`;
         } else {
             html += `<div class="input-wrap"><input type="text" class="field-input" data-index="${index}" value="${field.val}" ${readonlyAttr}></div>`;
         }
@@ -726,7 +778,7 @@ function _renderItemDetails(container, groupId, itemId) {
         item.attachments.forEach((file, index) => {
             const sizeKB = Math.round(file.meta.size / 1024);
 
-            // 💡 HIGHLIGHT LOGIC: Construct the ID used in search.js
+            // 💡 HIGHLIGHT LOGIC: Construct the ID used in search-and-sort.js
             const attachmentMatchID = `${item.id}-attachment-${file.val}`;
             const isMatch = currentFilterMap?.highlighted.has(attachmentMatchID);
 
@@ -753,6 +805,44 @@ function _renderItemDetails(container, groupId, itemId) {
 
     container.appendChild(detailEl);
     _attachDetailListeners(container, item); // Pass item to handle file actions
+}
+
+function _expandNote(index, itemObject, isEditable) {
+    const field = itemObject.fields[index];
+    const overlay = document.createElement('div');
+    overlay.className = 'full-screen-note-overlay';
+
+    const readonlyAttr = isEditable ? "" : "readonly";
+
+    overlay.innerHTML = `
+        <div class="note-overlay-header">
+            <span>${isEditable ? 'Edit ' : ''}${field.key}</span>
+            <button class="close-x-btn">✕</button>
+        </div>
+        <textarea class="note-overlay-content" ${readonlyAttr}>${field.val}</textarea>
+    `;
+
+    document.body.appendChild(overlay);
+
+    const textarea = overlay.querySelector('.note-overlay-content');
+    const closeBtn = overlay.querySelector('.close-x-btn');
+
+    textarea.focus();
+
+    const closeAndSync = () => {
+        if (isEditable) {
+            field.val = textarea.value;
+            itemObject.modified = new Date().toISOString();
+            const { refresh } = _vaultCtx();
+            refresh();
+        }
+        overlay.remove();
+    };
+
+    closeBtn.onclick = closeAndSync;
+
+    // Optional: Close on Escape key
+    overlay.onkeydown = (e) => { if(e.key === 'Escape') closeAndSync(); };
 }
 
 async function _handleDownloadAttachment(attachment) {
@@ -953,7 +1043,7 @@ function _attachDetailListeners(container) {
     const item = getCurrentItem();
     if (!item) return;
 
-    const { toggleShowSecure, refresh } = _vaultCtx();
+    const { toggleShowSecure, isEditable, refresh } = _vaultCtx();
 
     // 1. Toggle Password Visibility
     // Redraws the UI to switch between dots (••••) and plain text
@@ -968,6 +1058,13 @@ function _attachDetailListeners(container) {
             const original = btn.innerText;
             btn.innerText = "✅";
             setTimeout(() => btn.innerText = original, 1500);
+        };
+    });
+
+    container.querySelectorAll('.expand-note-btn').forEach(btn => {
+        btn.onclick = () => {
+            const index = btn.dataset.index;
+            _expandNote(index, item, isEditable);
         };
     });
 

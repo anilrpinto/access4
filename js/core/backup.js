@@ -403,7 +403,7 @@ async function _generateRecoveryHTML(json, password) {
                 msg.innerText = "Success! Data unlocked below.";
                 msg.style.color = "green";
             } catch (e) {
-                console.error(e);
+                error(e);
                 msg.innerText = "Error: Decryption failed. Incorrect password?";
                 msg.style.color = "red";
                 btn.disabled = false;

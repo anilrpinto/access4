@@ -173,6 +173,9 @@ export function showAuthMessage(msg, type = "error") {
 function _init() {
     log("loginUI._init", "called");
 
+    document.documentElement.classList.remove('vault-active');
+    document.body.classList.remove('vault-active');
+
     //swapVisibility(rootUI.vaultView, rootUI.loginView);
 
     rootUI.loginView.setVisible(true).setFlex();

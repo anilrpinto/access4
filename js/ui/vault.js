@@ -7,7 +7,7 @@ import { swapVisibility, showSilentToast } from '@/ui/uihelper.js';
 import { rootUI, vaultUI, vaultNavBarUI, vaultRawDataUI, copyLogsToClipboard, vaultMenuBar, vaultMenu } from '@/ui/loader.js';
 import { showConfirmUI } from '@/ui/confirm.js';
 import { showOverlayConfirmUI, showOverlayAlertUI, showOverlayPasswordUI, showOverlayChoiceUI } from '@/ui/modal.js';
-import { generateFilterMap  } from '@/ui/search.js';
+import { generateFilterMap  } from '@/ui/search-and-sort.js';
 import { lockPrivateVault, isPrivateVaultUnlocked, savePrivateVaultData } from "@/ui/private-vault.js";
 import { loadExplorer, renderVaultExplorer } from '@/ui/explorer.js';
 
@@ -16,6 +16,7 @@ let _vaultData = null;
 let _privateVaultData = null;         // The decrypted JSON
 let _originalPrivateVaultData = null; // For discarding changes
 let _isPrivateMode = false;           // UI Toggle state
+let _isArchiveModeActive = false;
 let _currentFilterMap = null;
 let _searchDebounceTimer = null;
 let _currentSearchQuery = null;
@@ -41,6 +42,7 @@ export async function loadVault(pwd, data, options) {
 
     // ✅ 1. WIPE THE SESSION STATE
     window.ScreenManager.reset();
+    _doSecure();
 
     _init();
 
@@ -63,6 +65,7 @@ export async function loadVault(pwd, data, options) {
         isEditable: _sessionState.isEditable,
         showSecure: _sessionState.showSecure,
         isPrivateMode: _isPrivateMode,
+        isArchiveModeActive: _isArchiveModeActive,
         currentFilterMap: _currentFilterMap,
         currentSearchQuery: _currentSearchQuery,
         vaultClipboard: _vaultClipboard,
@@ -131,15 +134,26 @@ export async function loadVault(pwd, data, options) {
 export async function toggleVaultMode(mode) {
     log("vaultUI.toggleVaultMode", `Switching to: ${mode}`);
 
-    _isPrivateMode = (mode === 'private');
+    // 1. Update the Internal State
+    if (mode === 'archive') {
+        _isArchiveModeActive = true;
+        // Note: We keep _isPrivateMode as-is so we know WHICH vault's archive we are in.
+    } else {
+        _isArchiveModeActive = false;
+        _isPrivateMode = (mode === 'private');
+    }
 
-    // 1. Reset navigation to the root of the selected vault
+    // 2. Reset navigation to the root of the selected mode/vault
     _sessionState.path = ['root'];
 
-    // 2. Update UI Branding (Visual cues are vital for security)
-    if (_isPrivateMode) {
+    // 3. Update UI Branding
+    if (_isArchiveModeActive) {
+        vaultUI.title.setText("📦 Archive");
+        vaultUI.title.style.color = "#9b59b6"; // Distinct Archive Purple
+        showSilentToast("Switched to Archive View", false);
+    } else if (_isPrivateMode) {
         vaultUI.title.setText("🛡️ Private Vault");
-        vaultUI.title.style.color = "#FFD700"; // Gold/Security Yellow
+        vaultUI.title.style.color = "#FFD700"; // Gold
         showSilentToast("Switched to Private Mode", false);
     } else {
         vaultUI.title.setText("Vault");
@@ -236,7 +250,7 @@ export function refreshMoveMenu() {
         vaultMenu.selectMenu.setText("\u2800\u2800 Cancel " + (isCutting ? "Move" : "Selection"));
         vaultMenu.selectMenu.classList.add('active-mode-text');
     } else {
-        vaultMenu.selectMenu.setText("\u2800\u2800 Select Multiple");
+        vaultMenu.selectMenu.setText("✅ Select");
         vaultMenu.selectMenu.classList.remove('active-mode-text');
     }
 }
@@ -275,16 +289,19 @@ export function refreshVault(readOnly = false) {
 /**
  * Triggered by the Input Event on the search bar
  */
-export function handleSearchInput(query) {
+export function handleSearchInput(query, forceActive = false) {
     _currentSearchQuery = query;
     clearTimeout(_searchDebounceTimer);
 
     _searchDebounceTimer = setTimeout(() => {
-        // 💡 CRITICAL: If query is empty, reset to null
-        if (!query || query.trim() === "") {
+        const q = (query || "").trim();
+
+        // 💡 UPDATED: We only reset to null if the box is empty AND
+        // we aren't being told an advanced filter is active.
+        if (!q && !forceActive) {
             _currentFilterMap = null;
         } else {
-            _currentFilterMap = generateFilterMap(getActiveVaultData(), query);
+            _currentFilterMap = generateFilterMap(getActiveVaultData(), q);
         }
 
         // FORCE HOME: Reset the navigation path to the root
@@ -408,6 +425,9 @@ async function _init() {
 
     swapVisibility(rootUI.loginView, vaultUI.mainSection);
 
+    document.documentElement.classList.add('vault-active');
+    document.body.classList.add('vault-active');
+
     vaultMenu.menuBtn.onClick((e) => {
         // 1. Prevent the 'window' or 'body' from seeing this click
         e.stopPropagation();
@@ -424,6 +444,7 @@ async function _init() {
 
     vaultMenu.saveMenu.onClick(_doSaveClick);
 
+    vaultMenu.archivedMenu.onClick(_doShowArchivedClick);
     vaultMenu.rawDataMenu.onClick(_doShowRawDataClick);
     vaultMenu.discardChangesMenu.onClick(_doDiscardChangesClick);
 
@@ -558,6 +579,15 @@ async function _doShowRawDataClick() {
     } catch (err) {
         error("vaultUI._doShowRawDataClick", "Failed to load raw data viewer module:", err);
         showSilentToast("Error loading component", true);
+    }
+}
+
+async function _doShowArchivedClick() {
+    log("vaultUI._doShowArchivedClick", "called");
+    if (_isArchiveModeActive) {
+        toggleVaultMode(isPrivateMode ? 'private' : 'shared');
+    } else {
+        toggleVaultMode('archive');
     }
 }
 

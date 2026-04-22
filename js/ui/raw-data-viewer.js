@@ -36,6 +36,9 @@ export function refreshRawDataTree(data, masked) {
 async function _load(data, masked, onClose) {
     log("rawDataViewer._load", "Loading raw vault data");
 
+    vaultRawDataUI.toggleViewBtn.setText(_isTreeView ? '📄' : '🌳');
+
+    vaultRawDataUI.mainSection.setFlex();
     vaultRawDataUI.closeBtn.onClick((e) => _doCloseViewerClick(data, onClose));
     vaultRawDataUI.toggleViewBtn.onClick((e) => _doToggleViewerClick());
 
@@ -51,7 +54,8 @@ async function _load(data, masked, onClose) {
     }
 
     vaultRawDataUI.textContent.setText(U.format(data));
-    vaultRawDataUI.toggleViewBtn.setText(_isTreeView ? 'Text View' : 'Tree View');
+
+    //vaultRawDataUI.toggleViewBtn.setText(_isTreeView ? 'Text View' : 'Tree View');
 }
 
 async function _unload() {
@@ -79,10 +83,10 @@ function _doToggleViewerClick() {
 
     if (_isTreeView) {
         swapVisibility(vaultRawDataUI.textContent, vaultRawDataUI.treeContent);
-        vaultRawDataUI.toggleViewBtn.setText('Text View');
+        //vaultRawDataUI.toggleViewBtn.setText('Text View');
     } else {
         swapVisibility(vaultRawDataUI.treeContent, vaultRawDataUI.textContent);
-        vaultRawDataUI.toggleViewBtn.setText('Tree View');
+        //vaultRawDataUI.toggleViewBtn.setText('Tree View');
     }
 }
 
