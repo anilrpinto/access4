@@ -1,4 +1,4 @@
-import { C, G, ID, log, trace, debug, info, warn, error } from '@/shared/exports.js';
+import { C, G, CR, LS, log, trace, debug, info, warn, error } from '@/shared/exports.js';
 
 export async function isBiometricRegistered() {
     log("BM.isBiometricRegistered", "called");
@@ -11,13 +11,13 @@ export async function enrollBiometric(password) {
 
     if (!window.PublicKeyCredential) return;
 
-    // 1️⃣ Create WebAuthn credential
+    // Create WebAuthn credential
     const cred = await navigator.credentials.create({
         publicKey: {
-            challenge: crypto.getRandomValues(new Uint8Array(32)),
+            challenge: CR.randomBytes(32),
             rp: { name: "Access4", id: window.location.hostname },
             user: {
-                id: crypto.getRandomValues(new Uint8Array(16)),
+                id: CR.randomBytes(16),
                 name: G.userEmail,
                 displayName: G.userEmail
             },
@@ -27,35 +27,19 @@ export async function enrollBiometric(password) {
         }
     });
 
-    const credentialId = btoa(String.fromCharCode(...new Uint8Array(cred.rawId)));
+    const credentialId = CR.bufToB64(cred.rawId);
 
-    // 2️⃣ Generate PWK (non-extractable)
-    const pwk = await crypto.subtle.generateKey(
-        { name: "AES-GCM", length: 256 },
-        false,
-        ["encrypt", "decrypt"]
-    );
+    // Generate PWK (non-extractable)
+    const pwk = await CR.generateAESKey(false);
 
-    // 3️⃣ Encrypt password using PWK
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    const encodedPwd = new TextEncoder().encode(password);
+    // Encrypt password using PWK
+    const encResult = await CR.encrypt(password, pwk);
 
-    const cipher = await crypto.subtle.encrypt(
-        { name: "AES-GCM", iv },
-        pwk,
-        encodedPwd
-    );
+    // Store biometric record in IndexedDB
+    await _saveBiometricRecord({ credentialId, wrappedPassword: encResult.data, iv: encResult.iv, created: Date.now() });
 
-    // 4️⃣ Store biometric record in IndexedDB
-    await _saveBiometricRecord({
-        credentialId,
-        wrappedPassword: btoa(String.fromCharCode(...new Uint8Array(cipher))),
-        iv: btoa(String.fromCharCode(...iv)),
-        created: Date.now()
-    });
-
-    // 5️⃣ Store PWK in IndexedDB
-    await _storePWK(_bioScopeKey("pwk"), pwk);
+    // Store PWK in IndexedDB
+    await _storePWK(pwk);
     log("BM.enrollBiometric", "Biometric shortcut securely enrolled");
 }
 
@@ -77,35 +61,29 @@ export async function attemptBiometricUnlock(callback) {
 
     try {
         log("BM.attemptBiometricUnlock", "Triggering biometric prompt...");
-        // 1️⃣ Trigger biometric assertion
+        // Trigger biometric assertion
         await navigator.credentials.get({
             publicKey: {
-                challenge: crypto.getRandomValues(new Uint8Array(32)),
+                challenge: CR.randomBytes(32),
                 allowCredentials: [{
                     type: "public-key",
-                    id: Uint8Array.from(atob(credentialId), c => c.charCodeAt(0))
+                    id: CR.b64ToBuf(credentialId)
                 }],
                 userVerification: "required"
             }
         });
 
-        // 2️⃣ Load PWK from IndexedDB
+        // Load PWK from IndexedDB
         const pwk = await _loadPWK(_bioScopeKey("pwk"));
         if (!pwk) throw new Error("PWK not found");
 
-        // 3️⃣ Decrypt password
-        const decrypted = await crypto.subtle.decrypt(
-            { name: "AES-GCM", iv: Uint8Array.from(atob(iv), c => c.charCodeAt(0)) },
-            pwk,
-            Uint8Array.from(atob(wrappedPassword), c => c.charCodeAt(0))
-        );
-
-        const password = new TextDecoder().decode(decrypted);
+        // Decrypt password
+        const decryptedBuffer = await CR.decrypt({ iv: iv, data: wrappedPassword }, pwk);
+        const password = CR.decodeBuf(decryptedBuffer);
 
         log("BM.attemptBiometricUnlock", "Password decrypted via biometric, proceeding with implicit unlock");
 
-        if (callback)
-        await callback(password);
+        if (callback) await callback(password);
 
     } catch (err) {
         warn("BM.attemptBiometricUnlock", "Biometric unlock failed:", err.message);
@@ -113,7 +91,7 @@ export async function attemptBiometricUnlock(callback) {
 }
 
 export async function debugBiometricDB() {
-    trace("BM.debugBiometricDB", "----- BIOMETRIC DB DEBUG -----");
+    log("BM.debugBiometricDB", "----- BIOMETRIC DB DEBUG -----");
 
     // 1️⃣ Check if database exists
     const dbList = await indexedDB.databases?.();
@@ -185,7 +163,7 @@ export async function clearBiometricIndexedDB() {
 /** INTERNAL FUNCTIONS **/
 
 function _bioScopeKey(type) {
-    return `${G.userEmail}::${ID.getDeviceId()}::${type}::bio`;
+    return `${LS.getKeyPrefix()}bio::${type}`;
 }
 
 async function _openDB({ write = false } = {}) {
@@ -231,28 +209,22 @@ async function _openDB({ write = false } = {}) {
     });
 }
 
-async function _storePWK(keyId, cryptoKey) {
-    log("BM._storePWK", "called");
-
-    const db = await _openDB({ write: true });
-
-    return new Promise((resolve, reject) => {
-        const tx = db.transaction(C.BIO_STORE, "readwrite");
-        tx.objectStore(C.BIO_STORE).put(cryptoKey, keyId);
-
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
-    });
+async function _storePWK(cryptoKey) {
+    return _saveData(cryptoKey, _bioScopeKey("pwk"));
 }
 
 async function _saveBiometricRecord(record) {
-    log("BM._saveBiometricRecord", "called");
+    return _saveData(record, _bioScopeKey("record"));
+}
+
+async function _saveData(data, key) {
+    log("BM._saveData", `called with key "${key}"`);
 
     const db = await _openDB({ write: true });
 
     return new Promise((resolve, reject) => {
         const tx = db.transaction(C.BIO_STORE, "readwrite");
-        tx.objectStore(C.BIO_STORE).put(record, _bioScopeKey("record"));
+        tx.objectStore(C.BIO_STORE).put(data, key);
 
         tx.oncomplete = () => resolve();
         tx.onerror = () => reject(tx.error);

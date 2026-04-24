@@ -47,7 +47,7 @@ export async function unwrapPointer(pointerBlob, password, emailHash) {
         const decryptedBuf = await CR.decrypt({ iv, data }, pointerKey);
 
         // 4. Parse back to JSON
-        const jsonString = new TextDecoder().decode(decryptedBuf);
+        const jsonString = CR.decodeBuf(decryptedBuf);
         return JSON.parse(jsonString);
     } catch (err) {
         // Error logging is handled inside your CR module,
@@ -113,7 +113,7 @@ export async function promptPrivateVaultPassword(pointer, emailHash, onSuccess =
         const decryptedRaw = await CR.decrypt(encryptedContent, _privateKey);
 
         if (onSuccess)
-            onSuccess(pwd, JSON.parse(new TextDecoder().decode(decryptedRaw)));
+            onSuccess(pwd, JSON.parse(CR.decodeBuf(decryptedRaw)));
 
     } catch (err) {
         _privateKey = null;

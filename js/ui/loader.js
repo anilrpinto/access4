@@ -1,6 +1,6 @@
 import { log, trace, debug, info, warn, error } from '@/shared/log.js';
 
-import { loadUI } from '@/ui/uihelper.js';
+import { loadUI, showSilentToast } from '@/ui/uihelper.js';
 
 export const rootUI = loadUI(['loginView', 'vaultView', 'restoreBackupView', 'log']);
 
@@ -44,13 +44,14 @@ export const advSearchUI = loadUI(['mainSection', 'close', 'scope', 'dynamicLabe
         'dateType', 'dateVal', 'dateUnit', 'logic', 'reset', 'run'], 'advSearch_', 'vaultBody');
 
 export async function copyLogsToClipboard() {
-    if (!logEl) return;
+    if (!rootUI.log) return;
 
     try {
-        await navigator.clipboard.writeText(logEl.innerText);
-        alert("Logs copied to clipboard");
+        await navigator.clipboard.writeText(rootUI.log.innerText);
+        showSilentToast("Logs copied to clipboard");
     } catch (err) {
         error("UI.copyLogsToClipboard", "Failed to copy logs:", err);
+        showSilentToast("Failed to copy logs to clipboard");
     }
 }
 

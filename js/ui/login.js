@@ -17,7 +17,8 @@ export async function loadLogin() {
     loginUI.recoverBtn.onClick(_doRecoverClick);
     loginUI.restoreBackupLnk.onClick(openRecoveryModal);
 
-    await BM.debugBiometricDB();
+    if (G.userEmail) await BM.debugBiometricDB();
+
     await _updateBiometricIndicator();
 }
 
@@ -220,7 +221,7 @@ function _setupTitleGesture() {
             }, 3000);
         }
 
-        if (tapCount >= 5) {
+        if (tapCount >= 3) {
             clearTimeout(tapTimer);
             tapCount = 0;
             tapTimer = null;
@@ -345,7 +346,7 @@ async function _unlockIdentityFlow(pwd) {
         id = await ID.loadIdentity();
 
         if (!id) {
-            error("loginUI._unlockIdentityFlow", "Faied to load existing identity - ", C.UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.message);
+            error("loginUI._unlockIdentityFlow", "Failed to load existing identity - ", C.UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.message);
             const e = new Error(C.UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.message);
             e.code = C.UNLOCK_ERROR_DEFS.SAFARI_RECOVERY.code;
             throw e;
@@ -394,7 +395,7 @@ async function _unlockIdentityFlow(pwd) {
                 await BM.enrollBiometric(pwd);
                 log("loginUI._unlockIdentityFlow", "Biometric enrollment successful");
             } catch (err) {
-                warn("loginUI._unlockIdentityFlow", "Biometric enrollment skipped or failed:", err);
+                warn("loginUI._unlockIdentityFlow", "Biometric enrollment skipped or failed:" + err);
             }
         } else {
             log("loginUI._unlockIdentityFlow", "Biometric already registered");

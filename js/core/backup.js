@@ -111,7 +111,7 @@ export async function restoreFromRawString(rawString, password) {
             data: parts[3]
         }, key);
 
-        return JSON.parse(new TextDecoder().decode(decryptedBuffer));
+        return JSON.parse(CR.decodeBuf(decryptedBuffer));
     } catch (e) {
         error("backup.restoreFromRawString", "Crypto operation failed", e);
         throw new Error("Decryption succeeded, but data is not valid JSON. The backup may be corrupted.");

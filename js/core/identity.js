@@ -73,7 +73,7 @@ export async function migrateIdentityWithVerifier(id, pwd) {
 export async function verifyPasswordVerifier(verifier, key) {
     log("ID.verifyPasswordVerifier", "called");
     const buf = await CR.decrypt(verifier, key);
-    const text = new TextDecoder().decode(buf);
+    const text = CR.decodeBuf(buf);
     if (text !== C.PASSWORD_VERIFIER_TEXT) {
         throw new Error("INVALID_PASSWORD");
     }

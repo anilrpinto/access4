@@ -6,6 +6,39 @@
     --bg-color: #f5f7fa;
     --text-main: #333333;
     --danger: #dc3545;
+
+    --color-bio-none: #fdfcfc;    /* Muted Slate */
+    --color-bio-armed: #3b82f6;   /* Energetic Blue */
+    --color-bio-glow: rgba(59, 130, 246, 0.5);
+    --transition-speed: 0.3s;
+}
+
+/* Base Title Style (assuming loginUI.title is a heading or div) */
+#login-title {
+    transition: color var(--transition-speed) ease,
+    text-shadow var(--transition-speed) ease;
+    cursor: default;
+    user-select: none;
+}
+
+/* State: Feature unavailable or intent is false */
+.bio-none {
+    color: var(--color-bio-none);
+    text-shadow: none;
+}
+
+/* State: Biometric Intent is TRUE (Ready for fingerprint/face) */
+.bio-armed {
+    color: var(--color-bio-armed) !important;
+    text-shadow: 0 0 8px var(--color-bio-glow);
+    animation: bio-pulse 2s infinite ease-in-out;
+}
+
+/* Subtle pulse animation to show it's "listening" for the unlock */
+@keyframes bio-pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.7; }
+    100% { opacity: 1; }
 }
 
 * {

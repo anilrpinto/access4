@@ -202,14 +202,23 @@ export async function importRSAPublicKeyFromB64(b64, usages=["wrapKey"]) {
 
 export async function generateCEK() {
     log("CR.generateCEK", "called");
+    return generateAESKey(true); // CEKs usually need to be wrapped/exported
+}
+
+/**
+ * Generic AES-GCM Key Generator
+ * @param {boolean} extractable - If false, the key cannot be exported from the browser
+ */
+export async function generateAESKey(extractable = true) {
+    log("CR.generateAESKey", `called (extractable: ${extractable})`);
 
     return crypto.subtle.generateKey(
         {
             name: CR_ALG.AES.GCM,
             length: 256
         },
-        true,
-        ["encrypt","decrypt"]
+        extractable,
+        ["encrypt", "decrypt"]
     );
 }
 
@@ -271,6 +280,10 @@ export function b64ToBuf(b64) {
     }
 
     return bytes;
+}
+
+export function decodeBuf(buf) {
+    return new TextDecoder().decode(buf);
 }
 
 /** INTERNAL FUNCTIONS **/

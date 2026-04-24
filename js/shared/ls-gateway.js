@@ -20,7 +20,8 @@ export const LS = {
                 localStorage.removeItem(key);
             }
         });
-    }
+    },
+    getKeyPrefix: () => _keyPrefix()
 };
 
 /** INTERNAL FUNCTIONS **/

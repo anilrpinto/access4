@@ -75,6 +75,8 @@ function _onLoad() {
     log("APP._onLoad", `called for [v${C.APP_VERSION}]`);
     loadLogin();
 
+    logEl.setVisible(G.settings.showLogs === true);
+
     logEl.onClick(_doCopyToClipboardClick);
 
     window.addEventListener('focus', () => {

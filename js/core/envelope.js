@@ -411,7 +411,7 @@ async function _openEnvelope(envelope) {
 
     const decrypted = await CR.decrypt(envelope.payload, cek);
 
-    return new TextDecoder().decode(decrypted);
+    return CR.decodeBuf(decrypted);
 }
 
 function _keyMatchesOrIsSuperseded(entryKeyId, localIdentity) {

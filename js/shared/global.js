@@ -44,6 +44,7 @@ const _G = {
         clearLocalStorageOnLoad: false,
         clearLastAutoBackupKey: false,
         ignore24hCheck: false,
+        showLogs: false,
         preAuthMembers: {
             "avitapinto@gmail.com": { role: "member", readonly: false, forcePasswordChange: false, allowAttachments: true },
             "allisonpintosd@gmail.com": { role: "member", readonly: true, allowAttachments: false },
