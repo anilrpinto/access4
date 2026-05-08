@@ -1,0 +1,19 @@
+/* State: Feature unavailable or intent is false */
+.bio-none {
+    color: var(--color-bio-none);
+    text-shadow: none;
+}
+
+/* State: Biometric Intent is TRUE (Ready for fingerprint/face) */
+.bio-armed {
+    color: var(--color-bio-armed) !important;
+    text-shadow: 0 0 8px var(--color-bio-glow);
+    animation: bio-pulse 2s infinite ease-in-out;
+}
+
+/* Subtle pulse animation to show it's "listening" for the unlock */
+@keyframes bio-pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.7; }
+    100% { opacity: 1; }
+}

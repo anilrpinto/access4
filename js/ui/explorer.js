@@ -892,7 +892,7 @@ async function _handleDeleteAttachment(item, index) {
             const { onAttachmentDelete, refresh } = _vaultCtx();
 
             // 1. Add the Drive File ID to our "Hit List"
-            if (attachment.val) onAttachmentDeletion(attachment.val);
+            if (attachment.val) onAttachmentDelete(attachment.val);
 
             // 2. Remove from the local vaultData array immediately
             item.attachments.splice(index, 1);
