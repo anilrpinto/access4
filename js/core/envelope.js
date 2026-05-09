@@ -464,7 +464,8 @@ function _createStarterVaultJson() {
                     }
                 ]
             }
-        ]
+        ],
+        "archived": []
     };
 }
 
