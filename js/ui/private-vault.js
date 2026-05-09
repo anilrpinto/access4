@@ -219,7 +219,8 @@ async function _setupPrivateVault(userEmail, privatePassword) {
     // 2. Create the Genesis Private JSON (Standard Vault Structure)
     const genesisData = {
         meta: { version: "1.0", lastModified: new Date().toISOString(), type: "private" },
-        groups: [{ id: "g-" + CR.generateUUID(), name: "Private Genesis", items: [] }]
+        groups: [{ id: "g-" + CR.generateUUID(), name: "Private Genesis", items: [] }],
+        archived: []
     };
 
     // 3. Encrypt the Private File using high iterations

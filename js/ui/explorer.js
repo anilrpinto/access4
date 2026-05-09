@@ -149,11 +149,11 @@ async function _doPasteClick() {
 }
 
 async function _doAddClick() {
-    const { activeData, depth, path, refresh } = _vaultCtx();
+    const { activeData, depth, path, refresh, isArchiveModeActive } = _vaultCtx();
     log("explorer._doAddClick", "called - depth:", depth);
 
     if (depth < 3) {
-        showAddNewUI(depth, path[depth-1], activeData, {
+        showAddNewUI(depth, path[depth-1], activeData, isArchiveModeActive, {
             onAdd: (name, archived) => {
                 if (depth === 1) _executeAddGroup(name, archived);
                 else if (depth === 2) _executeAddItem(name);
@@ -166,15 +166,15 @@ async function _doAddClick() {
 }
 
 async function _doRenameClick() {
-    const { activeData, depth, path, refresh } = _vaultCtx();
+    const { activeData, depth, path, refresh, isArchiveModeActive } = _vaultCtx();
     log("explorer._doRenameClick", "called - depth:", depth);
 
     // We only rename things we are currently "inside" or looking at
     if (depth < 2) return;
 
-    showRenameUI(depth, activeData, path, {
-        onRename: (newName, archived) => {
-            if (depth === 2) _executeRenameGroup(newName, archived);
+    showRenameUI(depth, path, activeData, isArchiveModeActive, {
+        onRename: (newName, prevArchived, newArchived) => {
+            if (depth === 2) _executeRenameGroup(newName, prevArchived, newArchived);
             else if (depth === 3) _executeRenameItem(newName);
         },
         onCancel: () => {
@@ -247,16 +247,25 @@ async function _doPrivateVaultClick() {
     }
 }
 
-function _executeAddGroup(name, archived) {
+function _executeAddGroup(name, archived = false) {
     log("explorer._executeAddGroup", `called - name:${name} archived: ${archived}`);
 
     const { activeData, path, refresh } = _vaultCtx();
     const newId = 'g-' + CR.generateUUID();
-    const newGroup = { id: newId, name: name, archived: archived, items: [] };
 
-    activeData.groups.push(newGroup);
+    const newGroup = { id: newId, name: name, items: [] };
 
-    // Auto-navigate into the new group
+    if (!activeData.archived) activeData.archived = [];
+
+    if (archived) {
+        activeData.archived.push(newGroup);
+        log("explorer._executeAddGroup", "Group moved to ARCHIVED array");
+    } else {
+        activeData.groups.push(newGroup);
+        log("explorer._executeAddGroup", "Group moved to ACTIVE groups array");
+    }
+
+    // 4. Auto-navigate into the new group
     path.push(newId);
     refresh();
 }
@@ -277,15 +286,27 @@ function _executeAddItem(name) {
     refresh();
 }
 
-function _executeRenameGroup(newName, archived) {
-    log("explorer._executeRenameGroup", `called - newName:${newName} archived:${archived}`);
+function _executeRenameGroup(newName, prevArchived = false, newArchived = false) {
+    log("explorer._executeRenameGroup", `called - newName:${newName} prevArchived:${prevArchived} newArchived:${newArchived}`);
 
-    const { activeData, groupId, refresh } = _vaultCtx();
+    const { activeData, groupId, navigateToRoot, refresh } = _vaultCtx();
 
-    const group = activeData.groups.find(g => g.id === groupId);
-    if (group) {
+    const currentBucket = prevArchived ? activeData.archived : activeData.groups;
+    const groupIdx = currentBucket?.findIndex(g => g.id === groupId);
+
+    if (groupIdx !== -1) {
+        const group = currentBucket[groupIdx];
         group.name = newName;
-        group.archived = archived;
+
+        // if switched buckets (active to archived or vice versa)
+        if (prevArchived !== newArchived) {
+            log("explorer._executeRenameGroup", "Transferring group between buckets");
+            // Remove from current and push to target
+            const [movedGroup] = currentBucket.splice(groupIdx, 1);
+            const targetBucket = newArchived ? activeData.archived : activeData.groups;
+            targetBucket.push(movedGroup);
+            navigateToRoot();
+        }
     } else warn("explorer._executeRenameGroup", "no group to rename, skipping");
 
     refresh();
@@ -351,12 +372,13 @@ function _getNameFromId(id, index) {
         return isPrivateMode ? "🛡️" : "🏠";
     }
 
+    const bucket = isArchiveModeActive ? activeData.archived : activeData.groups;
     if (index === 1) { // It's a Group ID
-        const group = activeData.groups.find(g => g.id === id);
+        const group = bucket?.find(g => g.id === id);
         return group ? group.name : "Unknown Group";
     }
     if (index === 2) { // It's an Item ID
-        const group = activeData.groups.find(g => g.id === groupId);
+        const group = bucket?.find(g => g.id === groupId);
         const item = group?.items.find(i => i.id === id);
         return item ? item.label : "Unknown Item";
     }
@@ -443,17 +465,19 @@ function _renderGroupList(container) {
 
     container.innerHTML = ""; // Clear existing
 
-    if (!activeData.groups || activeData.groups.length === 0) {
-        container.innerHTML = `<div class="empty-state">No groups found.</div>`;
+    // 1. SELECT THE SOURCE ARRAY
+    // This is the O(1) optimization: we pick the bucket based on the mode.
+    const bucket = isArchiveModeActive ? (activeData.archived || []) : (activeData.groups || []);
+
+    if (bucket.length === 0) {
+        const emptyMsg = isArchiveModeActive ? "No archived groups." : "No groups found.";
+        container.innerHTML = `<div class="empty-state">${emptyMsg}</div>`;
         return;
     }
 
-    const sortedGroups = sortVaultData(activeData.groups, 'group');
+    // 2. Sort the selected source
+    const sortedGroups = sortVaultData(bucket, 'group');
     sortedGroups.forEach(group => {
-
-        // --- ARCHIVE LOGIC: Filter by mode ---
-        const isGroupArchived = !!group.archived;
-        if (isArchiveModeActive !== isGroupArchived) return;
 
         // FILTER CHECK: Skip if not visible in search
         if (currentFilterMap && !currentFilterMap.visible.has(group.id)) {
@@ -570,8 +594,14 @@ function _renderItemList(container, groupId) {
 
     container.innerHTML = "";
 
-    const group = activeData.groups.find(g => g.id === groupId);
-    if (!group) return;
+    const bucket = isArchiveModeActive ? activeData.archived : activeData.groups;
+    const group = bucket?.find(g => g.id === groupId);
+
+    if (!group) {
+        warn("explorer._renderItemList", `Group ${groupId} not found in ${isArchiveModeActive ? 'archive' : 'active'} bucket.`);
+        container.innerHTML = `<div class="empty-state">This group is no longer in this view.</div>`;
+        return;
+    }
 
     // 💡 EMPTY STATE TWEAK:
     if (group.items.length === 0) {

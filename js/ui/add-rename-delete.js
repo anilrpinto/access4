@@ -2,54 +2,52 @@ import { log, trace, debug, info, warn, error } from '@/shared/exports.js';
 import { vaultAddNewUI } from '@/ui/loader.js';
 import { showConfirmUI } from '@/ui/confirm.js';
 
-export function showAddNewUI(depth, toParentId, vaultData, {onAdd = () => {},  onCancel = () => {}} = {}) {
+export function showAddNewUI(depth, toParentId, vaultData, archived = false, {onAdd = () => {},  onCancel = () => {}} = {}) {
     log("vaultAddRenDel.showAddNewUI", "called - depth:", depth);
 
     // 1. Ensure registration (Happens only once per session/reload)
     _ensureEditorRegistered();
     window.ScreenManager.switchView(window.ScreenManager.EDITOR_SCREENKEY);
 
-    const title = vaultAddNewUI.title;
-    const input = vaultAddNewUI.input;
-    const archiveSection = vaultAddNewUI.archiveSection;
-    const archiveCheck = vaultAddNewUI.archiveCheck;
+    const { title, input, archiveSection, archiveCheck, addBtn, cancelBtn } = vaultAddNewUI;
 
     // Clear previous input
     input.clear();
-    archiveCheck.checked = false;
+    archiveCheck.checked = archived;
     input.focus();
 
-    vaultAddNewUI.addBtn.setText("Add");
+    addBtn.setText("Add");
     let hdr = "Add Group";
     if (depth === 1) {
-        vaultAddNewUI.title.classList.remove('data-title');
+        title.classList.remove('data-title');
         archiveSection.setVisible(true);
         archiveSection.setFlex();
     } else if (depth === 2) {
-        const group = vaultData.groups.find(g => g.id === toParentId);
+
+        const bucket = archived ? vaultData.archived : vaultData.groups;
+        const group = bucket?.find(g => g.id === toParentId);
         hdr = group ? group.name : "Add Item";
 
         if (group)
-            vaultAddNewUI.addBtn.setText("Add Item");
+            addBtn.setText("Add Item");
 
-        vaultAddNewUI.title.classList.add('data-title');
+        title.classList.add('data-title');
         archiveSection.setVisible(false);
         archiveSection.setFlex();
     }
     title.setText(hdr);
 
     // Handle Add
-    vaultAddNewUI.addBtn.onClick(() => {
+    addBtn.onClick(() => {
         const val = input.value.trim();
         if (!val) return showAddNewStatusMessage("Name cannot be empty");
 
-        const archived = archiveCheck.checked;
         window.ScreenManager.goHome();
-        onAdd(val, archived);
+        onAdd(val, archiveCheck.checked);
     });
 
     // Handle Cancel
-    vaultAddNewUI.cancelBtn.onClick(() => {
+    cancelBtn.onClick(() => {
         window.ScreenManager.goHome();
         onCancel();
     });
@@ -62,36 +60,31 @@ export function showAddNewUI(depth, toParentId, vaultData, {onAdd = () => {},  o
     }
 }
 
-export function showRenameUI(depth, vaultData, path, {onRename = () => {}, onCancel = () => {}} = {}) {
+export function showRenameUI(depth, path, vaultData, archived = false, {onRename = () => {}, onCancel = () => {}} = {}) {
     log("vaultAddRenDel.showRenameUI", "called - depth:", depth);
 
     // 1. Ensure registration (Happens only once per session/reload)
     _ensureEditorRegistered();
     window.ScreenManager.switchView(window.ScreenManager.EDITOR_SCREENKEY);
 
-    const title = vaultAddNewUI.title;
-    const input = vaultAddNewUI.input;
-    const archiveSection = vaultAddNewUI.archiveSection;
-    const archiveCheck = vaultAddNewUI.archiveCheck;
-    const saveBtn = vaultAddNewUI.addBtn;
+    const { title, input, archiveSection, archiveCheck, addBtn: saveBtn, cancelBtn } = vaultAddNewUI;
 
     // 1. Identify what we are renaming
     let currentName = "";
-    let isArchived = false;
     let headerText = "Rename";
 
+    const bucket = archived ? vaultData.archived : vaultData.groups;
     if (depth === 2) {
         const groupId = path[1];
-        const group = vaultData.groups.find(g => g.id === groupId);
+        const group = bucket?.find(g => g.id === groupId);
         currentName = group ? group.name : "";
-        isArchived = group ? !!group.archived : false;
         headerText = "Rename Group";
         archiveSection.setVisible(true);
         archiveSection.setFlex();
     } else if (depth === 3) {
         const groupId = path[1];
         const itemId = path[2];
-        const group = vaultData.groups.find(g => g.id === groupId);
+        const group = bucket?.find(g => g.id === groupId);
         const item = group?.items.find(i => i.id === itemId);
         currentName = item ? item.label : "";
         headerText = "Rename Item";
@@ -101,7 +94,7 @@ export function showRenameUI(depth, vaultData, path, {onRename = () => {}, onCan
 
     // 2. Setup UI
     input.value = currentName;
-    archiveCheck.checked = isArchived;
+    archiveCheck.checked = archived;
     title.setText(headerText);
     saveBtn.setText("Save");
     input.focus();
@@ -110,14 +103,13 @@ export function showRenameUI(depth, vaultData, path, {onRename = () => {}, onCan
     saveBtn.onClick(() => {
         const newVal = input.value.trim();
         if (!newVal) return; // Add status msg if needed
-        const newArchivedState = archiveCheck.checked;
 
         window.ScreenManager.goHome();
-        onRename(newVal, newArchivedState);
+        onRename(newVal, archived, archiveCheck.checked);
     });
 
     // 4. Handle Cancel
-    vaultAddNewUI.cancelBtn.onClick(() => {
+    cancelBtn.onClick(() => {
         window.ScreenManager.goHome();
         onCancel();
     });
