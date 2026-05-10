@@ -1,8 +1,9 @@
-import { log, trace, debug, info, warn, error } from '@/shared/exports.js';
+import { G, log, trace, debug, info, warn, error } from '@/shared/exports.js';
 import { vaultAddNewUI } from '@/ui/loader.js';
 import { showConfirmUI } from '@/ui/confirm.js';
 
-export function showAddNewUI(depth, toParentId, vaultData, archived = false, {onAdd = () => {},  onCancel = () => {}} = {}) {
+export function showAddNewUI(toParentId, {onAdd = () => {},  onCancel = () => {}} = {}) {
+    const { depth, findActiveGroup, isArchiveModeActive } = G.vaultContext();
     log("vaultAddRenDel.showAddNewUI", "called - depth:", depth);
 
     // 1. Ensure registration (Happens only once per session/reload)
@@ -13,7 +14,7 @@ export function showAddNewUI(depth, toParentId, vaultData, archived = false, {on
 
     // Clear previous input
     input.clear();
-    archiveCheck.checked = archived;
+    archiveCheck.checked = isArchiveModeActive;
     input.focus();
 
     addBtn.setText("Add");
@@ -24,8 +25,7 @@ export function showAddNewUI(depth, toParentId, vaultData, archived = false, {on
         archiveSection.setFlex();
     } else if (depth === 2) {
 
-        const bucket = archived ? vaultData.archived : vaultData.groups;
-        const group = bucket?.find(g => g.id === toParentId);
+        const group = findActiveGroup(toParentId);
         hdr = group ? group.name : "Add Item";
 
         if (group)
@@ -60,7 +60,8 @@ export function showAddNewUI(depth, toParentId, vaultData, archived = false, {on
     }
 }
 
-export function showRenameUI(depth, path, vaultData, archived = false, {onRename = () => {}, onCancel = () => {}} = {}) {
+export function showRenameUI({onRename = () => {}, onCancel = () => {}} = {}) {
+    const { depth, isArchiveModeActive, findActiveGroup, findActiveItem } = G.vaultContext();
     log("vaultAddRenDel.showRenameUI", "called - depth:", depth);
 
     // 1. Ensure registration (Happens only once per session/reload)
@@ -73,19 +74,15 @@ export function showRenameUI(depth, path, vaultData, archived = false, {onRename
     let currentName = "";
     let headerText = "Rename";
 
-    const bucket = archived ? vaultData.archived : vaultData.groups;
+    const group = findActiveGroup();
+
     if (depth === 2) {
-        const groupId = path[1];
-        const group = bucket?.find(g => g.id === groupId);
         currentName = group ? group.name : "";
         headerText = "Rename Group";
         archiveSection.setVisible(true);
         archiveSection.setFlex();
     } else if (depth === 3) {
-        const groupId = path[1];
-        const itemId = path[2];
-        const group = bucket?.find(g => g.id === groupId);
-        const item = group?.items.find(i => i.id === itemId);
+        const item = findActiveItem(group);
         currentName = item ? item.label : "";
         headerText = "Rename Item";
         archiveSection.setVisible(false);
@@ -94,7 +91,7 @@ export function showRenameUI(depth, path, vaultData, archived = false, {onRename
 
     // 2. Setup UI
     input.value = currentName;
-    archiveCheck.checked = archived;
+    archiveCheck.checked = isArchiveModeActive;
     title.setText(headerText);
     saveBtn.setText("Save");
     input.focus();
@@ -105,7 +102,7 @@ export function showRenameUI(depth, path, vaultData, archived = false, {onRename
         if (!newVal) return; // Add status msg if needed
 
         window.ScreenManager.goHome();
-        onRename(newVal, archived, archiveCheck.checked);
+        onRename(newVal, isArchiveModeActive, archiveCheck.checked);
     });
 
     // 4. Handle Cancel
@@ -115,10 +112,12 @@ export function showRenameUI(depth, path, vaultData, archived = false, {onRename
     });
 }
 
-export function showDeleteUI(depth, groupId, itemId, vaultData, {onConfirm = () => {}, onCancel = () => {}} = {}) {
+export function showDeleteUI({onConfirm = () => {}, onCancel = () => {}} = {}) {
+
+    const { depth, findActiveGroup, findActiveItem } = G.vaultContext();
     log("vaultAddRenDel.showDeleteUI", "transitioned to showConfirmUI - depth:", depth);
 
-    const group = vaultData.groups.find(g => g.id === groupId);
+    const group = findActiveGroup();
     const groupName = group ? group.name : "Group";
 
     let title, msg, okBtnText;
@@ -130,7 +129,7 @@ export function showDeleteUI(depth, groupId, itemId, vaultData, {onConfirm = () 
         okBtnText = "Delete Group";
     } else {
         // --- DELETE ITEM CASE ---
-        const item = group?.items.find(i => i.id === itemId);
+        const item = findActiveItem(group);
         title = item ? item.label : "Item";
         msg = `Delete item from group <b>${groupName}</b>?`;
         okBtnText = "Delete Item";
@@ -141,7 +140,8 @@ export function showDeleteUI(depth, groupId, itemId, vaultData, {onConfirm = () 
         title: title,
         message: msg,
         okText: okBtnText,
-        onConfirm: onConfirm
+        onConfirm: onConfirm,
+        onCancel: onCancel
     });
 }
 

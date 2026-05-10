@@ -9,9 +9,9 @@ import { showAddNewUI, showRenameUI, showDeleteUI } from '@/ui/add-rename-delete
 
 let _vaultCtx = null;
 
-export async function loadExplorer(vaultContext, onShowCb) {
+export async function loadExplorer(onShowCb) {
 
-    _vaultCtx = vaultContext;
+    _vaultCtx = G.vaultContext;
     const screenKey = window.ScreenManager.EXPLORER_SCREENKEY;
 
     window.ScreenManager.register(screenKey, vaultUI.mainSection, {
@@ -57,11 +57,8 @@ export async function renderVaultExplorer() {
  * Finds the currently active item based on the sessionState.path
  */
 export function getCurrentItem() {
-    const { activeData, groupId, itemId } = _vaultCtx();
-    if (!groupId || !itemId) return null;
-
-    const group = activeData.groups.find(g => g.id === groupId);
-    return group?.items.find(i => i.id === itemId) || null;
+    const { findActiveGroup, findActiveItem } = _vaultCtx();
+    return findActiveItem(findActiveGroup()) || null;
 }
 
 /** INTERNAL FUNCTIONS **/
@@ -111,7 +108,7 @@ function _doSelectClick() {
 function _doCutClick() {
     log("explorer._doCutClick", "called");
 
-    const { depth, navigateToRoot, vaultClipboard, isPrivateMode, setSelectionMode, refresh } = _vaultCtx();
+    const { navigateToRoot, vaultClipboard, isPrivateMode, setSelectionMode, refresh } = _vaultCtx();
     if (vaultClipboard.items.length === 0) return;
 
     vaultClipboard.mode = 'cut';
@@ -149,11 +146,11 @@ async function _doPasteClick() {
 }
 
 async function _doAddClick() {
-    const { activeData, depth, path, refresh, isArchiveModeActive } = _vaultCtx();
+    const { depth, path, refresh } = _vaultCtx();
     log("explorer._doAddClick", "called - depth:", depth);
 
     if (depth < 3) {
-        showAddNewUI(depth, path[depth-1], activeData, isArchiveModeActive, {
+        showAddNewUI(path[depth-1], {
             onAdd: (name, archived) => {
                 if (depth === 1) _executeAddGroup(name, archived);
                 else if (depth === 2) _executeAddItem(name);
@@ -166,13 +163,13 @@ async function _doAddClick() {
 }
 
 async function _doRenameClick() {
-    const { activeData, depth, path, refresh, isArchiveModeActive } = _vaultCtx();
+    const { depth, refresh } = _vaultCtx();
     log("explorer._doRenameClick", "called - depth:", depth);
 
     // We only rename things we are currently "inside" or looking at
     if (depth < 2) return;
 
-    showRenameUI(depth, path, activeData, isArchiveModeActive, {
+    showRenameUI({
         onRename: (newName, prevArchived, newArchived) => {
             if (depth === 2) _executeRenameGroup(newName, prevArchived, newArchived);
             else if (depth === 3) _executeRenameItem(newName);
@@ -184,7 +181,7 @@ async function _doRenameClick() {
 }
 
 async function _doDeleteClick() {
-    const { activeData, depth, groupId, itemId, refresh } = _vaultCtx();
+    const { depth, refresh } = _vaultCtx();
 
     log("explorer._doDeleteClick", "called - depth:", depth);
 
@@ -193,7 +190,7 @@ async function _doDeleteClick() {
         return; // Can't delete the root vault
     }
 
-    showDeleteUI(depth, groupId, itemId, activeData, {
+    showDeleteUI({
         onConfirm: () => {
             _executeDeletion();
         },
@@ -250,12 +247,10 @@ async function _doPrivateVaultClick() {
 function _executeAddGroup(name, archived = false) {
     log("explorer._executeAddGroup", `called - name:${name} archived: ${archived}`);
 
-    const { activeData, path, refresh } = _vaultCtx();
+    const { activeData, path, refresh, isArchiveModeActive, navigateToRoot } = _vaultCtx();
     const newId = 'g-' + CR.generateUUID();
 
     const newGroup = { id: newId, name: name, items: [] };
-
-    if (!activeData.archived) activeData.archived = [];
 
     if (archived) {
         activeData.archived.push(newGroup);
@@ -266,15 +261,16 @@ function _executeAddGroup(name, archived = false) {
     }
 
     // 4. Auto-navigate into the new group
-    path.push(newId);
+    if (isArchiveModeActive !== archived) navigateToRoot()
+    else path.push(newId);
     refresh();
 }
 
 function _executeAddItem(name) {
     log("explorer._executeAddItem", "called - name:", name);
-    const { activeData, groupId, refresh } = _vaultCtx();
+    const { findActiveGroup, refresh } = _vaultCtx();
 
-    const group = activeData.groups.find(g => g.id === groupId);
+    const group = findActiveGroup();
     const now = new Date().toISOString();
     const newItem = {
         id: 'i-' + CR.generateUUID(),
@@ -315,10 +311,9 @@ function _executeRenameGroup(newName, prevArchived = false, newArchived = false)
 function _executeRenameItem(newName) {
     log("explorer._executeRenameItem", `called - newName:${newName}`);
 
-    const { activeData, groupId, itemId, refresh } = _vaultCtx();
+    const { findActiveGroup, findActiveItem, refresh } = _vaultCtx();
 
-    const group = activeData.groups.find(g => g.id === groupId);
-    const item = group?.items.find(i => i.id === itemId);
+    const item = findActiveItem(findActiveGroup());
     if (item) {
         item.label = newName;
         item.modified = new Date().toISOString();
@@ -330,21 +325,23 @@ function _executeRenameItem(newName) {
 function _executeDeletion() {
     log("explorer._executeDeletion", "called");
 
-    const { activeData, depth, path, groupId, itemId, navigateToRoot, refresh } = _vaultCtx();
+    const { activeData, depth, path, groupId, itemId, isArchiveModeActive, navigateToRoot, refresh } = _vaultCtx();
+
+    const bucket = isArchiveModeActive ? activeData.archived : activeData.groups;
 
     if (depth === 2) {
         // --- DELETE GROUP ---
-        const index = activeData.groups.findIndex(g => g.id === groupId);
+        const index = bucket?.findIndex(g => g.id === groupId);
 
         if (index > -1) {
-            activeData.groups.splice(index, 1);
+            bucket.splice(index, 1);
             // After deleting a group, we must go back to the root
             navigateToRoot();
         }
     }
     else if (depth === 3) {
         // --- DELETE ITEM ---
-        const group = activeData.groups.find(g => g.id === groupId);
+        const group = bucket?.find(g => g.id === groupId);
 
         if (group) {
             const index = group.items.findIndex(i => i.id === itemId);
@@ -364,7 +361,7 @@ function _executeDeletion() {
  */
 function _getNameFromId(id, index) {
 
-    const { groupId, activeData, isPrivateMode, isArchiveModeActive } = _vaultCtx();
+    const { findActiveGroup, findActiveItem, isPrivateMode, isArchiveModeActive } = _vaultCtx();
 
     if (id === 'root') {
         // Archive mode takes visual precedence for the root icon
@@ -372,14 +369,12 @@ function _getNameFromId(id, index) {
         return isPrivateMode ? "🛡️" : "🏠";
     }
 
-    const bucket = isArchiveModeActive ? activeData.archived : activeData.groups;
     if (index === 1) { // It's a Group ID
-        const group = bucket?.find(g => g.id === id);
+        const group = findActiveGroup();
         return group ? group.name : "Unknown Group";
     }
     if (index === 2) { // It's an Item ID
-        const group = bucket?.find(g => g.id === groupId);
-        const item = group?.items.find(i => i.id === id);
+        const item = findActiveItem(findActiveGroup());
         return item ? item.label : "Unknown Item";
     }
     return id;
@@ -590,12 +585,11 @@ function _toggleGroupSelection(id, element) {
 
 function _renderItemList(container, groupId) {
     log("explorer._renderItemList", "called");
-    const { activeData, isSelectionMode, currentFilterMap, vaultClipboard, isArchiveModeActive } = _vaultCtx();
+    const { isSelectionMode, currentFilterMap, vaultClipboard, findActiveGroup, isArchiveModeActive } = _vaultCtx();
 
     container.innerHTML = "";
 
-    const bucket = isArchiveModeActive ? activeData.archived : activeData.groups;
-    const group = bucket?.find(g => g.id === groupId);
+    const group = findActiveGroup();
 
     if (!group) {
         warn("explorer._renderItemList", `Group ${groupId} not found in ${isArchiveModeActive ? 'archive' : 'active'} bucket.`);
@@ -710,10 +704,9 @@ function _toggleItemSelection(id, element, groupId) {
 
 function _renderItemDetails(container, groupId, itemId) {
     log("explorer._renderItemDetails", "called");
-    const { activeData, currentFilterMap, isEditable, showSecure } = _vaultCtx();
+    const { currentFilterMap, isEditable, showSecure, findActiveGroup, findActiveItem } = _vaultCtx();
 
-    const group = activeData.groups.find(g => g.id === groupId);
-    const item = group?.items.find(i => i.id === itemId);
+    const item = findActiveItem(findActiveGroup());
 
     if (!item) {
         container.innerHTML = `<div class="empty-state">Item not found.</div>`;

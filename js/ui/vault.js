@@ -27,7 +27,7 @@ let _vaultClipboard = {
     mode: null,             // 'cut'
     type: null,             // 'groups' or 'items'
     items: [],              // [{id, parentId}]
-    sourceVault: null       // 'shared' or 'private'
+    sourceVault: null,      // 'shared' or 'private'
 };
 
 let _sessionState = {
@@ -55,7 +55,7 @@ export async function loadVault(pwd, data, options) {
     }
     pwd = null;
 
-    const vaultContext = () => ({
+    G.vaultContext = () => ({
         activeData: getActiveVaultData(),
         path: _sessionState.path,
         depth: _sessionState.path.length,
@@ -106,10 +106,16 @@ export async function loadVault(pwd, data, options) {
             showStatusMessage("Move cancelled", "info");
         },
         setSelectionMode: (bool) => { _sessionState.isSelectionMode = bool; },
-        executeCrossVaultPaste: (targetId) => _executeCrossVaultPaste(targetId)
+        executeCrossVaultPaste: (targetId) => _executeCrossVaultPaste(targetId),
+        findActiveGroup: (groupId = _sessionState.path[1]) => {
+            const activeData = getActiveVaultData();
+            const bucket = _isArchiveModeActive ? activeData.archived : activeData.groups;
+            return bucket?.find(g => g.id === groupId);
+        },
+        findActiveItem: (group) => group?.items.find(i => i.id === _sessionState.path[2])
     });
 
-    await loadExplorer(vaultContext, async () => {
+    await loadExplorer(async () => {
         log("vaultUI.loadExplorer", "Refreshing vault data from Drive...");
 
         // 1. Create a fresh copy of all original options
@@ -484,6 +490,8 @@ function _setActiveVaultData(activeData) {
 
 function _executeCrossVaultPaste(targetGroupId) {
     const targetVaultData = getActiveVaultData();
+    const targetBucket = _isArchiveModeActive ? targetVaultData.archived : targetVaultData.groups;
+
     // THE MAGIC: Identify the source regardless of what is currently "active"
     const sourceVaultData = _vaultClipboard.sourceVault === 'private' ? _privateVaultData : _vaultData;
 
@@ -493,31 +501,33 @@ function _executeCrossVaultPaste(targetGroupId) {
     // Handle Groups (Moving a folder to the root of a vault)
     if (_vaultClipboard.type === 'groups') {
         _vaultClipboard.items.forEach(entry => {
-            const idx = sourceVaultData.groups.findIndex(g => g.id === entry.id);
-            if (idx > -1) {
-                const [group] = sourceVaultData.groups.splice(idx, 1);
-                // Move the whole group object to the target vault
-                targetVaultData.groups.push(group);
-                movedCount++;
+            // Look for the group in both buckets, but keep a reference to the bucket itself
+            const buckets = [sourceVaultData.groups, sourceVaultData.archived];
+
+            for (const currentBucket of buckets) {
+                const idx = currentBucket.findIndex(g => g.id === entry.id);
+                if (idx > -1) {
+                    const [group] = currentBucket.splice(idx, 1);
+                    targetBucket.push(group);
+                    movedCount++;
+                    break; // Stop looking once found and moved
+                }
             }
         });
-    }
+    } else {
         // --- CASE 2: MOVING INDIVIDUAL ITEMS ---
-    // Handle Items (Moving items between folders)
-    else {
-        const targetGroup = targetVaultData.groups.find(g => g.id === targetGroupId);
+
+        // Create a unified searchable pool for the source
+        const allSourceBuckets = [...sourceVaultData.groups, ...sourceVaultData.archived];
+        const targetGroup = targetBucket?.find(g => g.id === targetGroupId);
+
         if (!targetGroup) return { success: false, message: "Open a group to paste items" };
 
         _vaultClipboard.items.forEach(clipboardEntry => {
-            // 1. Find the source group using the parentId stored during selection
-            let sourceGroup = sourceVaultData.groups.find(g => g.id === clipboardEntry.parentId);
-
-            // 2. Fallback: If parentId is missing, scan all groups (safety net)
-            if (!sourceGroup) {
-                sourceGroup = sourceVaultData.groups.find(g =>
-                    g.items.some(i => i.id === clipboardEntry.id)
-                );
-            }
+            // Use the "Universal Search" across all buckets for the parent group
+            const sourceGroup = allSourceBuckets.find(g =>
+                g.id === clipboardEntry.parentId || g.items.some(i => i.id === clipboardEntry.id)
+            );
 
             if (sourceGroup) {
                 const itemIdx = sourceGroup.items.findIndex(i => i.id === clipboardEntry.id);
@@ -541,6 +551,7 @@ function _executeCrossVaultPaste(targetGroupId) {
     _vaultClipboard.mode = null;
     _vaultClipboard.items = [];
     _vaultClipboard.sourceVault = null;
+    _vaultClipboard.fromArchived = false;
 
     return { success: true, count: movedCount, type: _vaultClipboard.type };
 }
@@ -715,6 +726,8 @@ function _doSecure() {
     _privateVaultData = null;
     _originalPrivateVaultData = null;
     _isPrivateMode = false;
+    G.vaultContext = null;
+    _isArchiveModeActive = false;
 
     lockPrivateVault();
 
