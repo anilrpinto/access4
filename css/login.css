@@ -17,3 +17,15 @@
     50% { opacity: 0.7; }
     100% { opacity: 1; }
 }
+
+#loginView header {
+    justify-content: center;
+}
+
+/* Base Title Style (assuming loginUI.title is a heading or div) */
+#loginTitle {
+    transition: color var(--transition-speed) ease,
+    text-shadow var(--transition-speed) ease;
+    cursor: default;
+    user-select: none;
+}

@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Access4 Login</title>
-    <link rel="stylesheet" href="css/active.css">
+    <link rel="stylesheet" href="css/main.css">
     <script type="importmap">
         {
           "imports": {
@@ -21,12 +21,12 @@
 <body>
 
 <!-- LOGIN VIEW -->
-<div id="loginView">
+<div id="loginView" class="view-container"  style="display: none;">
     <header>
         <h1 id="login_title">Login</h1>
     </header>
 
-    <main id="loginBody">
+    <main id="login_body">
         <!-- Sign-in button -->
         <button id="login_signinBtn">Sign in with Google</button>
 
@@ -86,7 +86,7 @@
                    autocapitalize="none"
                    autocomplete="current-password">
 
-            <button id="restoreBackup_decryptBtn" class="btn-primary" style="width: 100%;">Decrypt</button>
+            <button id="restoreBackup_decryptBtn" >Decrypt</button>
         </div>
 
         <div id="restoreBackup_outputSection" class="modal-simple-body" style="display: none;">
@@ -115,14 +115,14 @@
 </div>
 
 <!-- VAULT VIEW -->
-<div id="vaultView" style="display: none;">
+<div id="vaultView" class="view-container"  style="display: flex;">
     <header id="vault_header">
-        <div id="vault_headerLeftSide" class="header-side-left" style="display: flex; align-items: center; flex: 1;">
+        <div id="vault_headerLeftSide">
             <button id="vault_toggleSecureBtn" class="icon-button" style="margin-right: 10px;">🔒</button>
             <h1 id="vault_title" class="member-user" style="font-size: 1.1rem; margin: 0;">Vault</h1>
         </div>
 
-        <div id="vault_headerRightSide" class="header-side-right">
+        <div id="vault_headerRightSide">
             <button id="vaultMenuBar_addBtn" class="icon-button" title="Add">➕</button>
             <button id="vaultMenuBar_renameBtn" class="icon-button" title="Rename">✏️</button>
             <button id="vaultMenuBar_deleteBtn" class="icon-button danger-text" title="Delete">🗑️</button>
@@ -160,8 +160,8 @@
         <div class="raw-data-header">
             <span class="view-title">Raw Vault Data</span>
             <div class="header-actions">
-                <button id="vaultRawData_toggleViewBtn" class="sub-icon-btn"></button>
-                <button id="vaultRawData_closeBtn" class="sub-icon-btn" title="Close">✕</button>
+                <button id="vaultRawData_toggleViewBtn"></button>
+                <button id="vaultRawData_closeBtn" title="Close">✕</button>
             </div>
         </div>
 

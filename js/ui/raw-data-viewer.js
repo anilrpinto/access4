@@ -95,6 +95,9 @@ function _renderJSONTree(data, masked) {
     log("rawDataViewer._renderJSONTree", "masked:", masked);
 
     vaultRawDataUI.treeContent.innerHTML = "";
+
+    vaultRawDataUI.treeContent.classList.add("json-tree");
+
     // Start recursion at depth 0
     vaultRawDataUI.treeContent.appendChild(_createTreeBranch("root", data, 0, masked));
 }
@@ -154,7 +157,8 @@ function _createTreeBranch(key, value, depth = 0, masked = true) {
         // Handle Leaf Nodes
         const isMasked = value === "••••••••";
         const valClass = isMasked ? "json-secure-masked" : `json-${typeof value}`;
-        li.innerHTML = `<span class="json-key">${key}</span>: <span class="${valClass}">${value}</span>`;
+        const displayValue = (value === "" && !isMasked) ? '""' : value;
+        li.innerHTML = `<span class="json-key">${key}</span>: <span class="${valClass}">${displayValue}</span>`;
     }
     return li;
 }

@@ -1,223 +1,10 @@
-/* --- 1. THE FOUNDATION --- */
-:root {
-    --header-bg: #5dbeea;
-    --vault-header-bg: #eeeeee;
-    --primary-color: #1E90FF;
-    --bg-color: #f5f7fa;
-    --text-main: #333333;
-    --danger: #dc3545;
-
-    --color-bio-none: #fdfcfc;    /* Muted Slate */
-    --color-bio-armed: #3b82f6;   /* Energetic Blue */
-    --color-bio-glow: rgba(59, 130, 246, 0.5);
-    --transition-speed: 0.3s;
-}
-
-/* Base Title Style (assuming loginUI.title is a heading or div) */
-#login-title {
-    transition: color var(--transition-speed) ease,
-    text-shadow var(--transition-speed) ease;
-    cursor: default;
-    user-select: none;
-}
-
-/* State: Feature unavailable or intent is false */
-.bio-none {
-    color: var(--color-bio-none);
-    text-shadow: none;
-}
-
-/* State: Biometric Intent is TRUE (Ready for fingerprint/face) */
-.bio-armed {
-    color: var(--color-bio-armed) !important;
-    text-shadow: 0 0 8px var(--color-bio-glow);
-    animation: bio-pulse 2s infinite ease-in-out;
-}
-
-/* Subtle pulse animation to show it's "listening" for the unlock */
-@keyframes bio-pulse {
-    0% { opacity: 1; }
-    50% { opacity: 0.7; }
-    100% { opacity: 1; }
-}
-
-* {
-    box-sizing: border-box;
-    -webkit-tap-highlight-color: transparent;
-}
-
-/* THE FIX: Remove all height/overflow constraints from html/body */
-html, body {
-    margin: 0;
-    padding: 0;
-    background-color: var(--bg-color);
-    font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-    color: var(--text-main);
-
-    /* Allow the page to be a natural scrolling document */
-    min-height: 100%;
-    overflow-x: hidden;
-    overflow-y: visible;
-    overscroll-behavior-y: auto;
-}
-
-input:focus,
-textarea:focus {
-    outline: none; /* Removes the heavy black default border */
-    border-color: var(--primary-color);
-    box-shadow: 0 0 0 1px rgba(12, 109, 202, 0.40); /* Soft blue glow */
-    transition: border-color 0.2s, box-shadow 0.2s;
-}
-
-/* --- 2. VIEW CONTAINERS --- */
-#loginView, #vaultView {
-    display: none; /* Controlled by JS */
-    width: 100%;
-    min-height: 100vh;
-    flex-direction: column;
-}
-
-/* --- 3. THE HEADERS (Sticky & Professional) --- */
-header {
-    width: 100%;
-    height: 60px;
-    display: flex;
-    align-items: center;
-    padding: 0 16px;
-    position: sticky; /* Keep navigation available */
-    top: 0;
-    z-index: 1000;
-    background-color: var(--header-bg);
-    color: #fff;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-}
-
-#loginView header {
-    justify-content: center;
-}
-
-/* --- 4. MAIN CONTENT (The Sizing Box) --- */
-main {
-    width: 100%;
-    max-width: 500px;
-    margin: 0 auto;
-    padding: 20px 15px;
-    flex: 1; /* Pushes footer content down if needed */
-}
-
-/* --- VAULT HEADER ALIGNMENT --- */
-#vaultView header {
-    isolation: isolate; /* Added safety */
-    background-color: var(--vault-header-bg);
-    color: #222;
-    border-bottom: 1px solid #ddd;
-    height: 60px; /* Fixed height helps with centering */
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0 12px; /* Slightly tighter side padding */
-}
-
-/* --- 5. VAULT SPECIFIC UI --- */
-.header-side-left,
-.header-side-right {
-    display: flex;
-    align-items: center; /* This is the vertical center anchor */
-    height: 100%;       /* Match header height for perfect centering */
-}
-
-/* Ensuring the Lock, Plus, Trash, and Menu are identical in size */
-#vaultView .icon-button {
-    width: 40px;
-    height: 40px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 1.2rem;
-    padding: 0;
-    margin: 0;
-    background: transparent;
-    border: none;
-    cursor: pointer;
-}
-
-/* --- VAULT TITLE PRECISION ALIGNMENT --- */
-#vault_title {
-    font-size: 1.1rem;
-    margin: 0;
-    font-weight: 600;
-    display: flex;
-    align-items: center;
-
-    /* THE FIX: Nudge the text down by 1-2 pixels to match the icon baseline */
-    transform: translateY(2px);
-
-    /* Ensure the font doesn't add its own weird vertical padding */
-    line-height: 1.2;
-    height: 100%;
-}
-
-/* Ensure the lock icon isn't also being nudged */
-#vault_toggleSecuredBtn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transform: none; /* Keep the icon on the true center */
-    margin-top: 2px;
-}
 
 
-/* --- 6. THE SKIN (Buttons & Inputs) --- */
-button {
-    width: 100%;
-    padding: 14px;
-    border-radius: 8px;
-    border: none;
-    background-color: var(--primary-color);
-    color: white;
-    font-size: 1rem;
-    font-weight: 600;
-    cursor: pointer;
-    margin-bottom: 12px;
-}
 
-input[type="text"],
-input[type="password"] {
-    width: 100%;
-    padding: 12px;
-    border: 1px solid #ccc;
-    border-radius: 8px;
-    font-size: 1rem;
-    margin-bottom: 15px;
-}
 
-.icon-button {
-    background: transparent;
-    border: none;
-    font-size: 1.3rem;
-    padding: 8px;
-    width: auto;
-    height: auto;
-    cursor: pointer;
-    color: inherit;
-    display: flex;
-    align-items: center;
-}
-
-/* --- 7. RAW DATA TEXTAREA (The only height exception) --- */
-#vaultRawData_textContent {
-    width: 100%;
-    height: 70vh; /* Fixed height for the code view */
-    font-family: monospace;
-    padding: 10px;
-    background: #f8f9fa;
-    border: 1px solid #ddd;
-    border-radius: 8px;
-    margin-bottom: 15px;
-}
 
 /* --- LOGIN SPECIFIC REFINEMENT --- */
-#loginBody {
+#login_body {
     display: flex;
     flex-direction: column;
     align-items: center; /* Centers items horizontally */
@@ -227,7 +14,7 @@ input[type="password"] {
 }
 
 /* Force all input groups inside the login body to match width */
-#loginBody .input-group {
+#login_body .input-group {
     width: 100%;
     max-width: 100%;
     display: flex;
@@ -238,13 +25,13 @@ input[type="password"] {
 }
 
 /* This ensures the INPUT inside the group fills the 100% width */
-#loginBody .input-group input {
+#login_body .input-group input {
     width: 100%;
     display: block;
 }
 
 /* Ensure the label has its own line and stays left */
-#loginBody .input-group label {
+#login_body .input-group label {
     width: 100%;
     text-align: left;
     margin-bottom: 5px;
@@ -268,7 +55,7 @@ input[type="password"] {
 }
 
 /* Ensure the label for the password field doesn't have a huge top margin now */
-#loginBody .input-group label {
+#login_body .input-group label {
     margin-top: 0;
     margin-bottom: 8px;
 }
@@ -692,65 +479,13 @@ button.link-button:active {
     border-bottom: 1px dashed #ccc !important;
 }
 
-/* --- VAULT RAW DATA VIEW --- */
-#vaultRawData_textContent {
-    width: 100%;
-    /* Fill most of the screen minus the button and header */
-    height: 82vh;
-    height: 82dvh;
 
-    background-color: #e6e6e6; /* Dark theme looks better for raw data */
-    color: #494747;
-    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-    font-size: 0.8rem;
-    line-height: 1.5;
-    padding: 16px;
-    border-radius: 8px;
-    margin-top: 5px;
-    margin-bottom: 10px;
 
-    /* THE CRITICAL FIXES */
-    white-space: pre;           /* Keeps the JSON structure/indentation */
-    overflow: auto;             /* Allows both horizontal and vertical scrolling inside the box */
-    word-wrap: normal;          /* Stops the ugly mid-word breaking */
-    border: 1px solid #333;
-    box-sizing: border-box;     /* Forces the padding to stay inside the 100% width */
-}
 
-/* Make sure the main section doesn't have weird constraints */
-#vaultRawData_mainSection {
-    display: none;
-    width: 100%;
-    max-width: none !important; /* Allow it to hit the edges */
-    padding: 0 15px;
-    box-sizing: border-box;
-}
 
-/* Subtle hover effect for the 'Tap to Copy' hint */
-#vaultRawData_textContent:active {
-    background-color: #f0f0f0;
-}
 
-#vaultRawData_closeBtn {
-/* Uses the global primary button style, just ensures it's full width */
-    width: 100%;
-    margin-top: 5px;
-}
 
-#vaultRawData_closeBtn {
-    background-color: var(--primary-color);
-    color: white;
-    border: none;
-    padding: 14px;
-    border-radius: 8px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: opacity 0.2s;
-}
 
-#vaultRawData_closeBtn:active {
-    opacity: 0.8;
-}
 
 /* --- BUTTON GROUP UNIFICATION --- */
 .button-group {
@@ -1149,7 +884,7 @@ body.vault-frozen .list-row:active {
     margin: 0 !important;
 }
 
-.btn-primary, #restoreBackup_decryptBtn {
+.btn-primary {
     background-color: #27ae60 !important; /* Solid Green */
     color: white;
     border: none;
@@ -1820,154 +1555,6 @@ button.danger-btn:active {
     display: flex;
     gap: 12px;
     align-items: center;
-}
-
-/* Clean, modern icon buttons for the header */
-.sub-icon-btn {
-    width: 32px !important;
-    height: 32px !important;
-    padding: 0 !important;
-    margin: 0 !important;
-    background: rgb(62 62 62 / 0.25) !important;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 1rem;
-    cursor: pointer;
-    box-shadow: none !important;
-}
-
-/* 2. Ensure your Menu and Header stay on top */
-header {
-    z-index: 1000 !important; /* Higher than the viewer */
-}
-
-.menuDropdown-content {
-    z-index: 1001 !important; /* Highest point in the vault */
-}
-
-#vaultRawData_textContent,
-#vaultRawData_treeContent {
-    flex: 1;         /* This makes them fill all remaining space */
-    width: 100%;
-    overflow: auto;  /* Content scrolls inside, buttons stay put */
-    margin-bottom: 15px;
-    background: #f8f9fa;
-    border: 1px solid #ddd;
-    border-radius: 8px;
-}
-
-/* 3. Keep the expansion logic we fixed earlier */
-#vaultRawData_textContent:not([style*="display: none"]),
-#vaultRawData_treeContent:not([style*="display: none"]) {
-    height: calc(100% - 70px) !important;
-    flex: none !important;
-    pointer-events: auto;
-    width: 100%;
-    margin-bottom: 10px;
-    border: 1px solid #ddd;
-    border-radius: 4px;
-    background: #fdfdfd;
-    overflow-y: auto !important;
-    overflow-x: auto;
-}
-
-/* 4. Hide the other one completely to prevent phantom clicks */
-#vaultRawData_textContent[style*="display: none"],
-#vaultRawData_treeContent[style*="display: none"] {
-    display: none !important; /* Force browser to ignore it entirely */
-}
-
-/* Fix for the "Menu Click" issue */
-/* If your top menu is being blocked, ensure the main section doesn't
-   have an invisible margin or outline overlapping the 60px header */
-
-/* 3. Ensure the tree div doesn't collapse to 0 or grow to infinity */
-#vaultRawData_treeContent {
-    display: block; /* Overrides flex defaults if necessary */
-    min-height: 0;   /* Crucial for flex containers to allow shrinking/scrolling */
-}
-
-/* Specific fix for the Textarea */
-#vaultRawData_textContent {
-    resize: none;
-    font-family: 'Consolas', 'Monaco', monospace;
-    font-size: 13px;
-    padding: 12px;
-    line-height: 1.5;
-    white-space: pre;
-}
-
-/* 3. Tree-Specific Styling */
-.json-tree {
-    font-family: 'Cascadia Code', 'Source Code Pro', 'Consolas', monospace;
-    font-size: 13px;
-    line-height: 1.6;
-    color: #333;
-    padding: 15px;
-}
-
-/* 4. Tree Nodes and Hierarchy */
-.json-tree ul {
-    list-style-type: none;
-    /* Reduced margin for a tighter, cleaner look now that brackets are gone */
-    margin: 0 0 0 10px;
-    padding: 0;
-    border-left: 1px solid #e8e8e8;
-}
-
-.json-tree li {
-    position: relative;
-    padding-left: 12px;
-}
-
-.json-tree .caret {
-    cursor: pointer;
-    user-select: none;
-    color: #666;
-    margin-right: 5px;
-    display: inline-block;
-}
-
-.json-tree .caret::before {
-    /* Switched to a solid arrow which looks better for data branches */
-    content: "▼";
-    display: inline-block;
-    transition: transform 0.2s ease;
-    font-size: 8px;
-    vertical-align: middle;
-    color: #bbb;
-}
-
-.json-tree .caret-down::before {
-    /* Rotates to point right when collapsed */
-    transform: rotate(-90deg);
-}
-
-/* New: Meta info for array counts (e.g., [28]) */
-.json-meta {
-    color: #999;
-    font-size: 0.75rem;
-    font-weight: 400;
-    margin-left: 4px;
-    font-family: sans-serif;
-}
-
-/* Toggle Logic */
-.json-tree .nested { display: none; }
-.json-tree .active { display: block; }
-
-/* Syntax Highlighting */
-.json-key { color: #881391; font-weight: 600; }
-.json-string { color: #21a121; }
-.json-number { color: #1c00cf; }
-.json-boolean { color: #aa5d00; }
-.json-null { color: #777; font-style: italic; }
-
-/* Optional: Subtle hover effect to track which line you are on */
-.json-tree li:hover > .caret,
-.json-tree li:hover > .json-key {
-    background-color: rgba(0, 0, 0, 0.03);
 }
 
 .menu-icon {

@@ -1,6 +1,7 @@
+/* --- 1. THE FOUNDATION --- */
 :root {
     --header-bg: #5dbeea;
-    --vault-header-bg: #eeeeee;
+    --vault-header-bg: #b7e1f3;
     --primary-color: #1E90FF;
     --bg-color: #f5f7fa;
     --text-main: #333333;
@@ -49,22 +50,75 @@ header {
     padding: 0 16px;
     position: sticky; /* Keep navigation available */
     top: 0;
-    z-index: 1000;
     background-color: var(--header-bg);
     color: #fff;
     box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    z-index: 1000 !important; /* Higher than the viewer */
 }
 
-/* Layout */
-#loginView, #vaultView {
+.menuDropdown-content {
+    z-index: 1001 !important; /* Highest point in the vault */
+}
+
+.view-container {
+    display: none;
     width: 100%;
     min-height: 100vh;
     flex-direction: column;
 }
 
-/* 2. State */
-#loginView, #vaultView {
-    display: none;
+/* Helper for when JS switches views */
+.view-container.active {
+    display: flex;
+}
+
+/* --- 4. MAIN CONTENT (The Sizing Box) --- */
+main {
+    width: 100%;
+    max-width: 500px;
+    margin: 0 auto;
+    padding: 20px 15px;
+    flex: 1; /* Pushes footer content down if needed */
+}
+
+/* --- 6. THE SKIN (Buttons & Inputs) --- */
+button {
+    width: 100%;
+    padding: 14px;
+    border-radius: 8px;
+    border: none;
+    background-color: var(--primary-color);
+    color: white;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    margin-bottom: 12px;
+}
+
+input[type="text"],
+input[type="password"] {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    font-size: 1rem;
+    margin-bottom: 15px;
+}
+
+/* Ensuring the Lock, Plus, Trash, and Menu are identical in size */
+.icon-button {
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+    color: inherit;
+    padding: 0;
+    margin: 0;
+    background: transparent;
+    border: none;
+    cursor: pointer;
 }
 
 .btn-primary {
