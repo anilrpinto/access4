@@ -1,0 +1,54 @@
+
+.breadcrumb-item {
+    color: var(--primary-color);
+    font-weight: 500;
+    padding: 10px 4px;
+    cursor: pointer;
+    text-decoration: none !important;
+
+    /* THE ALIGNMENT FIX */
+    display: inline-flex;
+    align-items: center;
+    transform: translateY(2px); /* Nudges the text down to match the House base */
+}
+
+/* We must EXEMPT the House icon from the nudge so it doesn't sink */
+.breadcrumb-item:first-child {
+    transform: none !important;
+}
+
+.breadcrumb-item:hover {
+    text-decoration: underline;
+}
+
+.sep {
+    color: #999;
+    font-weight: 600;
+    font-size: 0.9rem;
+    margin: 0 6px;
+    user-select: none;
+    transform: translateY(1px); /* Slight nudge for the chevron */
+}
+
+.breadcrumb-item.link {
+    color: var(--primary-color);
+    text-decoration: none !important; /* Remove the line */
+    cursor: pointer;
+    font-weight: 500;
+}
+
+.breadcrumb-item.link:hover {
+    text-decoration: none; /* Keep it clean even on hover */
+    opacity: 0.8;
+}
+
+.breadcrumb-item.link:active {
+    opacity: 0.5;
+}
+
+.breadcrumb-item.active {
+    color: #333;
+    font-weight: 600;
+    text-decoration: none !important;
+    cursor: default; /* No pointer for the current page */
+}

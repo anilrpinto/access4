@@ -29,3 +29,99 @@
     cursor: default;
     user-select: none;
 }
+
+/* --- LOGIN SPECIFIC REFINEMENT --- */
+#login_body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    color: #555;
+    font-size: 0.95rem;
+}
+
+#login_pwdSection {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+/* Force all input groups inside the login body to match width */
+#login_body .input-group {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    text-align: left;
+}
+
+/* Ensure the input inside the group fills the container width */
+#login_body .input-group input {
+    width: 100%;
+}
+
+/* Consolidated Label Rules */
+#login_body .input-group label {
+    width: 100%;
+    text-align: left;
+    margin-top: 0;
+    margin-bottom: 8px; /* Kept your second fix value */
+}
+
+/* The container for the entire user status row */
+.login-user-line {
+    display: flex;
+    align-items: center;
+    justify-content: center; /* Default: Center "Not signed in" */
+    width: 100%;
+    margin-top: 10px;
+    margin-bottom: 25px;
+    padding: 8px 0;
+    font-size: 1rem;
+    border-bottom: 1px solid #eee;
+}
+
+/* When signed in, flip to space-between */
+.login-user-line.signed-in {
+    justify-content: space-between;
+}
+
+/* The Left Side wrapper */
+.user-info-left {
+    display: flex;
+    gap: 4px;
+    align-items: baseline;
+}
+
+/* Specific styling for the signature text statuses */
+#login_welcomeSpan.not-signed-in {
+    color: var(--danger);
+    font-weight: 600;
+}
+
+#login_authorizedNameSpan {
+    color: var(--text-main);
+    font-weight: 700;
+}
+
+/* Cleaned link button overrides */
+#login_signoutLnk {
+    padding: 0 !important;
+    margin: 0 !important;
+    height: auto !important;
+    width: auto !important;
+    text-align: right;
+    font-size: 1rem;
+}
+
+/* Center the Need recovery link button */
+#login_recoverySection {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+}
+
+#restoreBackup_decryptBtn {
+    flex: 1;
+}
