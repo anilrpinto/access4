@@ -122,6 +122,41 @@
     width: 100%;
 }
 
+/* =─────────────────────────────────────────────────────────────────────────
+   RESTORE BACKUP MODAL UTILITIES (login.css)
+   ────────────────────────────────────────────────────────────────────────── */
+
+/* Specific height and structural styling for the Recovery Encrypted String box */
+.restore-textarea {
+    height: 100px;
+    background: #fafafa;
+    resize: none;
+    /* width, borders, padding, font, radius, box-sizing are handled by .modal-mini-card textarea */
+}
+
+/* Safari-optimized master key password input for Restore */
+.restore-password-input {
+    font-size: 16px; /* CRITICAL: Prevents iOS Safari auto-zoom on focus */
+    margin-bottom: 20px; /* Slight extra breathing room before actions */
+    /* width, padding, borders, radius, box-sizing are handled by .modal-mini-card input */
+}
+
+/* Read-only output box displaying decrypted raw JSON payload */
+.restore-output-textarea {
+    height: 200px;
+    background: #f9f9f9;
+    resize: none;
+    font-size: 12px; /* Slightly more compact for long data arrays */
+}
+
+/* Success execution state messaging text */
+.status-success {
+    color: var(--success-color);
+    font-weight: bold;
+    font-size: 13px;
+    margin-bottom: 10px;
+}
+
 #restoreBackup_decryptBtn {
     flex: 1;
 }

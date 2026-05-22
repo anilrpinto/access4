@@ -382,10 +382,10 @@ async function _onLoad() {
     //onlyLogLevels(INFO, TRACE);
     log("APP._onLoad", `called for [v${C.APP_VERSION}]`);
 
-    //loadLogin();
+    loadLogin();
 
-    await setAuthData();
-    loadVault("manager", JSON.parse(getVaultData()), { readOnly: false });
+    //await setAuthData();
+    //loadVault("manager", JSON.parse(getVaultData()), { readOnly: false });
 
     logEl.setVisible(G.settings.showLogs === true);
 

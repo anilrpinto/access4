@@ -54,20 +54,29 @@
     font-family: monospace;
 }
 
-/* --- FIELD BOX REFINEMENT --- */
+
+/* ==========================================================================
+   FIELD BOX MATRIX & DETAIL CONTAINER VIEW (explorer.css)
+   ========================================================================== */
+
+.detail-view {
+    padding: 10px 4px;
+}
+
 .field-box {
     margin-bottom: 8px;
     width: 100%;
 }
 
+/* Highly compressed timestamp metadata context layer (e.g., "Created on...") */
 .item-meta-bar {
     display: flex;
     justify-content: space-between;
     padding: 0 4px 6px 4px;
     margin-bottom: 8px;
     font-size: 0.65rem;
-    color: #999;
-    border-bottom: 1px solid #eee;
+    color: #999999;
+    border-bottom: 1px solid #eeeeee;
 }
 
 .meta-left, .meta-right {
@@ -83,7 +92,7 @@
     margin-bottom: 2px;
 }
 
-/* The Label (now an input) */
+/* Dynamic Field Identifier Input Element Labels */
 .label-input {
     border: none !important;
     background: transparent !important;
@@ -91,24 +100,34 @@
     font-size: 0.7rem !important;
     letter-spacing: 0.03em;
     text-transform: uppercase;
-    color: #777 !important;
+    color: #777777 !important;
     width: auto !important;
     padding: 0 !important;
     margin: 0 !important;
 }
+
+/* Editable state highlight */
+.editable .label-input {
+    color: var(--primary-color) !important;
+    border-bottom: 1px dashed #cccccc !important;
+}
+
+/* ==========================================================================
+   FIELD INTERACTION LAYOUT ENGINE & ACTIONS
+   ========================================================================== */
 
 .field-actions {
     display: flex;
     gap: 4px;
 }
 
-/* Base Icon Buttons styling */
+/* Base Utility Structural Buttons */
 .field-actions .icon-btn {
     width: 28px !important;
     height: 28px !important;
     min-width: 28px !important;
     background: transparent !important;
-    color: #666 !important;
+    color: #666666 !important;
     border: none !important;
     padding: 0 !important;
     margin: 0 !important;
@@ -117,11 +136,11 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: color 0.2s, background-color 0.2s;
+    transition: color 0.2s, background-color 0.2s, transform 0.1s ease;
 }
 
 .field-actions .icon-btn:hover {
-    background-color: #eee !important;
+    background-color: #eeeeee !important;
     color: var(--primary-color) !important;
     border-radius: 4px;
 }
@@ -130,31 +149,76 @@
     transform: scale(0.9);
 }
 
-/* CONSOLIDATED TRASH BUTTON OVERRIDES */
+/* Specific Context Accent Overrides: Fullscreen Note Trigger */
+.field-actions .expand-note-btn {
+    font-size: 1.1rem !important; /* Slightly structural profile for heavy characters */
+    color: var(--primary-color) !important;
+}
+
+/* Specific Context Accent Overrides: Field Elimination Row Control */
 .field-actions .delete-field-btn:hover {
     color: var(--danger, #dc3545) !important;
     background-color: #fff5f5 !important;
     border-radius: 4px;
 }
 
-/* The Main Data Input */
+/* ==========================================================================
+   PRIMARY DATA RECEPTACLE (THE MAIN FORM FIELDS)
+   ========================================================================== */
+
 .field-input {
     width: 100% !important;
     background: #ffffff !important;
-    border: 1px solid #ddd !important;
+    border: 1px solid #dddddd !important;
     border-radius: 8px !important;
-    padding: 12px !important;
+    padding: 10px !important;             /* Scaled to 10px for mobile density preservation */
+    font-family: monospace !important;
+    font-size: 0.9rem !important;          /* Dense layout size scaling factor */
+    color: #333333 !important;
+}
+
+/* ==========================================================================
+   IMMERSIVE NOTE EXPANSION CANVAS WORKSPACE
+   ========================================================================== */
+
+.note-expand-wrapper {
+    position: relative;
+}
+
+/* Screen overlay engine blocking baseline workspace interactions */
+.full-screen-note-overlay {
+    position: fixed;
+    inset: 0;
+    background: #ffffff;
+    z-index: 10002; /* Pushes cleanly above standard app view structures */
+    display: flex;
+    flex-direction: column;
+    /* Respects physical dynamic hardware notch tracking environments */
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+}
+
+.note-overlay-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px;
+    background: var(--vault-header-bg);
+    border-bottom: 1px solid var(--border-color, #dddddd);
+    font-weight: bold;
+}
+
+/* Distraction-Free Plaintext Field Focus Workspace */
+.note-overlay-content {
+    flex: 1;
+    width: 100%;
+    padding: 20px !important;
     font-family: monospace !important;
     font-size: 1rem !important;
-    color: #333 !important;
+    border: none !important;
+    resize: none;
+    outline: none; /* Kills secondary baseline input halos across platform web engines */
 }
-
-/* Editable state highlight */
-.editable .label-input {
-    color: var(--primary-color) !important;
-    border-bottom: 1px dashed #ccc !important;
-}
-
 
 /* --- ADD FIELD TEMPLATE (SLIMMED) --- */
 .add-template {
@@ -283,4 +347,52 @@
 .source-group-active span {
     font-weight: bold;
     color: #e68a00;
+}
+
+/** Search count **/
+/* The Container for the Row */
+
+/* The Label (Name of Item/Group) */
+.row-label {
+    flex: 1; /* Takes up all available space */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis; /* Prevents long names from pushing the badge off-screen */
+    margin-right: 10px;
+}
+
+/* The Fixed Space for the Badge/Arrow */
+.row-status-area {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end; /* Align to the right */
+    min-width: 35px;           /* Minimum space to keep things aligned */
+    width: auto;               /* Allow it to grow if two badges exist */
+    gap: 8px;                  /* Space between green match and gray count */
+    flex-shrink: 0;
+}
+
+/* The Badge Itself */
+.list-row .match-count-badge {
+    background-color: #9cf3af;
+    font-family: monospace;
+    font-size: 12px;
+    padding: 2px 8px;        /* Added a little horizontal padding */
+    min-width: 24px;         /* Minimum width */
+    width: auto;             /* Let it grow for double digits like "14" */
+    height: 18px;
+    /*line-height: 18px;*/
+    border-radius: 12px;
+    text-align: center;
+    flex-shrink: 0;          /* CRITICAL: Prevents squashing */
+}
+
+/* Optional: Subtle pulse if it's a fresh search */
+.match-count-badge {
+    animation: badge-pop 0.3s ease-out;
+}
+
+@keyframes badge-pop {
+    0% { transform: scale(0.5); opacity: 0; }
+    100% { transform: scale(1); opacity: 1; }
 }
