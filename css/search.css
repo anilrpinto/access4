@@ -3,7 +3,7 @@
  * Chains with .modal-mini-card from base.css to inherit base shadows and layout.
  */
 .adv-search-container {
-    background-color: var(--vault-header-bg);
+    background-color: var(--bg-color);
     border: 1px solid var(--border-color);
     color: var(--text-main);
 }
