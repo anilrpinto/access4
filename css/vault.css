@@ -1,60 +1,48 @@
 /**
  * MOBILE USABILITY & BOUNDARY RESTRICTIONS
- * Prevents mobile browsers from triggering native pull-to-refresh swipe down gestures.
+ * Suppresses default browser pull-to-refresh swipe behaviors on active views.
  */
 html.vault-active,
 body.vault-active {
     overscroll-behavior-y: none !important;
-    overflow: hidden; /* Strict kill-switch for rubber-band stretch mechanics */
+    overflow: hidden; /* Hard boundary limit blocking canvas rubber-banding */
     height: 100% !important;
 }
 
-/* Isolates view scroll state exclusively inside the view layer container */
+/* Isolates interactive view scrolling inside the view layer container bounds */
 body.vault-active #vaultView {
     height: 100vh;
     overflow-y: auto;
-    -webkit-overflow-scrolling: touch; /* Butter-smooth momentum scrolling on iOS */
+    -webkit-overflow-scrolling: touch; /* Momentum scroll layer injection for iOS engines */
 }
 
 #vault_mainSection {
     display: flex;
-    flex-direction: column; /* FORCES TOP-TO-BOTTOM STACKING */
+    flex-direction: column; /* Vertical element stack layout routing */
     width: 100%;
 }
 
-.genesis-user {
-    color: #138d9c !important;
-    font-weight: bold;
-}
-
-.admin-user {
-    color: #602bba !important;
-    font-weight: bold;
-}
-
-.member-user {
-    color: #000000 !important;
-    font-weight: bold;
-}
+/* Dynamic User Access State Markers */
+.genesis-user { color: #138d9c !important; font-weight: bold; }
+.admin-user   { color: #602bba !important; font-weight: bold; }
+.member-user  { color: #000000 !important; font-weight: bold; }
 
 /* ==========================================================================
-   VAULT READ-ONLY & FROZEN STATES
+   VAULT READ-ONLY, ARCHIVAL & FROZEN STATE LAYOUTS
    ========================================================================== */
-/* 1. The Header Tint */
+
 header.vault-readonly-mode {
-    background-color: #fbb55a !important; /* Soft red tint */
-    border-bottom: 3px solid #d57424;     /* Warning red accent line */
+    background-color: #fbb55a !important; /* Warning tint indicator */
+    border-bottom: 3px solid #d57424;     /* Accent anchoring line boundary */
 }
 
-/* 2. The Global "Frozen" State */
 body.vault-frozen {
-    background-color: #f4f4f4; /* Slightly grayer background */
+    background-color: #f4f4f4;
 }
 
-/* 3. The Badge */
 .readonly-badge {
     background: #e1561b;
-    color: #000;
+    color: #000000;
     font-size: 10px;
     font-weight: bold;
     padding: 2px 6px;
@@ -64,160 +52,90 @@ body.vault-frozen {
     vertical-align: middle;
 }
 
-/* 4. Ghosting interactive elements when frozen */
 body.vault-frozen .list-row:active {
-    background-color: transparent; /* Disable the click feedback look */
+    background-color: transparent; /* Suppresses layout tap feedback when system is locked */
 }
 
+/* ==========================================================================
+   VAULT INTERFACE COMPONENT HEADERS
+   ========================================================================== */
 
-/* --- VAULT HEADER --- */
 #vaultView header {
-    isolation: isolate; /* Added safety */
+    isolation: isolate;
     background-color: var(--vault-header-bg);
-    color: #222;
+    color: #222222;
     border-bottom: 1px solid #58c7f4;
-    height: 60px; /* Fixed height helps with centering */
+    height: 60px;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0 12px; /* Slightly tighter side padding */
+    padding: 0 12px;
 }
 
-/* --- 5. VAULT SPECIFIC UI --- */
-#vault_headerLeftSide, #vault_headerRightSide {
+#vault_headerLeftSide,
+#vault_headerRightSide {
     display: flex;
-    align-items: center; /* This is the vertical center anchor */
-    height: 100%;       /* Match header height for perfect centering */
+    align-items: center;
+    height: 100%;
 }
 
-/* --- VAULT TITLE PRECISION ALIGNMENT --- */
 #vault_title {
     font-size: 1.1rem;
     margin: 0;
     font-weight: 600;
     display: flex;
     align-items: center;
-
-    /* THE FIX: Nudge the text down by 1-2 pixels to match the icon baseline */
-    transform: translateY(2px);
-
-    /* Ensure the font doesn't add its own weird vertical padding */
+    transform: translateY(2px); /* Spatial text adjustment matching layout font baselines */
     line-height: 1.2;
     height: 100%;
 }
 
+/* ==========================================================================
+   FORM WRAPPERS & DIALOG CONTROLS
+   ========================================================================== */
 
-/* Bind specific vault buttons to the global secondary layout pattern */
-#vaultAddNew_cancelBtn,
-#vaultRecoveryKey_cancelBtn {
-    /* Effectively inherits everything from .btn-secondary */
-    background-color: #f0f2f5 !important;
-    color: #444 !important;
-    border: 1px solid #ddd !important;
-    box-shadow: none !important;
-}
-
-/* Bind specific delete confirmation buttons to the global danger layout pattern */
-#vaultDelete_confirmBtn:hover {
-    background-color: #c62828 !important;
-    color: white !important;
-}
-
-#vaultDelete_confirmBtn:active {
-    background-color: #f8d7da !important;
-}
-
-
-/* --- (Add/Delete/Recovery) --- */
-
-/* 1. Ensure the container fills the screen width */
 #vaultAddNew_mainSection,
 #vaultRecoveryKey_mainSection,
 #vaultConfirm_mainSection {
     width: 100% !important;
     max-width: none !important;
-    padding: 0px 15px;
+    padding: 0 15px;
 }
 
-/* 2. Fix the "Current Password" and other inputs */
 #vaultRecoveryKey_mainSection .input-group,
 #vaultAddNew_mainSection .input-group {
     width: 100% !important;
     margin-bottom: 15px;
 }
 
-/* Group, Item Add or Delete title */
 #vaultAddNew_title,
 #vaultConfirm_title {
     font-size: 1.1rem;
     font-weight: 700;
     margin: 0 0 15px 0;
     padding-bottom: 10px;
-    border-bottom: 1px solid #ccc; /* The horizontal line */
-    color: #444; /* Standard generic color */
-}
-
-
-/* Map specific vault text nodes directly to the global modal title standard */
-#restoreBackup_title,
-#systemModal_title {
-    font-size: 1.1rem !important;
-    font-weight: 800 !important;
-    color: var(--primary-color) !important;
-    margin: 0 !important;
-    line-height: 1 !important;
+    border-bottom: 1px solid #cccccc;
+    color: #444444;
 }
 
 /* ==========================================================================
-   VAULT SPECIFIC MODULE BUTTONS
+   ADMINISTRATIVE CAPABILITIES & CONTROL FLOATS
    ========================================================================== */
 
-/* Maps systemic cancel triggers straight to your base secondary layouts */
-#systemModal_cancelBtn {
-    background-color: #f0f2f5 !important;
-    color: #444 !important;
-    border: 1px solid #ddd !important;
-}
-
-/* Custom backup interaction items */
-#restoreBackup_copyBtn:hover {
-    background-color: #fa8241 !important; /* Specific amber/orange highlight override */
-    color: #333 !important;
-}
-
-/* Flat string close tag (X) positioning wrapper */
-#restoreBackup_closeBtn {
-    all: unset;
-    cursor: pointer;
-    color: #aaa;
-    font-weight: bold;
-    font-size: 18px;
-    line-height: 1;
-    transition: color 0.1s ease;
-}
-
-#restoreBackup_closeBtn:hover {
-    color: #333;
-}
-
-
-/* ==========================================================================
-   ADMIN CLEANUP PILL
-   ========================================================================== */
 .admin-cleanup-pill {
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    background: #fff3cd; /* Warm yellow/amber warning alert tone */
+    background: #fff3cd; /* Warm yellow status warning alert container tone */
     color: #856404;
     border: 1px solid #ffeeba;
     padding: 0 10px;
-    height: 28px; /* Matches standard icon-button height layout */
-    border-radius: 14px; /* Fully rounded capsule pill look */
+    height: 28px;
+    border-radius: 14px;
     font-size: 11px;
     font-weight: 700;
     cursor: pointer;
-    margin-right: 8px; /* Space buffer before the adjacent [+] action button */
+    margin-right: 8px;
     transition: all 0.2s;
     user-select: none;
 }
@@ -232,107 +150,6 @@ body.vault-frozen .list-row:active {
     font-size: 13px;
 }
 
-/* ==========================================================================
-   SEARCH & INTERACTION ENGINE LOOKUPS
-   ========================================================================== */
-
-/**
- * ROLE: Visual indicator for row item matches inside your lists.
- * SCOPE: Vault view filtering feedback loop.
- * TARGETS: Dynamic classes attached to matches returned inside `#vault_explorer`.
- */
-.search-highlight {
-    border-left: 4px solid #27ae60 !important; /* Mid-tone Emerald Accent */
-    background-color: rgba(39, 174, 96, 0.05) !important;
-    transition: all 0.2s ease-in-out;
-}
-
-/**
- * ROLE: Text contrast modification for matched list element child spans.
- * SCOPE: Inside `.search-highlight` blocks.
- */
-.search-highlight span {
-    color: #1b5e20 !important; /* High contrast green font placement */
-    font-weight: 600;
-}
-
-/**
- * ROLE: Individual text string match highlights for text item configurations.
- * SCOPE: Detail sub-field matches.
- */
-.search-label-hit {
-    color: #1b5e20 !important;
-    font-weight: 800 !important;
-    background-color: rgba(46, 204, 113, 0.15) !important;
-    border-bottom: 2px solid #1b5e20 !important;
-    padding: 2px 4px;
-    border-radius: 2px;
-}
-
-/* ==========================================================================
-   ENCRYPTED ASSET ATTACHMENTS HANDLING (vault.css)
-   ========================================================================== */
-
-/**
- * ROLE: Structural boundary padding context for file objects.
- */
-.attachment-section {
-    margin-top: 15px;
-    padding-top: 10px;
-    border-top: 1px solid var(--border-color);
-}
-
-/**
- * ROLE: Horizontal layout alignment anchor for file listings.
- */
-.attachment-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 6px 0;
-}
-
-/**
- * ROLE: Highlight row decoration for attachments matching a search.
- */
-.attachment-row.filter-match {
-    background-color: rgba(76, 175, 80, 0.1);
-    border-left: 4px solid #4CAF50;
-    border-radius: 4px;
-    padding-left: 8px;
-}
-
-/**
- * ROLE: High-visibility font coloring adjustments for matching files.
- */
-.attachment-row.filter-match .file-link {
-    font-weight: 600;
-    color: #2e7d32;
-}
-
-/**
- * ROLE: File descriptor link interaction context.
- */
-.file-link {
-    color: #3498db;
-    text-decoration: none;
-    font-size: 0.9em;
-    cursor: pointer;
-    transition: opacity 0.2s;
-}
-.file-link:hover {
-    opacity: 0.7;
-}
-
-
-/* ==========================================================================
-   MEMBER ADMINISTRATION UI (vault.css)
-   ========================================================================== */
-
-/**
- * ROLE: Card styling for the embedded admin dashboard view.
- * Targets by ID to keep the regular confirmation modals unstyled.
- */
 #vaultUsers_mainSection {
     background: #ffffff;
     border: 1px solid #e0e0e0;
@@ -343,24 +160,21 @@ body.vault-frozen .list-row:active {
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 }
 
-/* Prevents horizontal input squishing when fields are revealed */
 #vaultUsers_formFields {
     display: flex;
     flex-direction: column;
     width: 100%;
 }
 
-/* Card layout header spacing wrapper */
 .inline-view-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
     margin-bottom: 15px;
-    border-bottom: 1px solid #eee;
+    border-bottom: 1px solid #eeeeee;
     padding-bottom: 10px;
 }
 
-/* Standardized typography rules for internal dashboard titles */
 .inline-ui-view h3,
 .inline-view-header h3 {
     font-size: 1.1rem;
@@ -371,18 +185,16 @@ body.vault-frozen .list-row:active {
     color: var(--header-bg);
 }
 
-/* Custom platform native reset for administration select dropdowns */
 select#vaultUsers_userSelect,
 select#vaultUsers_roleSelect {
     width: 100%;
     padding: 12px;
-    border: 1px solid #ccc;
+    border: 1px solid #cccccc;
     border-radius: 8px;
-    background-color: white;
+    background-color: #ffffff;
     font-size: 1rem;
     margin-bottom: 15px;
-    appearance: none; /* Strips native OS styling */
-    /* Custom SVG down arrow icon */
+    appearance: none;
     background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
     background-repeat: no-repeat;
     background-position: right 10px center;
@@ -390,12 +202,13 @@ select#vaultUsers_roleSelect {
 }
 
 /* ==========================================================================
-   ADMIN MODULE FLEXBOX ALIGNMENTS
+   ADMIN MODULE FLEXBOX ALIGNMENTS (PATCHED)
    ========================================================================== */
+
 .button-group-admin {
     display: flex !important;
     flex-direction: row !important;
-    justify-content: space-between; /* Pushes 'Revoke' left and 'Cancel/Save' right */
+    justify-content: space-between; /* Strictly isolates Revoke button away from structural saves */
     align-items: center;
     width: 100%;
 }
@@ -403,20 +216,18 @@ select#vaultUsers_roleSelect {
 .action-group-right {
     display: flex;
     flex-direction: row;
-    gap: 10px; /* Precise layout gap between Cancel and Save interactive states */
+    gap: 10px;
     margin-left: auto;
 }
 
-/* Explicit constraint overrides to stop buttons from filling the screen */
 .button-group-admin button {
-    flex: 0 0 auto !important; /* Tells the layout engine NOT to stretch these buttons */
-    width: auto !important;     /* Shrinks the width down strictly to fit the text sizes */
+    flex: 0 0 auto !important; /* Blocks layout engine automatic component stretching metrics */
+    width: auto !important;
     padding: 10px 18px !important;
     margin: 0 !important;
     white-space: nowrap;
 }
 
-/* Ensure the Save/Cancel buttons retain standard compact padding */
 .action-group-right button {
     padding: 10px 16px !important;
 }

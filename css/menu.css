@@ -1,33 +1,27 @@
-/* Dropdown Menu styling */
-/* --- 12. CONSOLIDATED MENU DROPDOWN --- */
-.menu-container {
+#vaultMenu_mainSection {
     position: relative;
 }
 
-.menuDropdown-content {
-    display: none; /* Hidden by default */
+#vaultMenu_menuDropdown {
+    display: none; /* Hidden by default; orchestrated via JS state toggle */
     position: absolute;
     right: 10px;
     top: 55px;
     background-color: #ffffff;
     min-width: 200px;
     padding: 8px 0;
-    border: 1px solid #ddd;
+    border: 1px solid #dddddd;
     border-radius: 8px;
-    box-shadow: 0px 8px 16px rgba(0,0,0,0.15);
-    z-index: 1001 !important;
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.15);
+    z-index: 1001 !important; /* Forces layout tracking to sit cleanly above workspace headers */
+    user-select: none;        /* Safeguards against text-selection highlight on fast mobile double-taps */
 }
 
-/* Logic for JS to toggle visibility */
-.show-menu {
-    display: block !important;
-}
-
-/* Resetting the global 'fat button' styles for menu items */
-.menuDropdown-content button {
+/* Strips out baseline global button sizing footprints from base.css for dropdown compatibility */
+#vaultMenu_menuDropdown button {
     width: 100%;
     background: none !important;
-    color: #333 !important;
+    color: #333333 !important;
     padding: 12px 16px !important;
     text-align: left !important;
     border: none !important;
@@ -39,17 +33,26 @@
     cursor: pointer;
 }
 
-.menuDropdown-content button:hover {
+#vaultMenu_menuDropdown button:hover {
     background-color: #f5f5f5 !important;
     color: var(--primary-color) !important;
 }
 
-.menuDropdown-content button.danger-text {
+/* Distinct signature layout style for destructive dropdown items (e.g., Logout) */
+#vaultMenu_menuDropdown button.danger-text {
     color: var(--danger) !important;
 }
 
-.menuDropdown-content hr {
+#vaultMenu_menuDropdown hr {
     border: 0;
-    border-top: 1px solid #eee;
+    border-top: 1px solid #eeeeee;
     margin: 4px 0;
+}
+
+/* ==========================================================================
+   STATE ORCHESTRATION TOGGLES
+   ========================================================================== */
+
+.show-menu {
+    display: block !important;
 }

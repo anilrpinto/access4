@@ -1,7 +1,5 @@
-/* --- EXPLORER LIST ROWS --- */
 #vault_explorer {
-    /* Kept to explicitly stretch any custom elements if necessary */
-    width: 100%;
+    width: 100%; /* Explicitly stretches dynamic custom items inside container templates */
 }
 
 .list-row {
@@ -17,12 +15,12 @@
     transition: background-color 0.2s, transform 0.1s, box-shadow 0.2s;
 }
 
-/* Mouse-over effect for PC */
+/* Mouse-over enhancements for desktop environments */
 @media (hover: hover) {
     .list-row:hover {
         background-color: #fcfcfc;
         border-color: var(--primary-color);
-        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
         transform: translateY(-1px);
     }
 }
@@ -32,31 +30,16 @@
     background-color: #f0f0f0;
 }
 
-.list-row .row-title {
-    font-weight: 500;
-    color: #333;
-    font-size: 1rem;
-}
-
-.list-row .row-meta {
-    color: #aaa;
-    font-size: 0.85rem;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
 .list-row .count {
     background: #f0f2f5;
     padding: 2px 8px;
     border-radius: 12px;
-    color: #666;
+    color: #666666;
     font-family: monospace;
 }
 
-
 /* ==========================================================================
-   FIELD BOX MATRIX & DETAIL CONTAINER VIEW (explorer.css)
+   FIELD BOX MATRIX & DETAIL DATA LAYOUTS
    ========================================================================== */
 
 .detail-view {
@@ -79,10 +62,12 @@
     border-bottom: 1px solid #eeeeee;
 }
 
-.meta-left, .meta-right {
+.meta-left,
+.meta-right {
     flex: 1;
 }
-.meta-left { text-align: left; }
+
+.meta-left  { text-align: left; }
 .meta-right { text-align: right; }
 
 .field-header {
@@ -106,7 +91,7 @@
     margin: 0 !important;
 }
 
-/* Editable state highlight */
+/* Editable context layout modifications */
 .editable .label-input {
     color: var(--primary-color) !important;
     border-bottom: 1px dashed #cccccc !important;
@@ -149,52 +134,41 @@
     transform: scale(0.9);
 }
 
-/* Specific Context Accent Overrides: Fullscreen Note Trigger */
 .field-actions .expand-note-btn {
-    font-size: 1.1rem !important; /* Slightly structural profile for heavy characters */
+    font-size: 1.1rem !important; /* Visual padding override for heavy character sets */
     color: var(--primary-color) !important;
 }
 
-/* Specific Context Accent Overrides: Field Elimination Row Control */
 .field-actions .delete-field-btn:hover {
     color: var(--danger, #dc3545) !important;
     background-color: #fff5f5 !important;
     border-radius: 4px;
 }
 
-/* ==========================================================================
-   PRIMARY DATA RECEPTACLE (THE MAIN FORM FIELDS)
-   ========================================================================== */
-
+/* Primary Form Value Input Fields */
 .field-input {
     width: 100% !important;
     background: #ffffff !important;
     border: 1px solid #dddddd !important;
     border-radius: 8px !important;
-    padding: 10px !important;             /* Scaled to 10px for mobile density preservation */
+    padding: 10px !important; /* Preserves vertical field layout density on mobile */
     font-family: monospace !important;
-    font-size: 0.9rem !important;          /* Dense layout size scaling factor */
+    font-size: 0.9rem !important;
     color: #333333 !important;
 }
 
 /* ==========================================================================
-   IMMERSIVE NOTE EXPANSION CANVAS WORKSPACE
+   IMMERSIVE NOTE EXPANSION CANVAS OVERLAYS
    ========================================================================== */
 
-.note-expand-wrapper {
-    position: relative;
-}
-
-/* Screen overlay engine blocking baseline workspace interactions */
 .full-screen-note-overlay {
     position: fixed;
     inset: 0;
     background: #ffffff;
-    z-index: 10002; /* Pushes cleanly above standard app view structures */
+    z-index: 10002; /* Floats cleanly above standard modular elements */
     display: flex;
     flex-direction: column;
-    /* Respects physical dynamic hardware notch tracking environments */
-    padding-top: env(safe-area-inset-top);
+    padding-top: env(safe-area-inset-top); /* Safety guards for device notches */
     padding-bottom: env(safe-area-inset-bottom);
 }
 
@@ -208,7 +182,6 @@
     font-weight: bold;
 }
 
-/* Distraction-Free Plaintext Field Focus Workspace */
 .note-overlay-content {
     flex: 1;
     width: 100%;
@@ -217,25 +190,28 @@
     font-size: 1rem !important;
     border: none !important;
     resize: none;
-    outline: none; /* Kills secondary baseline input halos across platform web engines */
+    outline: none; /* Suppresses focusing ring overlays on native mobile viewports */
 }
 
-/* --- ADD FIELD TEMPLATE (SLIMMED) --- */
+/* ==========================================================================
+   DYNAMIC FORM COMPONENT BUILDER WRAPPERS
+   ========================================================================== */
+
 .add-template {
     margin-top: 15px;
-    padding: 6px 12px !important; /* Reduced vertical padding */
+    padding: 6px 12px !important;
     background: #fcfcfc;
-    border: 1px dashed #ccc;
+    border: 1px dashed #cccccc;
     border-radius: 8px;
 }
 
 .add-field-row {
     display: flex;
     flex-direction: row !important;
-    align-items: center; /* Changed from stretch to center for better icon alignment */
+    align-items: center;
     gap: 8px;
     width: 100%;
-    min-height: 36px; /* Sets a slim baseline */
+    min-height: 36px;
 }
 
 .add-label-input {
@@ -243,7 +219,6 @@
     border: none !important;
     background: transparent !important;
     font-size: 0.9rem !important;
-    /* Reset height and padding to slim the box */
     height: 36px !important;
     padding: 0 8px !important;
     margin: 0 !important;
@@ -252,42 +227,34 @@
 
 .add-type-select {
     flex: 1;
-    height: 32px !important; /* Slightly shorter than the input for visual balance */
-    border: 1px solid #ddd;
+    height: 32px !important;
+    border: 1px solid #dddddd;
     border-radius: 6px;
     padding: 0 4px !important;
     font-size: 0.85rem;
-    color: #666;
-    background: white;
+    color: #666666;
+    background: #ffffff;
 }
 
-/* --- ADD FIELD BUTTON (ICON STYLE) --- */
 .add-field-row .add-icon-btn {
-    /* 1. Remove the solid blue block */
     background: transparent !important;
     border: none !important;
     box-shadow: none !important;
-
-    /* 2. Style the plus sign itself */
     color: var(--primary-color) !important;
     font-size: 1.4rem !important;
     font-weight: bold;
-
-    /* 3. Reset dimensions to be a slim square */
     width: 36px !important;
     min-width: 36px !important;
     height: 36px !important;
     padding: 0 !important;
     margin: 0 !important;
-
     display: flex !important;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    flex-shrink: 0; /* Prevents button from squishing */
+    flex-shrink: 0;
 }
 
-/* Subtle hover effect */
 .add-field-row .add-icon-btn:hover {
     background-color: #f0f4ff !important;
     border-radius: 50%;
@@ -297,102 +264,117 @@
     transform: scale(0.9);
 }
 
-/* MOVE GROUPS/ITEMS */
+/* ==========================================================================
+   INTERACTIVE SELECTION & MUTATION STATES (ORCHESTRATION ARCHITECTURE)
+   ========================================================================== */
 
-/* Highlight for items marked for moving */
+/* Highlight state for elements cut or staged for cross-directory movement */
 .list-row.to-be-moved {
     opacity: 0.8;
-    background-color: rgba(255, 152, 0, 0.2); /* Orange tint for "Cut" */
-    border-left: 4px dashed #FF9800;
+    background-color: rgba(255, 152, 0, 0.2);
+    border-left: 4px dashed #ff9800;
 }
 
+/* Batch selection active layout states */
 .list-row.selected {
-    background-color: rgb(189 166 248 / 0.15) !important;
+    background-color: rgba(189, 166, 248, 0.15) !important;
     border-left: 4px solid #3d21f3 !important;
 }
 
-/* When items INSIDE the group are selected */
+/* FIXED CONFLICT: Standardized source group active layouts cleanly to Cut state signatures */
 .list-row.source-group-active {
-    background-color: rgb(189 166 248 / 0.15) !important;
-    border-left: 5px solid #3d21f3; /* Distinct Blue stripe */
+    border-left: 4px solid #ff9800 !important;
+    background-color: rgba(255, 152, 0, 0.05) !important;
 }
 
-/* Visual cue when selection mode is active */
-.selecting .list-row {
-    cursor: cell;
-}
-
-/* Highlight the menu text when Selection Mode is on */
-.active-mode-text {
-    color: #2196F3 !important; /* Professional Blue */
-    font-weight: bold;
-}
-
-/* Optional: Pulse effect on the title when selecting */
-.selecting-active {
-    animation: pulse 2s infinite;
-}
-
-@keyframes pulse {
-    0% { opacity: 1; }
-    50% { opacity: 0.7; }
-    100% { opacity: 1; }
-}
-
-.source-group-active {
-    border-left: 4px solid #FF9800 !important; /* Orange match for Cut Mode */
-    background-color: rgba(255, 152, 0, 0.05);
-}
-
-.source-group-active span {
+.list-row.source-group-active span {
     font-weight: bold;
     color: #e68a00;
 }
 
-/** Search count **/
-/* The Container for the Row */
+.active-mode-text {
+    color: #2196f3 !important;
+    font-weight: bold;
+}
 
-/* The Label (Name of Item/Group) */
+/* ==========================================================================
+   DYNAMIC TEXT MATCH STRUCTURAL BOUNDARIES & COUNTERS
+   ========================================================================== */
+
 .row-label {
-    flex: 1; /* Takes up all available space */
+    flex: 1;
     white-space: nowrap;
     overflow: hidden;
-    text-overflow: ellipsis; /* Prevents long names from pushing the badge off-screen */
+    text-overflow: ellipsis; /* Guards row bounds against name overflows pushing out counters */
     margin-right: 10px;
 }
 
-/* The Fixed Space for the Badge/Arrow */
 .row-status-area {
     display: flex;
     align-items: center;
-    justify-content: flex-end; /* Align to the right */
-    min-width: 35px;           /* Minimum space to keep things aligned */
-    width: auto;               /* Allow it to grow if two badges exist */
-    gap: 8px;                  /* Space between green match and gray count */
+    justify-content: flex-end;
+    min-width: 35px;
+    width: auto;
+    gap: 8px;
     flex-shrink: 0;
 }
 
-/* The Badge Itself */
 .list-row .match-count-badge {
     background-color: #9cf3af;
     font-family: monospace;
     font-size: 12px;
-    padding: 2px 8px;        /* Added a little horizontal padding */
-    min-width: 24px;         /* Minimum width */
-    width: auto;             /* Let it grow for double digits like "14" */
+    padding: 2px 8px;
+    min-width: 24px;
+    width: auto;
     height: 18px;
-    /*line-height: 18px;*/
     border-radius: 12px;
     text-align: center;
-    flex-shrink: 0;          /* CRITICAL: Prevents squashing */
-}
-
-/* Optional: Subtle pulse if it's a fresh search */
-.match-count-badge {
+    flex-shrink: 0;
     animation: badge-pop 0.3s ease-out;
 }
 
 @keyframes badge-pop {
-    0% { transform: scale(0.5); opacity: 0; }
-    100% { transform: scale(1); opacity: 1; }
+    0%   { transform: scale(0.5); opacity: 0; }
+    100% { transform: scale(1);   opacity: 1; }
+}
+
+/* ==========================================================================
+   CRYPTOGRAPHIC FILE ATTACHMENT VIEW LAYER CONTEXTS
+   ========================================================================== */
+
+.attachment-section {
+    margin-top: 15px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border-color);
+}
+
+.attachment-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 0;
+}
+
+.attachment-row.filter-match {
+    background-color: rgba(76, 175, 80, 0.1);
+    border-left: 4px solid #4caf50;
+    border-radius: 4px;
+    padding-left: 8px;
+}
+
+.attachment-row.filter-match .file-link {
+    font-weight: 600;
+    color: #2e7d32;
+}
+
+.file-link {
+    color: #3498db;
+    text-decoration: none;
+    font-size: 0.9em;
+    cursor: pointer;
+    transition: opacity 0.2s;
+}
+
+.file-link:hover {
+    opacity: 0.7;
 }

@@ -1,9 +1,11 @@
-/* --- 1. THE FOUNDATION --- */
+/* ==========================================================================
+   DESIGN SYSTEM FOUNDATION (base.css)
+   ========================================================================== */
+
 :root {
     --header-bg: #5dbeea;
     --vault-header-bg: #b7e1f3;
     --primary-color: #1E90FF;
-    --error-color: #dc3545;
     --bg-color: #f5f7fa;
     --text-main: #333333;
     --text-muted: #4a4a4a;
@@ -11,9 +13,6 @@
     --success-color: #28a745;
     --border-color: #9e9c9c;
 
-    --color-bio-none: #fdfcfc;    /* Muted Slate */
-    --color-bio-armed: #3b82f6;   /* Energetic Blue */
-    --color-bio-glow: rgba(59, 130, 246, 0.5);
     --transition-speed: 0.3s;
 }
 
@@ -22,42 +21,37 @@
     -webkit-tap-highlight-color: transparent;
 }
 
-/* THE FIX: Remove all height/overflow constraints from html/body */
 html, body {
     margin: 0;
     padding: 0;
     background-color: var(--bg-color);
     font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
     color: var(--text-main);
-
-    /* Allow the page to be a natural scrolling document */
     min-height: 100%;
-    overflow-x: hidden;
-    overflow-y: visible;
-    overscroll-behavior-y: auto;
+    overflow-x: hidden; /* Natural page scrolling document container fallback */
 }
 
 input:focus,
 textarea:focus {
-    outline: none; /* Removes the heavy black default border */
+    outline: none;
     border-color: var(--primary-color);
-    box-shadow: 0 0 0 1px rgba(12, 109, 202, 0.40); /* Soft blue glow */
+    box-shadow: 0 0 0 1px rgba(12, 109, 202, 0.40); /* Soft focus illumination */
     transition: border-color 0.2s, box-shadow 0.2s;
 }
 
-/* --- 3. THE HEADERS (Sticky & Professional) --- */
+/* --- THE HEADERS (Sticky Viewport Layer) --- */
 header {
     width: 100%;
     height: 60px;
     display: flex;
     align-items: center;
     padding: 0 16px;
-    position: sticky; /* Keep navigation available */
+    position: sticky;
     top: 0;
     background-color: var(--header-bg);
-    color: #fff;
+    color: #ffffff;
     box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-    z-index: 1000 !important; /* Higher than the viewer */
+    z-index: 1000 !important;
 }
 
 .view-container {
@@ -67,21 +61,22 @@ header {
     flex-direction: column;
 }
 
-/* Helper for when JS switches views */
 .view-container.active {
     display: flex;
 }
 
-/* --- 4. MAIN CONTENT (The Sizing Box) --- */
 main {
     width: 100%;
     max-width: 500px;
     margin: 0 auto;
     padding: 20px 15px;
-    flex: 1; /* Pushes footer content down if needed */
+    flex: 1; /* Pushes bottom utility layouts down smoothly */
 }
 
-/* --- 6. THE SKIN (Buttons & Inputs) --- */
+/* ==========================================================================
+   GLOBAL DESIGN SYSTEM SKIN (INPUTS & GENERIC BUTTONS)
+   ========================================================================== */
+
 button {
     width: 100%;
     padding: 14px;
@@ -99,13 +94,12 @@ input[type="text"],
 input[type="password"] {
     width: 100%;
     padding: 12px;
-    border: 1px solid #ccc;
+    border: 1px solid #cccccc;
     border-radius: 8px;
     font-size: 1rem;
     margin-bottom: 15px;
 }
 
-/* Ensuring the Lock, Plus, Trash, and Menu are identical in size */
 .icon-button {
     width: 40px;
     height: 40px;
@@ -121,42 +115,25 @@ input[type="password"] {
     cursor: pointer;
 }
 
-.btn-primary {
-    background-color: #27ae60 !important; /* Solid Green */
-    color: white;
-    border: none;
-    padding: 12px;
-    border-radius: 6px;
-    font-weight: 700;
-    cursor: pointer;
-    transition: opacity 0.2s ease;
-}
-
-/* --- LINK BUTTON RESTORE --- */
+/* Link-Style Button Conversions */
 button.link-button {
     background: none !important;
     color: var(--primary-color) !important;
     border: none !important;
     padding: 0 !important;
     margin-top: 20px !important;
-    width: auto !important; /* Don't span full width */
+    width: auto !important;
     font-size: 0.95rem;
     box-shadow: none !important;
     cursor: pointer;
-    text-decoration: none !important; /* Removes the underline */
-    font-weight: 600 !important;      /* Makes it slightly punchier to look like a link */
+    text-decoration: none !important;
+    font-weight: 600 !important;
 }
 
-button.link-button:hover {
-    opacity: 0.8;
-}
+button.link-button:hover { opacity: 0.8; }
+button.link-button:active { transform: none; opacity: 0.7; }
 
-button.link-button:active {
-    transform: none;
-    opacity: 0.7;
-}
-
-/* STATUS & ERROR MESSAGES --- */
+/* Status & Processing Feedback Rows */
 .unlock-message, .status-message {
     margin-top: 15px;
     font-size: 0.9rem;
@@ -177,14 +154,14 @@ button.link-button:active {
 }
 
 /* ==========================================================================
-   GLOBAL BUTTON COMPONENT LAYOUTS
+   COMPACT STRUCTURAL BUTTON GROUPS
    ========================================================================== */
 
 .button-group {
     display: flex !important;
     flex-direction: row !important;
     width: 100%;
-    gap: 10px; /* Split the difference between 8px and 12px definitions */
+    gap: 10px;
     margin-top: 10px;
 }
 
@@ -196,38 +173,38 @@ button.link-button:active {
     font-weight: 700 !important;
     font-size: 0.9rem !important;
     margin: 0 !important;
-    white-space: nowrap; /* ADDED: Prevents text-wrap breaks on smaller phone views */
+    white-space: nowrap; /* Keeps strings flat on narrow screen viewports */
     cursor: pointer;
 }
 
-/* ==========================================================================
-   GLOBAL DESIGN SYSTEM UTILITIES
-   ========================================================================== */
-
-/* Primary Action Variant (Solid Green) */
+/* Primary Form Action Modifier (Solid Green) */
 .btn-primary,
 .success-btn {
-    background-color: #27ae60 !important; /* Uniform dark green */
+    background-color: #27ae60 !important;
     color: white !important;
     border: none !important;
+    padding: 12px;
+    border-radius: 6px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: opacity 0.2s ease;
 }
+
 .btn-primary:hover,
 .success-btn:hover {
-    background-color: #219653 !important; /* Clean hover fall-down */
+    background-color: #219653 !important;
 }
 
-/* Secondary/Cancel Variant (Soft Grey) */
+/* Cancel Action Modifier (Soft Grey) */
 .btn-secondary {
     background-color: #f0f2f5 !important;
-    color: #444 !important;
-    border: 1px solid #ddd !important;
+    color: #444444 !important;
+    border: 1px solid #dddddd !important;
     box-shadow: none !important;
 }
-.btn-secondary:hover {
-    background-color: #e4e7eb !important;
-}
+.btn-secondary:hover { background-color: #e4e7eb !important; }
 
-/* Danger/Delete Variant (Soft Red Alert) */
+/* Critical Destructive Modifier (Soft Red Alert) */
 .danger-btn {
     background-color: #ffebee !important;
     color: #c62828 !important;
@@ -240,23 +217,21 @@ button.link-button:active {
     color: white !important;
 }
 .danger-btn:active {
-    background-color: #f1b0b7 !important; /* Standardized to clean active tap red */
-    transform: scale(0.98) !important;    /* ADDED: Provides punchy physical click feedback */
+    background-color: #f1b0b7 !important;
+    transform: scale(0.98) !important; /* Satisfying physical tap feedback compression */
 }
 
-/* Specific Blue for data-driven titles */
-.data-title {
-    color: var(--primary-color) !important;
-}
+.data-title { color: var(--primary-color) !important; }
 
-/* This class transforms the inline section into a floating modal */
+/* ==========================================================================
+   DIALOG, MODALS & FLOATING CANVAS CARDS
+   ========================================================================== */
+
 .confirm-floating-overlay {
-    position: fixed !important; /* Ignore parent flow */
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
-    background: rgba(0, 0, 0, 0.5); /* Dim the vault behind it */
+    position: fixed !important;
+    top: 0; left: 0;
+    width: 100vw; height: 100vh;
+    background: rgba(0, 0, 0, 0.5);
     display: flex !important;
     align-items: center;
     justify-content: center;
@@ -264,14 +239,8 @@ button.link-button:active {
     animation: fadeIn 0.15s ease-out;
 }
 
-@keyframes fadeIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
-}
-
-/* Style the white box inside the overlay */
 .confirm-floating-overlay > div {
-    background: white;
+    background: #ffffff;
     padding: 24px;
     border-radius: 12px;
     width: 85%;
@@ -280,27 +249,29 @@ button.link-button:active {
     animation: scaleIn 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-@keyframes scaleIn {
-    from { transform: scale(0.9); }
-    to { transform: scale(1); }
-}
+/* ==========================================================================
+   PERSISTENT USER NOTIFICATION OVERLAYS (TOASTS)
+   ========================================================================== */
 
 .silent-toast {
     position: fixed;
     bottom: 20px;
     right: 20px;
-    background: #333;
-    color: #fff;
+    background: #333333;
+    color: #ffffff;
     padding: 10px 20px;
     border-radius: 8px;
     font-size: 0.9rem;
     opacity: 0;
     transition: opacity 0.5s ease;
     z-index: 10000;
+    pointer-events: none; /* Good guard rail: prevents clicking through the toast if visible */
 }
-.silent-toast.show { opacity: 1; }
 
-/* 1. THE DIMMED BACKGROUND */
+.silent-toast.show {
+    opacity: 1;
+}
+
 .modal-overlay {
     position: fixed;
     top: 0; left: 0;
@@ -312,10 +283,9 @@ button.link-button:active {
     z-index: 10000;
 }
 
-/* 1. THE CARD: Crisp white with a deep shadow */
 .modal-mini-card {
     background: #ffffff;
-    width: 320px; /* Slightly narrower for a tighter look */
+    width: 320px;
     border-radius: 8px;
     box-shadow: 0 10px 25px rgba(0,0,0,0.25);
     overflow: hidden;
@@ -323,19 +293,19 @@ button.link-button:active {
     flex-direction: column;
 }
 
-/* 2. THE HEADER: No background, just the dark line */
 .modal-mini-card header,
 .modal-header {
-    all: unset;
+    border-top: none;
+    border-left: none;
+    border-right: none;
     display: flex !important;
     align-items: center;
     justify-content: space-between;
-    padding: 14px 20px !important; /* Shaved 6px off the top/bottom */
-    border-bottom: 1.5px solid #bbb !important; /* Darker, crisp line */
-    background: #fff !important;
+    padding: 14px 20px !important;
+    border-bottom: 1.5px solid #bbbbbb !important;
+    background: #ffffff !important;
 }
 
-/* 3. THE TITLE: Punchy Blue with Tight Spacing Baseline */
 .modal-mini-card h2 {
     font-size: 1.1rem !important;
     font-weight: 800 !important;
@@ -344,24 +314,27 @@ button.link-button:active {
     line-height: 1 !important;
 }
 
-/* 4. THE BODY: Compact and professional */
-.modal-simple-body {
-    padding: 16px 20px !important;
+#systemModal_title {
+    font-size: 1.1rem !important;
+    font-weight: 800 !important;
+    color: var(--primary-color) !important;
+    margin: 0 !important;
+    line-height: 1 !important;
 }
 
+.modal-simple-body { padding: 16px 20px !important; }
 .modal-simple-body p {
     margin: 0 0 12px 0;
     font-size: 0.9rem;
-    color: #555;
+    color: #555555;
     line-height: 1.3;
 }
 
-/* 6. INPUTS: Lowered height and margins */
 .modal-mini-card input,
 .modal-mini-card textarea {
     width: 100% !important;
     padding: 10px !important;
-    border: 1px solid #ccc !important;
+    border: 1px solid #cccccc !important;
     border-radius: 6px !important;
     margin-bottom: 12px !important;
     font-size: 0.95rem !important;
@@ -369,41 +342,18 @@ button.link-button:active {
 
 .input-label {
     font-size: 13px;
-    color: #555;
+    color: #555555;
     margin-bottom: 8px;
     font-weight: 500;
 }
 
-
 /* ==========================================================================
-   GLOBAL STRUCTURE UTILITIES
+   GLOBAL UTILITIES, LABELS & INTERACTION BLOCKERS
    ========================================================================== */
 
-/**
- * ROLE: Core visibility layout toggle.
- * SCOPE: Universal application scope.
- * TARGETS: Elements like `#vaultNavBar_filterSection` or `#advSearch_mainSection`
- * when toggled by application state orchestration.
- */
-.hidden {
-    display: none !important;
-}
+.hidden { display: none !important; }
+.inline-ui-view { width: 100%; }
 
-/**
- * ROLE: Reusable modular sub-view wrapper layout.
- * SCOPE: Layout-wide container block.
- * TARGETS: `<div id="vaultConfirm_mainSection" class="inline-ui-view">` and
- * `<div id="vaultUsers_mainSection" class="inline-ui-view">`.
- */
-.inline-ui-view {
-    width: 100%;
-}
-
-/**
- * ROLE: Universal text header formatting context.
- * SCOPE: Standard descriptive label element formatting.
- * TARGETS: Used for secondary metadata context (like labels inside the Advanced Search fields).
- */
 .section-label {
     font-size: 0.75em;
     color: var(--text-muted);
@@ -411,39 +361,20 @@ button.link-button:active {
     margin-bottom: 8px;
 }
 
-/* ==========================================================================
-   ASYNC LOADER GRAPHICS
-   ========================================================================== */
-/**
- * ROLE: Pure CSS continuous spinning loader graphic block.
- * SCOPE: Generic canvas loader animation indicator.
- */
 .spinner {
     width: 18px;
     height: 18px;
-    border: 2px solid #ddd;
+    border: 2px solid #dddddd;
     border-top: 2px solid var(--primary-color);
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
     display: inline-block;
 }
 
-@keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
-}
-
-/**
- * ROLE: UX guard pattern flag to disable interaction while threads process data payloads.
- */
 .uploading-row {
     opacity: 0.6;
-    pointer-events: none; /* Prevents user double-clicks while network payloads send */
+    pointer-events: none;
 }
-
-/* ==========================================================================
-   GLOBAL FORM UTILITIES & CONTROLS (base.css)
-   ========================================================================== */
 
 /* --- MOBILE-FRIENDLY CHECKBOX ROWS --- */
 .checkbox-group {
@@ -460,11 +391,10 @@ button.link-button:active {
     width: 100%;
     font-size: 0.95rem;
     font-weight: 500;
-    color: #444;
+    color: #444444;
     cursor: pointer;
 }
 
-/* Expanded hit-boxes for reliable mobile activation targets */
 .checkbox-container input[type="checkbox"] {
     width: 20px;
     height: 20px;
@@ -472,10 +402,10 @@ button.link-button:active {
     accent-color: var(--primary-color);
 }
 
-/* --- REUSABLE DISMISSAL TARGETS --- */
+/* --- REUSABLE CLOSURE DISMISSAL STATIONS --- */
 .close-x-btn {
     background: #f0f2f5 !important;
-    color: #666 !important;
+    color: #666666 !important;
     border-radius: 50% !important;
     width: 32px !important;
     height: 32px !important;
@@ -493,11 +423,9 @@ button.link-button:active {
     transition: transform 0.1s ease, background-color 0.2s;
 }
 
-.close-x-btn:hover {
-    background: #e0e4e8 !important;
-    color: #000 !important;
-}
+.close-x-btn:hover { background: #e0e4e8 !important; color: #000000 !important; }
+.close-x-btn:active { transform: scale(0.9); }
 
-.close-x-btn:active {
-    transform: scale(0.9);
-}
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes scaleIn { from { transform: scale(0.9); } to { transform: scale(1); } }
+@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }

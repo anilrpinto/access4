@@ -1,18 +1,11 @@
-/* ==========================================================================
-   VAULT APPLICATION GLOBAL NAVIGATION BAR (navbar.css)
-   ========================================================================== */
-
-/**
- * MAIN STRUCTURE & LAYOUT FRAMES
- */
 #vaultNavBar_mainSection {
     display: flex;
     align-items: center;
     padding: 0 10px;
-    height: 48px; /* High-density mobile optimization for easier thumb tapping */
+    height: 48px; /* High-density mobile optimization layout */
     background: #f4f4f4;
     border-bottom: 1px solid #dddddd;
-    overflow: hidden; /* Keeps search action transitions from breaking container layout boundaries */
+    overflow: hidden; /* Keeps search action transitions from breaking layout boundaries */
     transition: background-color 0.3s ease, border-color 0.3s ease;
 }
 
@@ -22,7 +15,7 @@
     align-items: center;
     overflow: hidden;
     position: relative;
-    padding: 0 4px; /* Internal buffer ensures text borders don't touch pixel clipping edges */
+    padding: 0 4px; /* Internal safety buffer to block side pixel clipping */
 }
 
 #vaultNavBar_filterSection {
@@ -30,7 +23,7 @@
     flex: 1;
     width: 100%;
     align-items: center;
-    padding-left: 2px; /* Micro-buffer safeguards left-side viewport clipping */
+    padding-left: 2px;
 }
 
 /* ==========================================================================
@@ -41,19 +34,19 @@
     flex: 1;
     width: 100%;
     height: 34px;
-    margin: 4px 2px; /* Margin fix keeps border rendering off the raw pixel-edge */
+    margin: 4px 2px;
     padding: 0 12px;
-    box-sizing: border-box; /* Assures internal padding scales inside specified height calculations */
+    box-sizing: border-box;
     border: 1px solid transparent;
     border-radius: 6px;
     background: transparent;
     outline: none;
     font-size: 1rem;
     color: #2c3e50;
-    -webkit-appearance: none; /* Strip aggressive WebKit input drop-shadow overlays */
+    -webkit-appearance: none; /* Strips native WebKit internal input shadows */
 }
 
-/* Structural Layout Variations: Active Input Filter Operations */
+/* Structural Layout Alterations: Active Filtering Session */
 #vaultNavBar_mainSection.filter-mode-active {
     background-color: #e8f5e9 !important;
     border-bottom: 1px solid #2ecc71;
@@ -76,20 +69,26 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 40px; /* Locked geometric bounds block container shifting when switching icon nodes */
-    height: 40px;
     font-size: 1.2rem;
     cursor: pointer;
     transition: opacity 0.2s ease;
     user-select: none;
 }
 
+#vaultNavBar_sortToggle {
+    width: 40px;
+    height: 40px;
+    font-family: 'Segoe UI', Roboto, sans-serif;
+    font-weight: bold;
+    letter-spacing: -1px;
+}
+
 #vaultNavBar_filterToggle {
-    flex-shrink: 0; /* Prevents action trigger asset deformation when workspace layout gets tight */
+    flex-shrink: 0; /* Prevents action trigger asset deformation when layout gets tight */
     margin-left: 4px;
     padding: 0 12px;
-    min-width: 44px; /* Standard physical mobile hardware tap-target parameters */
-    min-height: 44px;
+    width: 44px; /* Consolidated tap target constraints preventing layout thrashing */
+    height: 44px;
 }
 
 #vaultNavBar_sortToggle:hover,
@@ -97,32 +96,24 @@
     opacity: 0.7;
 }
 
-/* Fine typographic track refinement for alphanumeric directional marker (A↓) */
-#vaultNavBar_sortToggle {
-    font-family: 'Segoe UI', Roboto, sans-serif;
-    font-weight: bold;
-    letter-spacing: -1px;
-}
-
 /* ==========================================================================
-   BREADCRUMBS RUNTIME COMPONENT ENGINE
+   BREADCRUMBS HORIZONTAL DESKTOP / MOBILE TRACK ENGINE
    ========================================================================== */
 
 #vaultNavBar_breadcrumbs {
     display: flex;
     align-items: center;
     gap: 2px;
-    white-space: nowrap; /* CRITICAL: Enforces single line tracking across long directories */
-    overflow-x: auto;    /* Horizontal track access control rules */
+    white-space: nowrap; /* CRITICAL: Enforces single line tracking across deep directory paths */
+    overflow-x: auto;    /* Provides overflow touch scrolling for navigation paths */
     overflow-y: hidden;
-    scrollbar-width: none; /* Suppresses track line rendering on Firefox architectures */
-    -webkit-overflow-scrolling: touch; /* Momentum scroll wrapper engine for mobile views */
+    scrollbar-width: none; /* Suppresses scrollbar visuals on Gecko/Firefox runtimes */
+    -webkit-overflow-scrolling: touch; /* Momentum layout velocity inject for iOS architectures */
     padding-right: 10px;
 }
 
-/* Suppress background layout line track painting on modern WebKit runtimes */
 #vaultNavBar_breadcrumbs::-webkit-scrollbar {
-    display: none;
+    display: none; /* Suppresses scrollbar visuals on WebKit runtimes */
 }
 
 .breadcrumb-item {
@@ -131,23 +122,18 @@
     padding: 10px 4px;
     cursor: pointer;
     text-decoration: none !important;
-    flex-shrink: 0; /* Eliminates character crowding inside dynamic horizontal tracks */
+    flex-shrink: 0; /* Blocks string crowding or squishing inside scrolling viewport */
     white-space: nowrap;
     display: inline-flex;
     align-items: center;
-    transform: translateY(2px); /* Vertical layout nudge normalizes alignment next to house glyph */
+    transform: translateY(2px); /* Vertical baseline calibration layout shift */
 }
 
-/* Base execution overrides across core breadcrumb elements */
 .breadcrumb-item:hover {
     text-decoration: underline;
 }
 
 .breadcrumb-item.link {
-    color: var(--primary-color);
-    text-decoration: none !important;
-    cursor: pointer;
-    font-weight: 500;
     transition: transform 0.2s ease;
 }
 
@@ -160,7 +146,7 @@
     opacity: 0.5;
 }
 
-/* First-child exemption rule prevents the core root icon node from tracking lower than standard baseline text */
+/* Prevents the root house icon element from rendering below the font baseline */
 .breadcrumb-item:first-child,
 .breadcrumb-item.link:first-child {
     transform: none !important;
@@ -168,7 +154,7 @@
 }
 
 .breadcrumb-item.link:first-child:active {
-    transform: scale(0.85) !important; /* Touch tracking action scale click feedback */
+    transform: scale(0.85) !important; /* Visual click compression feedback */
 }
 
 .breadcrumb-item.active {
@@ -178,22 +164,22 @@
     cursor: default;
 }
 
-/* Dynamic structural divider chevron track nodes */
+/* Micro-structural spacer chevrons (>) */
 .sep {
     color: #999999;
     font-weight: 600;
     font-size: 0.9rem;
     margin: 0 6px;
     user-select: none;
-    transform: translateY(1px); /* Spatial adjustments for horizontal accuracy */
+    transform: translateY(1px);
 }
 
 /* ==========================================================================
-   ARCHIVE CONTROL MASK MECHANICS
+   ARCHIVAL STATE MECHANICS & OVERLAYS
    ========================================================================== */
 
 .archive-toggle-container {
-    display: none; /* Managed by system JS rendering engines based on application context */
+    display: none; /* Commanded via functional JS runtimes based on context */
     align-items: center;
     gap: 8px;
     margin-top: 5px;
@@ -204,7 +190,7 @@
 .archive-toggle-container input[type="checkbox"] {
     width: 16px;
     height: 16px;
-    margin: 0; /* Kills browser agent box margins that distort input line tracking layout heights */
+    margin: 0;
     cursor: pointer;
 }
 
@@ -216,7 +202,7 @@
     line-height: 1;
 }
 
-/* Desaturated, muted styling state indicators for historical rows inside the archive block */
+/* Muted desaturation profile adjustments for archived historic elements */
 .archive-mode-item {
     opacity: 0.6;
     filter: saturate(0.4) contrast(0.9);
@@ -233,22 +219,20 @@
     color: #7f8c8d;
 }
 
-/* Forces targeted highlighting color tracking loops to pop inside muted archived elements */
 .archive-mode-item.search-highlight {
     background-color: rgba(255, 255, 0, 0.2) !important;
     opacity: 0.9;
 }
 
-/* Layout parameters for archive parent markers (📦) inside text paths */
 .breadcrumb-item.archive-root {
-    color: #9b59b6; /* Distinct visual state signature block signaling historical vault mode */
+    color: #9b59b6; /* High-visibility Purple visual cue for deep archive tracking */
     font-weight: bold;
     font-size: 1.2rem;
 }
 
 /* ==========================================================================
-   HIGH DENSITY MEDIA MEDIA QUERY BREAKPOINTS
-   ========================================================================== */
+   VIEWPORT BREAKPOINT MEDIA QUERIES
+   ========================================================================= */
 
 @media (max-width: 400px) {
     .breadcrumb-item {

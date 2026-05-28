@@ -1,17 +1,20 @@
-/* State: Feature unavailable or intent is false */
+/* ==========================================================================
+   LOGIN MODULE SPECIFIC COMPONENT INTERFACES (login.css)
+   ========================================================================== */
+
+/* Self-contained Biometric Auth Tokens */
 .bio-none {
-    color: var(--color-bio-none);
+    color: #fdfcfc; /* Muted Slate */
     text-shadow: none;
 }
 
-/* State: Biometric Intent is TRUE (Ready for fingerprint/face) */
 .bio-armed {
-    color: var(--color-bio-armed) !important;
-    text-shadow: 0 0 8px var(--color-bio-glow);
+    color: #3b82f6 !important; /* Energetic Blue */
+    text-shadow: 0 0 8px rgba(59, 130, 246, 0.5);
     animation: bio-pulse 2s infinite ease-in-out;
 }
 
-/* Subtle pulse animation to show it's "listening" for the unlock */
+/* Subtle pulse animation indicating device is actively listening for biometrics */
 @keyframes bio-pulse {
     0% { opacity: 1; }
     50% { opacity: 0.7; }
@@ -22,21 +25,21 @@
     justify-content: center;
 }
 
-/* Base Title Style (assuming loginUI.title is a heading or div) */
-#loginTitle {
-    transition: color var(--transition-speed) ease,
-    text-shadow var(--transition-speed) ease;
+/* Base Title Shift Properties */
+#login_title {
+    transition: color var(--transition-speed, 0.3s) ease,
+    text-shadow var(--transition-speed, 0.3s) ease;
     cursor: default;
     user-select: none;
 }
 
-/* --- LOGIN SPECIFIC REFINEMENT --- */
+/* --- STRUCTURE REFINEMENTS --- */
 #login_body {
     display: flex;
     flex-direction: column;
     align-items: center;
     text-align: center;
-    color: #555;
+    color: #555555;
     font-size: 0.95rem;
 }
 
@@ -47,7 +50,7 @@
     align-items: center;
 }
 
-/* Force all input groups inside the login body to match width */
+/* Force all input containment units inside login body to track matching widths */
 #login_body .input-group {
     width: 100%;
     display: flex;
@@ -56,45 +59,40 @@
     text-align: left;
 }
 
-/* Ensure the input inside the group fills the container width */
-#login_body .input-group input {
-    width: 100%;
-}
-
-/* Consolidated Label Rules */
 #login_body .input-group label {
     width: 100%;
     text-align: left;
     margin-top: 0;
-    margin-bottom: 8px; /* Kept your second fix value */
+    margin-bottom: 8px;
 }
 
-/* The container for the entire user status row */
+/* ==========================================================================
+   USER IDENTITY FLOW STATUS LINE
+   ========================================================================== */
+
 .login-user-line {
     display: flex;
     align-items: center;
-    justify-content: center; /* Default: Center "Not signed in" */
+    justify-content: center; /* Default fallback state: Center "Not signed in" string */
     width: 100%;
     margin-top: 10px;
     margin-bottom: 25px;
     padding: 8px 0;
     font-size: 1rem;
-    border-bottom: 1px solid #eee;
+    border-bottom: 1px solid #eeeeee;
 }
 
-/* When signed in, flip to space-between */
+/* State alteration modifier when signed-in profiles are present */
 .login-user-line.signed-in {
     justify-content: space-between;
 }
 
-/* The Left Side wrapper */
 .user-info-left {
     display: flex;
     gap: 4px;
     align-items: baseline;
 }
 
-/* Specific styling for the signature text statuses */
 #login_welcomeSpan.not-signed-in {
     color: var(--danger);
     font-weight: 600;
@@ -105,7 +103,6 @@
     font-weight: 700;
 }
 
-/* Cleaned link button overrides */
 #login_signoutLnk {
     padding: 0 !important;
     margin: 0 !important;
@@ -115,48 +112,95 @@
     font-size: 1rem;
 }
 
-/* Center the Need recovery link button */
 #login_recoverySection {
     display: flex;
     justify-content: center;
     width: 100%;
 }
 
-/* =─────────────────────────────────────────────────────────────────────────
-   RESTORE BACKUP MODAL UTILITIES (login.css)
-   ────────────────────────────────────────────────────────────────────────── */
+/* ==========================================================================
+   RESTORE BACKUP SYSTEM COMPONENT UTILITIES
+   ========================================================================== */
 
-/* Specific height and structural styling for the Recovery Encrypted String box */
+/* FIX: Force the layout container header to take up the full modal width bounds */
+#login_recoverySection .modal-mini-card header,
+#login_recoverySection .modal-header {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    width: 100% !important;
+    min-width: 100% !important; /* Blocks container shrinking behaviors */
+    padding: 14px 20px !important;
+    box-sizing: border-box !important;
+}
+
+/* FIX: Stops title text wrapping and sets structural layout alignment */
+#restoreBackup_title {
+    font-size: 1.1rem !important;
+    font-weight: 800 !important;
+    color: var(--primary-color) !important;
+    margin: 0 !important;
+    line-height: 1 !important;
+    white-space: nowrap !important; /* Prevents the string from breaking lines */
+    flex: 1 !important;            /* Fills layout space to push X button right */
+    text-align: left !important;
+}
+
+#restoreBackup_copyBtn:hover {
+    background-color: #fa8241 !important;
+    color: #333333 !important;
+}
+
+/* Ensure the X stays fully pinned, colored, and sized inside the header */
+#restoreBackup_closeBtn {
+    background: transparent !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    cursor: pointer;
+    color: #666666 !important;       /* Darkened from #aaa for high visibility contrast */
+    font-weight: bold !important;
+    font-size: 22px !important;       /* Slightly scaled up to match standard mobile tap touch targets */
+    line-height: 1 !important;
+    height: 24px !important;          /* Explicit box height constraints */
+    width: 24px !important;           /* Explicit box width constraints */
+    transition: color 0.1s ease;
+    flex: 0 0 auto !important;
+    text-align: right !important;
+    display: inline-flex !important;  /* Forces the element container to calculate layout bounds */
+    align-items: center !important;
+    justify-content: flex-end !important;
+}
+
+#restoreBackup_closeBtn:hover {
+    color: #000000 !important;       /* Sharp contrast shift on focus/hover */
+}
+
+/* Raw input target area for holding incoming backup cryptographic string payloads */
 .restore-textarea {
     height: 100px;
     background: #fafafa;
     resize: none;
-    /* width, borders, padding, font, radius, box-sizing are handled by .modal-mini-card textarea */
 }
 
-/* Safari-optimized master key password input for Restore */
+/* Password parameter checking box optimized to suppress native Safari focus zooming shifts */
 .restore-password-input {
-    font-size: 16px; /* CRITICAL: Prevents iOS Safari auto-zoom on focus */
-    margin-bottom: 20px; /* Slight extra breathing room before actions */
-    /* width, padding, borders, radius, box-sizing are handled by .modal-mini-card input */
+    font-size: 16px;
+    margin-bottom: 20px;
 }
 
-/* Read-only output box displaying decrypted raw JSON payload */
+/* Read-only output box displaying decrypted uncompiled raw system JSON arrays */
 .restore-output-textarea {
     height: 200px;
     background: #f9f9f9;
     resize: none;
-    font-size: 12px; /* Slightly more compact for long data arrays */
+    font-size: 12px;
 }
 
-/* Success execution state messaging text */
-.status-success {
+.restore-status-success {
     color: var(--success-color);
     font-weight: bold;
     font-size: 13px;
     margin-bottom: 10px;
-}
-
-#restoreBackup_decryptBtn {
-    flex: 1;
 }

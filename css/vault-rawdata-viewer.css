@@ -1,8 +1,11 @@
+/* ==========================================================================
+   RAW VAULT DATA STRUCTURE VIEWPORT & JSON ENGINE (vault-rawdata-viewer.css)
+   ========================================================================== */
 
 #vaultRawData_mainSection {
-    display: none;
+    display: none; /* Controlled explicitly via functional JS toggles */
     flex-direction: column;
-    height: calc(100dvh - 70px); /* Safely offsets structural main header bar */
+    height: calc(100dvh - 70px); /* Offsets baseline header spacing layout envelopes */
     padding: 0 15px;
     box-sizing: border-box;
 }
@@ -16,32 +19,36 @@
     flex-shrink: 0;
 }
 
-.view-title {
+#vaultRawData_title {
     font-size: 0.9rem;
     font-weight: 600;
     color: #888888;
 }
 
-.header-actions {
+#vaultRawData_actionBar {
     display: flex;
     gap: 12px;
     align-items: center;
 }
 
-/* 1. Shared Base styles for both Raw Data and Tree containers */
+/* ==========================================================================
+   VIEWPORT SELECTION CONTAINER WRAPPERS
+   ========================================================================== */
+
+/* Shared structural layout properties for Text/JSON raw string text blocks and Tree boxes */
 #vaultRawData_textContent,
 #vaultRawData_treeContent {
     width: 100%;
     flex: 1;
     overflow: auto;
     border-radius: 8px;
-    border: 1px solid #ddd;
+    border: 1px solid #dddddd;
     background: #fdfdfd;
     box-sizing: border-box;
     margin-bottom: 15px;
 }
 
-/* 2. Specific overrides for the Text/JSON view */
+/* Specific styling overrides for raw uncompiled Text/JSON area views */
 #vaultRawData_textContent {
     background-color: #e6e6e6;
     color: #494747;
@@ -54,9 +61,9 @@
     word-wrap: normal;
 }
 
-/* 3. Common Logic for the Active/Visible view */
-#vaultRawData_textContent:not([style*="display: none"]),
-#vaultRawData_treeContent:not([style*="display: none"]) {
+/* Active interactive structural container state logic overrides */
+#vaultRawData_textContent.active-view,
+#vaultRawData_treeContent.active-view {
     height: calc(100% - 70px) !important;
     flex: none !important;
     pointer-events: auto;
@@ -65,14 +72,17 @@
     overflow-x: auto;
 }
 
-/* 4. Action Buttons (Cleaned up) */
+/* ==========================================================================
+   COMPONENT ACTION CONTROLS
+   ========================================================================== */
+
 #vaultRawData_toggleViewBtn,
 #vaultRawData_closeBtn {
     width: 32px !important;
     height: 32px !important;
     padding: 0 !important;
     margin: 0 !important;
-    background: rgb(62 62 62 / 0.25) !important;
+    background: rgba(62, 62, 62, 0.25) !important;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -81,19 +91,20 @@
     box-shadow: none !important;
 }
 
-/* 3. Tree-Specific Styling */
+/* ==========================================================================
+   COMPILING HIERARCHICAL INTERACTIVE JSON TREE HOOKS
+   ========================================================================== */
+
 .json-tree {
     font-family: 'Cascadia Code', 'Source Code Pro', 'Consolas', monospace;
     font-size: 13px;
     line-height: 1.6;
-    color: #333;
+    color: #333333;
     padding: 15px;
 }
 
-/* 4. Tree Nodes and Hierarchy */
 .json-tree ul {
     list-style-type: none;
-    /* Reduced margin for a tighter, cleaner look now that brackets are gone */
     margin: 0 0 0 10px;
     padding: 0;
     border-left: 1px solid #e8e8e8;
@@ -107,57 +118,49 @@
 .json-tree .caret {
     cursor: pointer;
     user-select: none;
-    color: #666;
+    color: #666666;
     margin-right: 5px;
     display: inline-block;
 }
 
 .json-tree .caret::before {
-    /* Switched to a solid arrow which looks better for data branches */
     content: "▼";
     display: inline-block;
     transition: transform 0.2s ease;
     font-size: 8px;
     vertical-align: middle;
-    color: #bbb;
+    color: #bbbbbb;
 }
 
 .json-tree .caret-down::before {
-    /* Rotates to point right when collapsed */
-    transform: rotate(-90deg);
+    transform: rotate(-90deg); /* Structural pivot marker when data branch collapses */
 }
 
-/* New: Meta info for array counts (e.g., [28]) */
+/* Meta property info counters mapping array indices (e.g., [24 entries]) */
 .json-meta {
-    color: #999;
+    color: #999999;
     font-size: 0.75rem;
     font-weight: 400;
     margin-left: 4px;
     font-family: sans-serif;
 }
 
-/* Toggle Logic */
+/* Display State Mechanics */
 .json-tree .nested { display: none; }
 .json-tree .active { display: block; }
 
-/* Syntax Highlighting */
-/* Update these in vault.css */
+/* ==========================================================================
+   SYNTAX HIGHLIGHTING ENGINE TOKENS
+   ========================================================================== */
 
-.json-tree .json-key { color: #881391; font-weight: 600; }
-.json-tree .json-string { color: #21a121 !important; display: inline !important; }
-.json-tree .json-number { color: #1c00cf !important; display: inline !important; }
-.json-tree .json-boolean { color: #aa5d00 !important; display: inline !important; }
+.json-tree .json-key            { color: #881391; font-weight: 600; }
+.json-tree .json-string         { color: #21a121 !important; display: inline !important; }
+.json-tree .json-number         { color: #1c00cf !important; display: inline !important; }
+.json-tree .json-boolean        { color: #aa5d00 !important; display: inline !important; }
+.json-tree .json-null           { color: #777777; font-style: italic; }
+.json-tree .json-secure-masked  { color: #999999; letter-spacing: 2px; font-weight: bold; }
 
-/* Add this for the masked state specifically */
-.json-tree .json-secure-masked {
-    color: #999;
-    letter-spacing: 2px;
-    font-weight: bold;
-}
-
-.json-null { color: #777; font-style: italic; }
-
-/* Optional: Subtle hover effect to track which line you are on */
+/* Micro-interaction lines helping track reading index locations */
 .json-tree li:hover > .caret,
 .json-tree li:hover > .json-key {
     background-color: rgba(0, 0, 0, 0.03);
