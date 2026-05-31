@@ -30,7 +30,7 @@ export async function renderVaultExplorer() {
 
     _renderBreadcrumbs();
 
-    const { activeData, depth, groupId, itemId } = _vaultCtx();
+    const { activeData, depth, groupId } = _vaultCtx();
 
     // Safety check: if we still don't have data, stop here.
     if (!activeData) {
@@ -49,7 +49,7 @@ export async function renderVaultExplorer() {
         _renderItemList(vaultUI.explorer, groupId);
     } else if (depth === 3) {
         // We'll build the detail renderer in Phase 4
-        _renderItemDetails(vaultUI.explorer, groupId, itemId);
+        _renderItemDetails(vaultUI.explorer);
     }
 }
 
@@ -418,11 +418,11 @@ function _renderBreadcrumbs() {
                     // Triggered by clicking the icon while already at the top level.
                     if (isArchiveModeActive) {
                         // 1. If in Archive, clicking 📦 exits back to the Active Vault
-                        log("explorer.breadcrumb", "Exiting Archive Mode");
+                        log("explorer.root.onclick", "Exiting Archive Mode");
                         toggleVaultMode(isPrivateMode ? 'private' : 'shared');
                     } else {
                         // 2. Otherwise, standard toggle between Shared (🏠) and Private (🛡️)
-                        log("explorer.breadcrumb", "Toggling Shared/Private Vaults");
+                        log("explorer.root.onclick", "Toggling Shared/Private Vaults");
                         if (isPrivateMode) {
                             toggleVaultMode('shared');
                         } else {
@@ -433,7 +433,7 @@ function _renderBreadcrumbs() {
                 } else {
                     // --- RESET TO ROOT ---
                     // Triggered by clicking the icon while deep in a group or item.
-                    log("explorer.breadcrumb", "Resetting to current vault root");
+                    log("explorer.nonroot.onclick", "Resetting to current vault root");
                     resetToRoot();
                 }
             } else if (!isLast) {
@@ -491,13 +491,11 @@ function _renderGroupList(container) {
                 // Did the Item label match?
                 if (hits.has(item.id)) matchDensity++;
 
-                // Did any specific fields match?
-                // We check the specific ID format: `${node.id}-field-${f.key}`
+                // Check split tracking suffixes independently to calculate accurate match densities
                 if (item.fields) {
                     item.fields.forEach(f => {
-                        if (hits.has(`${item.id}-field-${f.key}`)) {
-                            matchDensity++;
-                        }
+                        if (hits.has(`${item.id}-field-${f.key}-label`)) matchDensity++;
+                        if (hits.has(`${item.id}-field-${f.key}-value`)) matchDensity++;
                     });
                 }
             });
@@ -618,12 +616,11 @@ function _renderItemList(container, groupId) {
             // 1. Did the Item label itself match?
             if (hits.has(item.id)) matchDensity++;
 
-            // 2. Did any specific fields within this item match?
+            // 2. Account for multi-hits where label text and values match criteria simultaneously
             if (item.fields) {
                 item.fields.forEach(f => {
-                    if (hits.has(`${item.id}-field-${f.key}`)) {
-                        matchDensity++;
-                    }
+                    if (hits.has(`${item.id}-field-${f.key}-label`)) matchDensity++;
+                    if (hits.has(`${item.id}-field-${f.key}-value`)) matchDensity++;
                 });
             }
         }
@@ -702,7 +699,7 @@ function _toggleItemSelection(id, element, groupId) {
     refresh();
 }
 
-function _renderItemDetails(container, groupId, itemId) {
+function _renderItemDetails(container) {
     log("explorer._renderItemDetails", "called");
     const { currentFilterMap, isEditable, showSecure, findActiveGroup, findActiveItem } = _vaultCtx();
 
@@ -733,8 +730,13 @@ function _renderItemDetails(container, groupId, itemId) {
 
     // 2. Render Standard Fields (Text, Secure, Note)
     item.fields.forEach((field, index) => {
-        const fieldMatchID = `${item.id}-field-${field.key}`;
-        const isMatch = currentFilterMap?.highlighted.has(fieldMatchID);
+        // Build independent tracking IDs matching the search-and-sort architecture updates
+        const labelMatchID = `${item.id}-field-${field.key}-label`;
+        const valueMatchID = `${item.id}-field-${field.key}-value`;
+
+        const isLabelMatch = currentFilterMap?.highlighted.has(labelMatchID);
+        const isValueMatch = currentFilterMap?.highlighted.has(valueMatchID);
+
         const fieldBox = document.createElement('div');
         fieldBox.className = `field-box ${isEditable ? 'editable' : ''}`;
 
@@ -742,25 +744,29 @@ function _renderItemDetails(container, groupId, itemId) {
         const expandBtnHtml = (field.type === 'note') ?
             `<button class="icon-btn expand-note-btn" data-index="${index}" title="Expand Note">⛶</button>` : '';
 
+        // Label input gets the '.search-label-hit' class ONLY if the label string matched the search criteria
         let html = `
             <div class="field-header">
-                <input type="text" class="label-input ${isMatch ? 'search-label-hit' : ''}"
+                <input type="text" class="label-input ${isLabelMatch ? 'search-label-hit' : ''}"
                    data-index="${index}" value="${field.key}" ${readonlyAttr} placeholder="Label">
                 <div class="field-actions">
                     ${expandBtnHtml}
                     ${isEditable ?
-                        `<button class="icon-btn delete-field-btn" data-index="${index}">🗑️</button>` :
-                        `<button class="icon-btn copy-btn" data-val="${field.val}">📋</button>`
-                    }
+            `<button class="icon-btn delete-field-btn" data-index="${index}">🗑️</button>` :
+            `<button class="icon-btn copy-btn" data-val="${field.val}">📋</button>`
+        }
                 </div>
             </div>`;
 
+        // If the data input matched, apply a highlighted style flag to the target input node wrapper
+        const highlightedInputClass = isValueMatch ? 'search-highlight' : '';
+
         if (field.type === 'secure') {
-            html += `<div class="input-wrap"><input type="${showSecure ? 'text' : 'password'}" class="field-input" data-index="${index}" value="${field.val}" ${readonlyAttr} spellcheck="false"></div>`;
+            html += `<div class="input-wrap ${highlightedInputClass}"><input type="${showSecure ? 'text' : 'password'}" class="field-input" data-index="${index}" value="${field.val}" ${readonlyAttr} spellcheck="false"></div>`;
         } else if (field.type === 'note') {
-            html += `<textarea class="field-input note-field" data-index="${index}" ${readonlyAttr} rows="4">${field.val}</textarea>`;
+            html += `<textarea class="field-input note-field ${highlightedInputClass}" data-index="${index}" ${readonlyAttr} rows="4">${field.val}</textarea>`;
         } else {
-            html += `<div class="input-wrap"><input type="text" class="field-input" data-index="${index}" value="${field.val}" ${readonlyAttr}></div>`;
+            html += `<div class="input-wrap ${highlightedInputClass}"><input type="text" class="field-input" data-index="${index}" value="${field.val}" ${readonlyAttr}></div>`;
         }
 
         fieldBox.innerHTML = html;

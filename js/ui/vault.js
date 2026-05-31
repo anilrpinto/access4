@@ -7,7 +7,7 @@ import { swapVisibility, showSilentToast } from '@/ui/uihelper.js';
 import { rootUI, vaultUI, vaultNavBarUI, vaultRawDataUI, copyLogsToClipboard, vaultMenuBar, vaultMenu } from '@/ui/loader.js';
 import { showConfirmUI } from '@/ui/confirm.js';
 import { showOverlayConfirmUI, showOverlayAlertUI, showOverlayPasswordUI, showOverlayChoiceUI } from '@/ui/modal.js';
-import { generateFilterMap  } from '@/ui/search-and-sort.js';
+import { generateFilterMap } from '@/ui/search-and-sort.js';
 import { lockPrivateVault, isPrivateVaultUnlocked, savePrivateVaultData } from "@/ui/private-vault.js";
 import { loadExplorer, renderVaultExplorer } from '@/ui/explorer.js';
 
@@ -140,33 +140,45 @@ export async function loadVault(pwd, data, options) {
 export async function toggleVaultMode(mode) {
     log("vaultUI.toggleVaultMode", `Switching to: ${mode}`);
 
-    // 1. Update the Internal State
-    if (mode === 'archive') {
-        _isArchiveModeActive = true;
-        // Note: We keep _isPrivateMode as-is so we know WHICH vault's archive we are in.
-    } else {
-        _isArchiveModeActive = false;
+    // Note: We keep _isPrivateMode as-is for archive mode so we know WHICH vault's archive we are in.
+    _isArchiveModeActive = (mode === 'archive');
+    if (!_isArchiveModeActive) {
         _isPrivateMode = (mode === 'private');
     }
 
     // 2. Reset navigation to the root of the selected mode/vault
     _sessionState.path = ['root'];
 
-    // 3. Update UI Branding
-    if (_isArchiveModeActive) {
-        vaultUI.title.setText("📦 Archive");
-        vaultUI.title.style.color = "#9b59b6"; // Distinct Archive Purple
-        showSilentToast("Switched to Archive View", false);
-    } else if (_isPrivateMode) {
-        vaultUI.title.setText("🛡️ Private Vault");
-        vaultUI.title.style.color = "#FFD700"; // Gold
-        showSilentToast("Switched to Private Mode", false);
-    } else {
-        vaultUI.title.setText("Vault");
-        vaultUI.title.style.color = ""; // Default
-        showSilentToast("Returned to Shared Vault", false);
+    // 3. UI Aesthetics & Branding Map (Accommodates private vs shared archive sub-states safely)
+    const branding = {
+        sharedArchive:  { text: "📦 Shared Archive", color: "#9b59b6", toast: "Switched to Shared Archive View" },
+        privateArchive: { text: "📦 Private Archive", color: "#a29bfe", toast: "Switched to Private Archive View" },
+        private:        { text: "🛡️ Private Vault", color: "#FFD700", toast: "Switched to Private Mode" },
+        shared:         { text: "Vault", color: "", toast: "Returned to Shared Vault" }
+    };
+
+    // Calculate the exact resolved state string to prevent undefined dictionary misses
+    const resolvedKey = _isArchiveModeActive
+        ? (_isPrivateMode ? 'privateArchive' : 'sharedArchive')
+        : (_isPrivateMode ? 'private' : 'shared');
+
+    const config = branding[resolvedKey];
+
+    // Safe execution pass guaranteed
+    vaultUI.title.setText(config.text);
+    vaultUI.title.style.color = config.color;
+    showSilentToast(config.toast, false);
+
+    // 4. If there's an active text query, synchronize the memory state map instantly
+    // before refreshVault passes execution down to the explorer templates.
+    const currentQuery = vaultNavBarUI?.filterInput?.value || "";
+    if (currentQuery.trim().length > 0) {
+        log("vaultUI.toggleVaultMode", `Regenerating FilterMap for new vault context using string: "${currentQuery}"`);
+        _currentSearchQuery = currentQuery;
+        _currentFilterMap = generateFilterMap(getActiveVaultData(), currentQuery.trim());
     }
 
+    // 5. Standard Route: No search query active, run regular context initialization pass
     refreshVault();
 }
 

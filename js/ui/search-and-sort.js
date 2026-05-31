@@ -251,8 +251,15 @@ export function generateFilterMap(vaultData, query) {
                     const valueMatch = _smartMatch(f.val, q, s);
 
                     if (labelMatch || valueMatch) {
-                        map.highlighted.add(`${node.id}-field-${f.key}`);
                         nodeHasMatch = true;
+
+                        // IMPROVEMENT: Track label highlights separate from input box highlights
+                        if (labelMatch) {
+                            map.highlighted.add(`${node.id}-field-${f.key}-label`);
+                        }
+                        if (valueMatch) {
+                            map.highlighted.add(`${node.id}-field-${f.key}-value`);
+                        }
                     }
                 }
             });

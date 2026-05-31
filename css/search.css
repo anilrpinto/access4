@@ -187,3 +187,19 @@
     padding: 2px 4px;
     border-radius: 2px;
 }
+
+/**
+ * FIX: Pass wrapper highlighting through to the inner input element
+ * to match the clean layout aesthetics of the monolithic textarea.
+ */
+.input-wrap.search-highlight {
+    border-left: none !important; /* Remove the outer wrap accent line */
+    background-color: transparent !important; /* Clear outer wrap background tint */
+}
+
+.input-wrap.search-highlight .field-input {
+    border-left: 4px solid #27ae60 !important; /* Move Emerald Accent to the inner input edge */
+    background-color: rgba(39, 174, 96, 0.05) !important; /* Apply subtle green background tint */
+    color: #1b5e20 !important;
+    font-weight: 600;
+}
