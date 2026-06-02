@@ -206,10 +206,11 @@ export async function handlePrivateVaultUnlock(pwd, data) {
     });
 }
 
-export function refreshVault({ readOnly = false, vaultSwitch = false} = { readOnly: false, vaultSwitch: false}) {
-    log("vaultUI.refreshVault", "called");
+export function refreshVault({ readOnly = false, vaultSwitch = false} = {}) {
+    const isReadOnly = readOnly ? readOnly : inReadOnlyMode();
+    log("vaultUI.refreshVault", `called - isReadOnly: ${isReadOnly}`);
 
-    if (readOnly)
+    if (isReadOnly)
         warn("vaultUI.refreshVault", "Read-Only mode, app will be limited to view info only!");
 
     _refreshTitleBar(vaultSwitch);
@@ -220,10 +221,10 @@ export function refreshVault({ readOnly = false, vaultSwitch = false} = { readOn
 
     // Full Re-render
     renderVaultExplorer();
-    _refreshMainMenuItemsState(readOnly);
-    _applyReadOnlyTheme(readOnly);
+    _refreshMainMenuItemsState(isReadOnly);
+    _applyReadOnlyTheme(isReadOnly);
 
-    vaultRawDataUI.textContent.setReadOnly(readOnly || !AU.isGenesisUser());
+    vaultRawDataUI.textContent.setReadOnly(isReadOnly || !AU.isGenesisUser());
 }
 
 export function refreshMoveMenu() {
@@ -235,21 +236,10 @@ export function refreshMoveMenu() {
     const clipboardType = _vaultClipboard.type; // 'groups' or 'items'
     const depth = _sessionState.path.length;
 
-    // --- SECTION 1: APP TITLE (vaultUI.title) ---
-    if (isCutting) {
-        vaultUI.title.setText(`${count} Ready to Move`);
-        vaultUI.title.style.color = "#FF9800"; // Orange
-    } else if (isSelecting) {
-        vaultUI.title.setText(count > 0 ? `${count} Selected` : "Select Items...");
-        vaultUI.title.style.color = "var(--primary-color)"; // Blue
-    }
-
-    // --- SECTION 3: MENU VISIBILITY (Updated for UX) ---
-
     // 1. Only show 'Cut' if we are selecting AND not already in 'Cut' mode
     vaultMenu.cutMenu.setVisible(isSelecting && count > 0 && !isCutting);
 
-// FIX: Smarter Paste Visibility
+    // Smarter Paste Visibility
     let canPaste = false;
     if (isCutting) {
         if (clipboardType === 'groups' && depth === 1) {
@@ -264,7 +254,7 @@ export function refreshMoveMenu() {
 
     // 2. Update the "Select Multiple" toggle text to handle 'Cancel Move'
     if (isSelecting || isCutting) {
-        vaultMenu.selectMenu.setText("\u2800\u2800 Cancel " + (isCutting ? "Move" : "Selection"));
+        vaultMenu.selectMenu.setText("❌ Cancel " + (isCutting ? "Move" : "Selection"));
         vaultMenu.selectMenu.classList.add('active-mode-text');
     } else {
         vaultMenu.selectMenu.setText("✅ Select");
@@ -743,24 +733,17 @@ function _doSecure() {
 async function _doToggleSecureClick() {
     log("vaultUI._doToggleSecureClick", "called");
 
-    // 1. Toggle the state
+    // 1. Mutate state variable data
     _sessionState.showSecure = !_sessionState.showSecure;
 
-    if (_sessionState.showSecure) {
-        vaultUI.toggleSecureBtn.setText('🔑');
-        vaultUI.title.classList.add("unsecured");
-    } else {
-        vaultUI.toggleSecureBtn.setText('🔒');
-        vaultUI.title.classList.remove("unsecured");
-    }
-
-    // Ensure we start at home if the path got corrupted
+    // 2. Structural boundary safety checks
     if (!_sessionState.path || _sessionState.path.length === 0) {
         _sessionState.path = ['root'];
     }
 
-    // 4. Re-render the explorer to apply state to all secure type fields
-    renderVaultExplorer();
+    // 3. Trigger unified layout rendering flow
+    // This will hit _refreshTitleBar() internally and execute your styling corrections!
+    refreshVault();
 
     const { refreshRawDataTree } = await import('@/ui/raw-data-viewer.js');
     refreshRawDataTree(getActiveVaultData(), !_sessionState.showSecure);
@@ -871,13 +854,39 @@ async function _toggleLogs() {
 }
 
 function _refreshTitleBar(vaultSwitch = false) {
-
+    // 1. Resolve User Role (Base Class assignment)
     vaultUI.title.classList.value = AU.isGenesisUser() ? 'genesis-user' : AU.isAdmin() ? 'admin-user' : 'member-user';
 
-    if (!vaultSwitch)
-        return;
+    // 🛠️ 2. EVALUATE UNSECURED CRYPTO STATE
+    const isUnsecured = !!_sessionState.showSecure;
 
-    // 1. Decoupled Presentation Data Map (No hardcoded styles or hex colors!)
+    // Toggle the .unsecured class based on the state boolean
+    vaultUI.title.classList.toggle("unsecured", isUnsecured);
+
+    // Sync the button icon state directly alongside it
+    if (vaultUI.toggleSecureBtn) {
+        vaultUI.toggleSecureBtn.setText(isUnsecured ? '🔑' : '🔒');
+    }
+
+    // 3. Check Selection States FIRST
+    const count = _vaultClipboard?.items?.length || 0;
+    const isCutting = _vaultClipboard?.mode === 'cut';
+    const isSelecting = _sessionState.isSelectionMode;
+
+    if (isCutting) {
+        vaultUI.title.setText(`${count} Ready to Move`);
+        vaultUI.title.style.color = "#FF9800"; // Orange (Overrides text color via style attribute)
+        return;
+    } else if (isSelecting) {
+        vaultUI.title.setText(count > 0 ? `${count} Selected` : "Select Items...");
+        vaultUI.title.style.color = "var(--primary-color)"; // Blue (Overrides text color)
+        return;
+    }
+
+    // 4. Default Vault Branding (Only runs if NOT selecting/cutting)
+    // Clear custom style colors so the CSS engine drops back to class rules (like #vault_title.unsecured)
+    vaultUI.title.style.color = "";
+
     const branding = {
         sharedArchive:  { text: "Shared Archives",  className: "state-shared-archive",  toast: "Switched to Shared Archive View" },
         privateArchive: { text: "Private Archives", className: "state-private-archive", toast: "Switched to Private Archive View" },
@@ -885,21 +894,22 @@ function _refreshTitleBar(vaultSwitch = false) {
         shared:         { text: "Shared",           className: "state-shared",          toast: "Returned to Shared Vault" }
     };
 
-    // 2. Resolve target contextual state criteria
     const resolvedKey = _isArchiveModeActive
         ? (_isPrivateMode ? 'privateArchive' : 'sharedArchive')
         : (_isPrivateMode ? 'private' : 'shared');
 
     const config = branding[resolvedKey];
 
-    // 3. Clear existing active state classes to ensure smooth transitions
+    // Clear existing active state classes to ensure smooth transitions
     vaultUI.header.classList.remove('state-shared-archive', 'state-private-archive', 'state-private', 'state-shared');
 
-    // 4. Atomic assignments via DOM Tokens & Strings
+    // Atomic assignments via DOM Tokens & Strings
     vaultUI.title.setText(config.text);
     vaultUI.header.classList.add(config.className);
 
-    showSilentToast(config.toast, false);
+    if (vaultSwitch) {
+        showSilentToast(config.toast, false);
+    }
 }
 
 /**
@@ -979,21 +989,4 @@ function _refreshMainMenuItemsState(readOnly) {
     // moved out of refreshMenuUI as part of explorer.js refactor
     vaultMenu.privateVaultMenu.setText((isPrivateVaultUnlocked() && _isPrivateMode ? "🔒 Close" : "🛡️ Open") + " Private Vault");
     vaultMenu.discardChangesMenu.setVisible(_hasVaultChanges());
-
-    // NOTE: addBtn, renameBtn, and deleteBtn are intentionally removed from here
-    // as they are handled by the render loop.
 }
-
-/*function updateMoveToolbar() {
-    const count = vaultClipboard.items.length;
-
-    if (_sessionState.isSelectionMode && count > 0) {
-        // Change the "Vault" title to show the count
-        vaultUI.title.setText(`${count} selected`);
-    } else {
-        vaultUI.title.setText("Vault");
-
-        // Put the normal Breadcrumbs back if nothing is selected
-        renderBreadcrumbs();
-    }
-}*/
