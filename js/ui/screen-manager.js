@@ -36,16 +36,16 @@ export const ScreenManager = {
         if (screen) screen.setVisible(false);
     },
 
-    switchView(screenKey) {
+    async switchView(screenKey) {
 
-        // ✅ Use the helper here too for safety!
+        // Use the helper here too for safety!
         if (!this.isRegistered(screenKey)) {
             warn("ScreenManager", `Cannot switch to '${screenKey}'. Not registered.`);
             if (screenKey !== 'explorer') this.switchView('explorer');
             return;
         }
 
-        // ✅ 1. GUARD: If we are already there, do nothing.
+        // 1. GUARD: If we are already there, do nothing.
         if (this.activeScreenKey === screenKey) {
             log("ScreenManager", `Already on '${screenKey}', ignoring switch.`);
             return;
@@ -59,7 +59,8 @@ export const ScreenManager = {
 
             // Run onHide ONCE. If it returns false, stop everything.
             if (currentHook?.onHide && typeof currentHook.onHide === 'function') {
-                if (currentHook.onHide() === false) {
+                const canProceed = await currentHook.onHide();
+                if (canProceed === false) {
                     log("ScreenManager", `Switch blocked by '${this.activeScreenKey}'`);
                     return;
                 }

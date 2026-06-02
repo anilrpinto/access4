@@ -121,7 +121,7 @@
     <header id="vault_header">
         <div id="vault_headerLeftSide">
             <button id="vault_toggleSecureBtn" class="icon-button" style="margin-right: 10px;">🔒</button>
-            <h1 id="vault_title" class="member-user" style="font-size: 1.1rem; margin: 0;">Vault</h1>
+            <h1 id="vault_title" class="member-user" style="font-size: 1.1rem; margin: 0;">Shared</h1>
         </div>
 
         <div id="vault_headerRightSide">
@@ -142,7 +142,7 @@
                     <button id="vaultMenu_archivedMenu">📦 Archived</button>
                     <button id="vaultMenu_privateVaultMenu">🛡️ Open Private vault</button>
                     <hr>
-                    <button id="vaultMenu_toggleEditMenu">✏️ Toggle Edit</button>
+                    <button id="vaultMenu_toggleEditMenu">✏️ Edit</button>
                     <button id="vaultMenu_selectMenu">✅ Select</button>
                     <button id="vaultMenu_cutMenu" style="display:none;">✂️ Cut</button>
                     <button id="vaultMenu_pasteMenu" style="display:none;">📋 Paste</button>
@@ -384,6 +384,10 @@
                         Force Password Change
                         <input type="checkbox" id="vaultUsers_forcePwdCheck">
                     </label>
+                </div>
+                <div class="timestamp-group">
+                    <label class="timestamp-label">Last Accessed On</label>
+                    <span id="vaultUsers_lastAccessedOn" class="input-label"></span>
                 </div>
                 <div class="button-group-users" style="margin-top: 30px; padding-top: 15px; border-top: 1px solid #eee;">
 

@@ -1,6 +1,7 @@
-import { C, G, LS, GD, inReadOnlyMode, log, trace, debug, info, warn, error } from '@/shared/exports.js';
+import { C, G, LS, GD, U, inReadOnlyMode, log, trace, debug, info, warn, error } from '@/shared/exports.js';
 import { showSilentToast } from '@/ui/uihelper.js';
 import { vaultUsersUI } from '@/ui/loader.js';
+import { showOverlayConfirmUI } from '@/ui/modal.js';
 
 let _originalAuthSnapshot = null; // To track changes
 
@@ -17,6 +18,8 @@ export async function showUsersUI() {
 /** INTERNAL FUNCTIONS **/
 async function _load() {
     log("users._load", "called");
+
+    vaultUsersUI.formFields.setVisible(false);
 
     // Capture the state before any edits happen
     _originalAuthSnapshot = JSON.stringify(G.auth);
@@ -73,19 +76,32 @@ async function _unload() {
     const currentAuthSnapshot = JSON.stringify(G.auth);
 
     if (currentAuthSnapshot !== _originalAuthSnapshot) {
-        if (!confirm("You have unsaved changes. Discard them?")) {
-            return false;
-        }
-        // User said OK to discard: Revert G.auth so it's not "dirty"
-        G.auth = JSON.parse(_originalAuthSnapshot);
+        // Wrap the UI modal in a promise to block ScreenManager until resolved
+        const proceed = await new Promise((resolve) => {
+            showOverlayConfirmUI({
+                title: "Unsaved Changes",
+                message: "You have unsaved changes. Discard them?",
+                okText: "Discard",
+                onConfirm: () => {
+                    // Revert local changes
+                    G.auth = JSON.parse(_originalAuthSnapshot);
+                    resolve(true); // Tell ScreenManager it's safe to switch views
+                },
+                onCancel: () => {
+                    resolve(false); // Tell ScreenManager to ABORT the switch
+                }
+            });
+        });
+
+        // If user canceled, stop execution here and return false
+        if (!proceed) return false;
     }
 
-    // --- UI CLEANUP ---
-    // Hide sub-elements so they are fresh for the next time the screen is opened
+    // --- UI CLEANUP (Only runs if the view is actually transitioning) ---
     vaultUsersUI.formFields.setVisible(false);
-    vaultUsersUI.userSelect.value = ""; // Clear selection
+    vaultUsersUI.userSelect.value = "";
 
-    return true; // ✅ Proceed with the switch
+    return true;
 }
 
 function _updateLocalMemberState() {
@@ -111,7 +127,15 @@ async function _exitUsersUI() {
     window.ScreenManager.goHome();
 }
 
-function _selectUser() {
+function _selectUser(e) {
+
+    // If an event object exists, kill the bubble before it reaches formFields
+    if (e && typeof e.stopPropagation === 'function') {
+        e.stopPropagation();
+    }
+
+    log("users._selectUser", "called");
+
     const email = vaultUsersUI.userSelect.value;
     const form = vaultUsersUI.formFields;
 
@@ -137,6 +161,10 @@ function _selectUser() {
     vaultUsersUI.readonlyCheck.setEnabled(!isLocked);
     vaultUsersUI.attachmentsCheck.setEnabled(!isLocked);
     vaultUsersUI.forcePwdCheck.setEnabled(!isLocked);
+
+    log("users._selectUser", "lastVaultAccess", U.formatLocalTime(user.lastVaultAccess));
+
+    vaultUsersUI.lastAccessedOn.setText(U.formatLocalTime(user.lastVaultAccess));
 }
 
 async function _save() {
@@ -159,20 +187,26 @@ async function _save() {
 
 async function _remove() {
     const email = vaultUsersUI.userSelect.value;
-    if (!confirm(`Are you sure you want to revoke all access for ${email}?`)) return;
 
-    try {
-        delete G.auth.members[email];
-        await _persistUserChanges();
+    showOverlayConfirmUI({
+        title: "Revoke Access",
+        message: `Are you sure you want to revoke all access for ${email}?`,
+        okText: "Revoke",
+        onConfirm: async () => {
+            try {
+                delete G.auth.members[email];
+                await _persistUserChanges();
 
-        // ✅ ADD THIS: Reset the snapshot so the exit guard knows we are "clean"
-        _originalAuthSnapshot = JSON.stringify(G.auth);
+                // Reset the snapshot so the exit guard knows we are "clean"
+                _originalAuthSnapshot = JSON.stringify(G.auth);
 
-        showSilentToast(`${email} removed from vault`);
-        showUsersUI(); // Refresh list
-    } catch (e) {
-        error("users._remove", e);
-    }
+                showSilentToast(`${email} removed from vault`);
+                await _load();
+            } catch (e) {
+                error("users._remove", e);
+            }
+        }
+    });
 }
 
 /**

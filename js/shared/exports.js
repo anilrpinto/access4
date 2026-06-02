@@ -1,5 +1,5 @@
 export { C } from '@/shared/constants.js';
-export { G, clearGlobals, isValidSession, inReadOnlyMode, inWriteMode } from '@/shared/global.js';
+export { G, clearGlobals, isValidSession, inReadOnlyMode, inWriteMode, activeUser } from '@/shared/global.js';
 export { LS } from '@/shared/ls-gateway.js';
 
 export * from '@/shared/log.js';

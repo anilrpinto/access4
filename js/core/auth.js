@@ -1,4 +1,4 @@
-import { C, G, LS, ID, GD, CR, log, trace, debug, info, warn, error, isTraceEnabled } from '@/shared/exports.js';
+import { C, G, LS, ID, GD, CR, activeUser, log, trace, debug, info, warn, error, isTraceEnabled } from '@/shared/exports.js';
 import { loginUI } from '@/ui/loader.js';
 import { handleSignInSuccessStatus, showAuthMessage, setupPasswordPrompt, proceedAfterPasswordSuccess, showUnlockMessage } from '@/ui/login.js';
 
@@ -57,6 +57,17 @@ export function needsPasswordChange() {
 export function requireAdmin() {
     if (!isAdmin())
         throw new Error("Administrator privileges required");
+}
+
+export async function logLastAccess() {
+    log("AU.logLastAccess", "called");
+
+    const user = activeUser();
+
+    if (user) {
+        user.lastVaultAccess = new Date().toISOString();
+        GD.drivePatchJsonFile(await LS.get(C.AUTH_FILE_ID_CACHE), G.auth);
+    }
 }
 
 /** INTERNAL FUNCTIONS **/
@@ -190,7 +201,7 @@ async function _attemptSessionRestore() {
 async function _ensureAuthorization() {
     log("AU._ensureAuthorization", `called - verifying against ${C.AUTH_FILE_NAME}`);
 
-    // 1️⃣ Try to get the ID from cache first
+    // Try to get the ID from cache first
     let fileId = LS.get(C.AUTH_FILE_ID_CACHE);
     let existing;
 
@@ -199,7 +210,7 @@ async function _ensureAuthorization() {
         existing = await GD.readJsonByFileId(fileId).catch(() => null);
     }
 
-    // 2️⃣ Fallback to Name search only if ID is missing or dead
+    // Fallback to Name search only if ID is missing or dead
     if (!existing) {
         warn("AU._ensureAuthorization", "Cache miss or file moved. Falling back to Name search...");
         existing = await GD.readJsonByName(C.AUTH_FILE_NAME);

@@ -1,4 +1,4 @@
-import { C, G, LS, inReadOnlyMode, isValidSession, CR, AU, SV, AT, U, log, trace, debug, info, warn, error, isDebugEnabled } from '@/shared/exports.js';
+import { C, G, LS, inReadOnlyMode, isValidSession, AU, SV, AT, U, log, trace, debug, info, warn, error, isDebugEnabled } from '@/shared/exports.js';
 import { ScreenManager } from '@/ui/screen-manager.js'; // Do not delete, need for initialization!
 import { runFullBackup, runSharedVaultBackup, runPrivateVaultBackup } from '@/core/backup.js';
 import { runSharedVaultCleanup, runPrivateVaultCleanup, runVaultAccessHousekeeping } from '@/core/janitor.js';
@@ -40,6 +40,8 @@ let _sessionState = {
 export async function loadVault(pwd, data, options) {
     log("vaultUI.loadVault", "called options:", JSON.stringify(options));
 
+    AU.logLastAccess();
+
     // ✅ 1. WIPE THE SESSION STATE
     window.ScreenManager.reset();
     _doSecure();
@@ -79,6 +81,7 @@ export async function loadVault(pwd, data, options) {
         },
         toggleEditable: () => {
             _sessionState.isEditable = !_sessionState.isEditable;
+            vaultMenu.toggleEditMenu.setText(_sessionState.isEditable ? "❌ Stop Editing" : "✏️ Edit");
             refreshVault();
         },
         onNavigate: (id) => {
@@ -149,26 +152,6 @@ export async function toggleVaultMode(mode) {
     // 2. Reset navigation to the root of the selected mode/vault
     _sessionState.path = ['root'];
 
-    // 3. UI Aesthetics & Branding Map (Accommodates private vs shared archive sub-states safely)
-    const branding = {
-        sharedArchive:  { text: "📦 Shared Archive", color: "#9b59b6", toast: "Switched to Shared Archive View" },
-        privateArchive: { text: "📦 Private Archive", color: "#a29bfe", toast: "Switched to Private Archive View" },
-        private:        { text: "🛡️ Private Vault", color: "#FFD700", toast: "Switched to Private Mode" },
-        shared:         { text: "Vault", color: "", toast: "Returned to Shared Vault" }
-    };
-
-    // Calculate the exact resolved state string to prevent undefined dictionary misses
-    const resolvedKey = _isArchiveModeActive
-        ? (_isPrivateMode ? 'privateArchive' : 'sharedArchive')
-        : (_isPrivateMode ? 'private' : 'shared');
-
-    const config = branding[resolvedKey];
-
-    // Safe execution pass guaranteed
-    vaultUI.title.setText(config.text);
-    vaultUI.title.style.color = config.color;
-    showSilentToast(config.toast, false);
-
     // 4. If there's an active text query, synchronize the memory state map instantly
     // before refreshVault passes execution down to the explorer templates.
     const currentQuery = vaultNavBarUI?.filterInput?.value || "";
@@ -179,7 +162,7 @@ export async function toggleVaultMode(mode) {
     }
 
     // 5. Standard Route: No search query active, run regular context initialization pass
-    refreshVault();
+    refreshVault({vaultSwitch: true});
 }
 
 /**
@@ -223,6 +206,26 @@ export async function handlePrivateVaultUnlock(pwd, data) {
     });
 }
 
+export function refreshVault({ readOnly = false, vaultSwitch = false} = { readOnly: false, vaultSwitch: false}) {
+    log("vaultUI.refreshVault", "called");
+
+    if (readOnly)
+        warn("vaultUI.refreshVault", "Read-Only mode, app will be limited to view info only!");
+
+    _refreshTitleBar(vaultSwitch);
+    refreshMoveMenu();
+
+    // Update the Action Bar (Add/Rename/Delete logic)
+    _refreshAddRenDelMenubar();
+
+    // Full Re-render
+    renderVaultExplorer();
+    _refreshMainMenuItemsState(readOnly);
+    _applyReadOnlyTheme(readOnly);
+
+    vaultRawDataUI.textContent.setReadOnly(readOnly || !AU.isGenesisUser());
+}
+
 export function refreshMoveMenu() {
     log("vaultUI.refreshMoveMenu", "called");
 
@@ -239,10 +242,6 @@ export function refreshMoveMenu() {
     } else if (isSelecting) {
         vaultUI.title.setText(count > 0 ? `${count} Selected` : "Select Items...");
         vaultUI.title.style.color = "var(--primary-color)"; // Blue
-    } else {
-        // RESET: Bring the title back to its default state
-        vaultUI.title.setText("Vault");
-        vaultUI.title.style.color = "";
     }
 
     // --- SECTION 3: MENU VISIBILITY (Updated for UX) ---
@@ -281,27 +280,6 @@ export function resetToRoot() {
 export function navigateToPath(index) {
     _sessionState.path = _sessionState.path.slice(0, index);
     refreshVault();
-}
-
-export function refreshVault(readOnly = false) {
-    log("vaultUI.refreshVault", "called");
-
-    if (readOnly)
-        warn("vaultUI.refreshVault", "Read-Only mode, app will be limited to view info only!");
-
-    vaultUI.title.classList.value = AU.isGenesisUser() ? 'genesis-user' : AU.isAdmin() ? 'admin-user' : 'member-user';
-
-    refreshMoveMenu();
-
-    // 3. Update the Action Bar (Add/Rename/Delete logic)
-    _refreshAddRenDelMenubar();
-
-    // 4. Full Re-render
-    renderVaultExplorer();
-    _refreshMainMenuItemsState(readOnly);
-    _applyReadOnlyTheme(readOnly);
-
-    vaultRawDataUI.textContent.setReadOnly(readOnly || !AU.isGenesisUser());
 }
 
 /**
@@ -383,7 +361,7 @@ export function handleDriveLockLost(info) {
 
     const wasWriteMode = G.driveLockState?.mode === "write";
 
-    refreshVault(wasWriteMode);
+    refreshVault({readOnly: wasWriteMode});
 
     if (G.driveLockState?.heartbeat?.stop) {
         G.driveLockState.heartbeat.stop();
@@ -404,16 +382,16 @@ export function handleDriveLockLost(info) {
 
                 // Success! The heartbeat is back, UI stays in write mode.
                 showSilentToast("Lock re-acquired successfully, save your changes first");
-                refreshVault(false);
+                refreshVault({readOnly: false});
             } catch (err) {
                 error("UI.lockLost", "Re-acquisition failed:", err.message);
                 showSilentToast("Failed to re-acquire lock, downgrading to read-only mode");
-                refreshVault(true);
+                refreshVault({readOnly: true});
             }
         },
         onCancel: async () => {
             showSilentToast("Continuing in read only mode");
-            refreshVault(true);
+            refreshVault({readOnly: true});
         }
     });
 }
@@ -491,7 +469,7 @@ async function _showVaultUI({ readOnly = false } = {}) {
     if (readOnly) warn("vaultUI._showVaultUI", "Showing vault read-only mode");
 
     swapVisibility(rootUI.loginView, rootUI.vaultView);
-    refreshVault(readOnly);
+    refreshVault({readOnly});
     activateIdleChecker();
 }
 
@@ -768,10 +746,13 @@ async function _doToggleSecureClick() {
     // 1. Toggle the state
     _sessionState.showSecure = !_sessionState.showSecure;
 
-    vaultUI.toggleSecureBtn.setText(_sessionState.showSecure ? '🔓' : '🔒');
-
-    // 3. Add a subtle color change to the title to bring further attention
-    vaultUI.title.style.color = _sessionState.showSecure ? '#dd0000' : '#000';
+    if (_sessionState.showSecure) {
+        vaultUI.toggleSecureBtn.setText('🔑');
+        vaultUI.title.classList.add("unsecured");
+    } else {
+        vaultUI.toggleSecureBtn.setText('🔒');
+        vaultUI.title.classList.remove("unsecured");
+    }
 
     // Ensure we start at home if the path got corrupted
     if (!_sessionState.path || _sessionState.path.length === 0) {
@@ -887,6 +868,38 @@ function _hasVaultChanges() {
 
 async function _toggleLogs() {
     rootUI.log.toggleVisibility();
+}
+
+function _refreshTitleBar(vaultSwitch = false) {
+
+    vaultUI.title.classList.value = AU.isGenesisUser() ? 'genesis-user' : AU.isAdmin() ? 'admin-user' : 'member-user';
+
+    if (!vaultSwitch)
+        return;
+
+    // 1. Decoupled Presentation Data Map (No hardcoded styles or hex colors!)
+    const branding = {
+        sharedArchive:  { text: "Shared Archives",  className: "state-shared-archive",  toast: "Switched to Shared Archive View" },
+        privateArchive: { text: "Private Archives", className: "state-private-archive", toast: "Switched to Private Archive View" },
+        private:        { text: "Private",          className: "state-private",         toast: "Switched to Private Mode" },
+        shared:         { text: "Shared",           className: "state-shared",          toast: "Returned to Shared Vault" }
+    };
+
+    // 2. Resolve target contextual state criteria
+    const resolvedKey = _isArchiveModeActive
+        ? (_isPrivateMode ? 'privateArchive' : 'sharedArchive')
+        : (_isPrivateMode ? 'private' : 'shared');
+
+    const config = branding[resolvedKey];
+
+    // 3. Clear existing active state classes to ensure smooth transitions
+    vaultUI.header.classList.remove('state-shared-archive', 'state-private-archive', 'state-private', 'state-shared');
+
+    // 4. Atomic assignments via DOM Tokens & Strings
+    vaultUI.title.setText(config.text);
+    vaultUI.header.classList.add(config.className);
+
+    showSilentToast(config.toast, false);
 }
 
 /**

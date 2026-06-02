@@ -68,7 +68,7 @@ export async function proceedAfterPasswordSuccess(pwd = null) {
     G.lockAcquisitionPromise.then((success) => {
         if (success && inWriteMode()) {
             log("loginUI.proceedAfterPasswordSuccess", "Background lock acquired. Upgrading UI to WRITE mode.");
-            refreshVault(false);
+            refreshVault();
         }
     }).catch(err => {
         warn("loginUI.proceedAfterPasswordSuccess", "Background lock failed:", err.message);

@@ -209,10 +209,7 @@ async function _doToggleEditClick() {
         const item = getCurrentItem();
         if (item) item.modified = new Date().toISOString();
     }
-
-    vaultMenu.toggleEditMenu.setText(isEditable ? "Cancel Editing" : "Edit Item");
-    
-    // Internally refreshes vault 
+    // Internally refreshes vault
     toggleEditable();
 }
 

@@ -28,7 +28,7 @@ export const backupRestoreUI = loadUI(['title' , 'closeBtn', 'inputSection', 'en
 export const vaultNavBarUI = loadUI(['mainSection', 'breadcrumbs', 'filterSection', 'filterInput', 'filterToggle', 'sortToggle'], 'vaultNavBar_', 'vault_mainSection');
 
 export const vaultUsersUI = loadUI(['mainSection', 'title', 'closeBtn', 'userSelect', 'formFields', 'roleSelect', 'readonlyCheck',
-        'attachmentsCheck', 'forcePwdCheck', 'cancelBtn', 'saveBtn', 'removeBtn'], 'vaultUsers_', 'vaultBody');
+        'attachmentsCheck', 'forcePwdCheck', 'lastAccessedOn', 'cancelBtn', 'saveBtn', 'removeBtn'], 'vaultUsers_', 'vaultBody');
 //vaultUsersUI.formFields.setFlex();
 
 export const vaultMenuBar = loadUI(['addBtn', 'renameBtn', 'deleteBtn'], 'vaultMenuBar_', 'vault_headerRightSide');

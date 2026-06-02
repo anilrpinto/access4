@@ -82,3 +82,7 @@ export function isAuthorizedSession() {
 export function isActiveSession(id) {
     return G.sessionUnlocked === true && id._sessionPrivateKey === G.currentPrivateKey && G.unlockedIdentity === id;
 }
+
+export function activeUser() {
+    return G.auth?.members?.[G.userEmail];
+}

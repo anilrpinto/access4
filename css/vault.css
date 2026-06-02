@@ -23,17 +23,40 @@ body.vault-active #vaultView {
 }
 
 /* Dynamic User Access State Markers */
-.genesis-user { color: #138d9c !important; font-weight: bold; }
-.admin-user   { color: #602bba !important; font-weight: bold; }
+.genesis-user { color: #9b02f3 !important; font-weight: bold; }
+.admin-user   { color: #0f5c25 !important; font-weight: bold; }
 .member-user  { color: #000000 !important; font-weight: bold; }
 
-/* ==========================================================================
-   VAULT READ-ONLY, ARCHIVAL & FROZEN STATE LAYOUTS
-   ========================================================================== */
 
-header.vault-readonly-mode {
-    background-color: #fbb55a !important; /* Warning tint indicator */
-    border-bottom: 3px solid #d57424;     /* Accent anchoring line boundary */
+/* ==========================================================================
+    VAULT STATE HEADERS & THEMATIC BRANDING
+   ========================================================================== */
+#vault_title.unsecured {
+    color: #f30202 !important;
+}
+
+#vaultView header.state-shared {
+    background-color: var(--vault-header-bg); /* Default fallback theme design */
+}
+
+#vaultView header.state-private {
+    background-color: #9af8a1; /* Light green tint matching private vaults */
+}
+
+#vaultView header.state-shared-archive {
+    background-color: #cfd8ef; /* Soft blue tint matching shared archives */
+}
+
+#vaultView header.state-private-archive {
+    background-color: #e5f3cc; /* Soft lime-gray tint matching private archives */
+}
+
+/* * CRITICAL LIFECYCLE RULE: Placed at the bottom to guarantee that
+ * the warning amber color overrides standard backgrounds when read-only!
+ */
+#vaultView header.vault-readonly-mode {
+    background-color: #fbb55a !important;
+    border-bottom: 1px solid #d57424;
 }
 
 body.vault-frozen {
@@ -199,6 +222,33 @@ select#vaultUsers_roleSelect {
     background-repeat: no-repeat;
     background-position: right 10px center;
     background-size: 1em;
+}
+
+/* ==========================================================================
+   USER ADMINISTRATION TIMESTAMP ALIGNMENTS
+   ========================================================================== */
+
+.timestamp-group {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    width: 100%;
+    margin-top: 8px;
+    margin-bottom: 8px;
+    padding: 4px 0;
+}
+
+.timestamp-label {
+    font-size: 1rem;
+    color: #333333;
+    user-select: none;
+}
+
+#vaultUsers_lastAccessedOn {
+    font-size: 0.95rem;
+    color: #666666;
+    text-align: right;
+    font-variant-numeric: tabular-nums; /* Keeps the numbers perfectly aligned vertically on switches */
 }
 
 /* ==========================================================================
