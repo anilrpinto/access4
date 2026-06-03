@@ -9,17 +9,23 @@ body.vault-active {
     height: 100% !important;
 }
 
-/* Isolates interactive view scrolling inside the view layer container bounds */
+/* Turn the view container into a structural flex column */
 body.vault-active #vaultView {
     height: 100vh;
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch; /* Momentum scroll layer injection for iOS engines */
+    height: 100dvh;
+    display: flex;          /* Added: Enforces strict layout scaling for child elements */
+    flex-direction: column; /* Added: Arranges header and vaultBody vertically */
+    overflow: hidden;       /* Changed: Stops the window wrapper itself from leaking layout height */
+    -webkit-overflow-scrolling: touch;
 }
 
+/* Ensure the explorer section stretches and gives bottom spacing */
 #vault_mainSection {
     display: flex;
-    flex-direction: column; /* Vertical element stack layout routing */
+    flex-direction: column;
     width: 100%;
+    flex-shrink: 0;              /* Prevents the content envelope from compressing */
+    padding-bottom: 40px;        /* Bumper zone protection to float above phone safety notches */
 }
 
 /* Dynamic User Access State Markers */
@@ -114,14 +120,14 @@ body.vault-frozen .list-row:active {
     height: 100%;
 }
 
+/* Give the body container definitive boundaries */
 #vaultBody {
     display: flex;
     flex-direction: column;
-    flex: 1;                 /* Forces the body to occupy all remaining vertical space */
-
-    /* Caps the body container and forces long lists to scroll internally */
-    min-height: 0;
-    /*overflow-y: auto;*/
+    flex: 1;                /* Occupies exactly 100vh minus the 60px header */
+    min-height: 0;          /* Prevents content from forcing layout expansion */
+    overflow-y: auto !important; /* Forces internal scrolling layout context on iOS/Android */
+    position: relative;          /* Establishes clear layout paint layers */
     -webkit-overflow-scrolling: touch;
 }
 

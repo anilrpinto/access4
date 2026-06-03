@@ -8,54 +8,6 @@ let _privateFileName = null;
 let _privateFileId = null
 let _privateKey = null;
 
-/**
- * WRAPS THE POINTER (Metadata)
- * Encrypts the { fileId, salt, iterations } into a single Base64 string.
- */
-export async function wrapPointer(metadataObj, password, emailHash) {
-    // 1. Derive the "Pointer Key" using the Email Hash as a deterministic salt
-    const pointerKey = await CR.deriveKey(password, {
-        salt: CR.bufToB64(emailHash), // Uses email hash to anchor the pointer
-        iterations: 100000 // Standard iterations for the pointer layer
-    });
-
-    // 2. Encrypt the metadata object
-    const jsonString = JSON.stringify(metadataObj);
-    const encrypted = await CR.encrypt(jsonString, pointerKey);
-
-    // 3. Combine IV and Data into a single string for storage
-    // Format: "iv.data" (Simple and standard for your app)
-    return `${encrypted.iv}.${encrypted.data}`;
-}
-
-/**
- * UNWRAPS THE POINTER
- * Returns the object: { fileId, salt, iterations }
- */
-export async function unwrapPointer(pointerBlob, password, emailHash) {
-    try {
-        // 1. Split the "iv.data" format
-        const [iv, data] = pointerBlob.split('.');
-
-        // 2. Re-derive the same Pointer Key
-        const pointerKey = await CR.deriveKey(password, {
-            salt: CR.bufToB64(emailHash),
-            iterations: 100000
-        });
-
-        // 3. Decrypt using your CR.decrypt helper
-        const decryptedBuf = await CR.decrypt({ iv, data }, pointerKey);
-
-        // 4. Parse back to JSON
-        const jsonString = CR.decodeBuf(decryptedBuf);
-        return JSON.parse(jsonString);
-    } catch (err) {
-        // Error logging is handled inside your CR module,
-        // but we catch here to return null for "Wrong Password"
-        return null;
-    }
-}
-
 export async function showCreatePrivateVaultUI(onSuccess = () => alert('Private vault created')) {
 
     if (onSuccess)
@@ -98,7 +50,7 @@ export async function promptPrivateVaultPassword(pointer, emailHash, onSuccess =
 
         // 1. Unwrap the pointer to get the File ID and Salt
         // (Uses the logic we discussed to derive the key and decrypt the pointer)
-        const decryptedPointer = await unwrapPointer(pointer, pwd, emailHash);
+        const decryptedPointer = await _unwrapPointer(pointer, pwd, emailHash);
         _privateFileId = decryptedPointer.fileId;
         _privateFileName = `a4_pvt_${emailHash.substring(0,8)}.dat`;
 
@@ -204,6 +156,54 @@ async function _doCreateVaultClick() {
 }
 
 /**
+ * WRAPS THE POINTER (Metadata)
+ * Encrypts the { fileId, salt, iterations } into a single Base64 string.
+ */
+async function _wrapPointer(metadataObj, password, emailHash) {
+    // 1. Derive the "Pointer Key" using the Email Hash as a deterministic salt
+    const pointerKey = await CR.deriveKey(password, {
+        salt: CR.bufToB64(emailHash), // Uses email hash to anchor the pointer
+        iterations: 100000 // Standard iterations for the pointer layer
+    });
+
+    // 2. Encrypt the metadata object
+    const jsonString = JSON.stringify(metadataObj);
+    const encrypted = await CR.encrypt(jsonString, pointerKey);
+
+    // 3. Combine IV and Data into a single string for storage
+    // Format: "iv.data" (Simple and standard for your app)
+    return `${encrypted.iv}.${encrypted.data}`;
+}
+
+/**
+ * UNWRAPS THE POINTER
+ * Returns the object: { fileId, salt, iterations }
+ */
+async function _unwrapPointer(pointerBlob, password, emailHash) {
+    try {
+        // 1. Split the "iv.data" format
+        const [iv, data] = pointerBlob.split('.');
+
+        // 2. Re-derive the same Pointer Key
+        const pointerKey = await CR.deriveKey(password, {
+            salt: CR.bufToB64(emailHash),
+            iterations: 100000
+        });
+
+        // 3. Decrypt using your CR.decrypt helper
+        const decryptedBuf = await CR.decrypt({ iv, data }, pointerKey);
+
+        // 4. Parse back to JSON
+        const jsonString = CR.decodeBuf(decryptedBuf);
+        return JSON.parse(jsonString);
+    } catch (err) {
+        // Error logging is handled inside your CR module,
+        // but we catch here to return null for "Wrong Password"
+        return null;
+    }
+}
+
+/**
  * INITIALIZES A NEW PRIVATE VAULT
  * 1. Generates File Salt
  * 2. Encrypts Blank Vault
@@ -247,7 +247,7 @@ async function _setupPrivateVault(userEmail, privatePassword) {
 
     // 5. Wrap the Pointer for the Shared Vault
     const pointerData = { fileId: _privateFileId, salt: fileSalt, iterations: 600000 };
-    const encryptedPointer = await wrapPointer(pointerData, privatePassword, emailHash);
+    const encryptedPointer = await _wrapPointer(pointerData, privatePassword, emailHash);
 
     // RETURN EVERYTHING vault.js needs to take over
     return {

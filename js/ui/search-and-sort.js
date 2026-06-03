@@ -1,4 +1,4 @@
-import { log, trace, debug, info, warn, error } from '@/shared/exports.js';
+import { C, LS, log, trace, debug, info, warn, error } from '@/shared/exports.js';
 import { vaultNavBarUI, advSearchUI } from '@/ui/loader.js';
 import { handleSearchInput, getActiveVaultData, refreshVault } from '@/ui/vault.js';
 
@@ -25,6 +25,11 @@ const SORT_STATE = {
     icons: ["A↑", "Z↓", "🕙↓", "🕙↑"],
     labels: ["Name (A-Z)", "Name (Z-A)", "Modified (Newest)", "Modified (Oldest)"]
 };
+
+export function initSearchAndSort() {
+    log("search-and-sort.initSearchAndSort", "called");
+    SORT_STATE.mode = LS.get(C.LAST_SORT_MODE);
+}
 
 /**
  * THE SORTER: Sorts arrays based on the current mode
@@ -522,6 +527,7 @@ function _smartMatch(target, query, settings) {
 
 function _cycleSort() {
     SORT_STATE.mode = (SORT_STATE.mode + 1) % 4;
+    LS.set(C.LAST_SORT_MODE, SORT_STATE.mode);
 
     // Update the button icon
     vaultNavBarUI.sortToggle.setText(SORT_STATE.icons[SORT_STATE.mode]);

@@ -7,7 +7,7 @@ import { swapVisibility, showSilentToast } from '@/ui/uihelper.js';
 import { rootUI, vaultUI, vaultNavBarUI, vaultRawDataUI, copyLogsToClipboard, vaultMenuBar, vaultMenu } from '@/ui/loader.js';
 import { showConfirmUI } from '@/ui/confirm.js';
 import { showOverlayConfirmUI, showOverlayAlertUI, showOverlayPasswordUI, showOverlayChoiceUI } from '@/ui/modal.js';
-import { generateFilterMap } from '@/ui/search-and-sort.js';
+import { initSearchAndSort, generateFilterMap } from '@/ui/search-and-sort.js';
 import { lockPrivateVault, isPrivateVaultUnlocked, savePrivateVaultData } from "@/ui/private-vault.js";
 import { loadExplorer, renderVaultExplorer } from '@/ui/explorer.js';
 
@@ -459,6 +459,8 @@ async function _showVaultUI({ readOnly = false } = {}) {
     if (readOnly) warn("vaultUI._showVaultUI", "Showing vault read-only mode");
 
     swapVisibility(rootUI.loginView, rootUI.vaultView);
+    initSearchAndSort();
+
     refreshVault({readOnly});
     activateIdleChecker();
 }

@@ -18,7 +18,8 @@ export const C = deepFreeze({
     PRIVATE_VAULT_FOLDER_NAME: "private",
     ATTACHMENTS_FOLDER_NAME: "attachments",
     PRIVATE_ATTACHMENTS_FOLDER_NAME: "private-attachments",
-    AUTH_FILE_ID_CACHE: 'auth_file_id_cache',
+    AUTH_FILE_ID_CACHE: "auth_file_id_cache",
+    LAST_SORT_MODE: "last_sort_mode",
 
     BACKUP_MANIFEST_KEY: "backup_manifest",
     LAST_AUTO_BACKUP_KEY: "last_auto_backup",

@@ -285,11 +285,11 @@ async function _unlockIdentityFlow(pwd) {
             e.code = C.UNLOCK_ERROR_DEFS.INCORRECT_PASSWORD.code;
             throw e;
         }
-    }
-    log("loginUI._unlockIdentityFlow", "password verifier found, skipped identity migration");
+    } else
+        log("loginUI._unlockIdentityFlow", "password verifier found, skipped identity migration");
 
     // ─────────────────────────────
-    // 🔐 AUTHORITATIVE PASSWORD CHECK
+    // AUTHORITATIVE PASSWORD CHECK
     // ─────────────────────────────
     let key;
     try {
@@ -301,11 +301,10 @@ async function _unlockIdentityFlow(pwd) {
         e.code = C.UNLOCK_ERROR_DEFS.INCORRECT_PASSWORD.code;
         throw e;
     }
-
     log("loginUI._unlockIdentityFlow", "Password verifier check succeeded");
 
     // ─────────────────────────────
-    // 🔓 Attempt private key decrypt
+    // Attempt private key decrypt
     // ─────────────────────────────
     let decrypted = false;
     let decryptedPrivateKeyBytes = null;
@@ -319,7 +318,7 @@ async function _unlockIdentityFlow(pwd) {
     }
 
     // ─────────────────────────────
-    // 🔁 Single rotation retry
+    // Single rotation retry
     // ─────────────────────────────
     if (!decrypted) {
         log("loginUI._unlockIdentityFlow", "Attempting device key rotation");
@@ -337,7 +336,7 @@ async function _unlockIdentityFlow(pwd) {
     }
 
     // ─────────────────────────────
-    // 🧨 Absolute Safari recovery
+    // Absolute Safari recovery
     // ─────────────────────────────
     if (!decrypted) {
         log("loginUI._unlockIdentityFlow", "Rotation failed (safari behavior?) — recreating identity");
@@ -373,13 +372,13 @@ async function _unlockIdentityFlow(pwd) {
     // Session unlocked
     // ─────────────────────────────
 
-    // 1️⃣ Cache current private key (imports + sets G.currentPrivateKey)
+    // Cache current private key (imports + sets G.currentPrivateKey)
     await ID.cacheDecryptedPrivateKey(decryptedPrivateKeyBytes);
 
     // decrypt rotated identity keys
     await ID.decryptPreviousKeys(id, pwd);
 
-    // 4️⃣ Attach decrypted key to identity + session globals
+    // Attach decrypted key to identity + session globals
     id._sessionPrivateKey = G.currentPrivateKey;
     G.unlockedIdentity = id;
     G.sessionUnlocked = true;
