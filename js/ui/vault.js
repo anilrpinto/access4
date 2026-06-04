@@ -74,7 +74,21 @@ export async function loadVault(pwd, data, options) {
         atRoot: () => _sessionState.path.length === 1 && _sessionState.path[0] === 'root',
         navigateToRoot: () => { _sessionState.path = ['root']; },
         hasPrivateVaultData: () => !!_privateVaultData,
-        privateDataPointer: (emailHash) => _vaultData.meta.extensions?.private_vaults?.[emailHash],
+        privateDataPointer: (emailHash) => {
+            const entry = _vaultData.meta.extensions?.private_vaults?.[emailHash];
+            if (!entry) return null;
+
+            // If it's an object, extract the pointer property; otherwise, return the legacy raw string
+            return typeof entry === 'object' ? entry.pointer : entry;
+        },
+        updatePrivateVaultPointer: (emailHash, freshPointer) => {
+            if (!_vaultData.meta) _vaultData.meta = {};
+            if (!_vaultData.meta.extensions) _vaultData.meta.extensions = { private_vaults: {} };
+            _vaultData.meta.extensions.private_vaults[emailHash] = {
+                pointer: freshPointer,
+                passwordLastModified: new Date().toISOString()
+            };
+        },
         toggleShowSecure: () => {
             _sessionState.showSecure = !_sessionState.showSecure;
             refreshVault();
@@ -434,6 +448,8 @@ async function _init() {
     vaultMenu.rawDataMenu.onClick(_doShowRawDataClick);
     vaultMenu.discardChangesMenu.onClick(_doDiscardChangesClick);
 
+    vaultMenu.changePwdMenu.onClick(_doChangePasswordClick);
+
     vaultMenu.usersMenu.onClick(_doUsersClick);
     vaultMenu.syncAccessMenu.onClick(_doSyncAccessClick);
     vaultMenu.runBackupMenu.onClick(_doRunBackupClick);
@@ -536,6 +552,18 @@ function _executeCrossVaultPaste(targetGroupId) {
     _vaultClipboard.fromArchived = false;
 
     return { success: true, count: movedCount, type: _vaultClipboard.type };
+}
+
+async function _doChangePasswordClick() {
+    log("vaultUI._doChangePasswordClick", "Lazy loading module...");
+
+    try {
+        const { showChangePasswordUI } = await import('@/ui/change-password.js');
+        await showChangePasswordUI();
+    } catch (err) {
+        error("vaultUI._doChangePasswordClick", "Failed to load Change Password module:", err);
+        showSilentToast("Error loading component", true);
+    }
 }
 
 async function _doUsersClick() {

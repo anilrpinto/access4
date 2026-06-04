@@ -1,4 +1,4 @@
-import { C, G, CR, GD, log, trace, debug, info, warn, error } from '@/shared/exports.js';
+import { C, G, CR, GD, BM, log, trace, debug, info, warn, error } from '@/shared/exports.js';
 import { showOverlayAlertUI, showOverlayPasswordUI } from '@/ui/modal.js';
 import { vaultCreatePrivateUI  } from '@/ui/loader.js';
 import { showSilentToast } from '@/ui/uihelper.js';
@@ -7,6 +7,8 @@ let _onGenesisSuccess = null;
 let _privateFileName = null;
 let _privateFileId = null
 let _privateKey = null;
+
+let _pendingBiometricEviction = false;
 
 export async function showCreatePrivateVaultUI(onSuccess = () => alert('Private vault created')) {
 
@@ -79,7 +81,7 @@ export async function savePrivateVaultData(data) {
         throw new Error("Private vault context lost. Please re-unlock.");
     }
 
-    log("savePrivateVaultData", `Uploading to file: ${_privateFileId}`);
+    log("privateVault.savePrivateVaultData", `Uploading to file: ${_privateFileId}`);
 
     const encryptedObj = await CR.encrypt(JSON.stringify(data), _privateKey);
 
@@ -89,6 +91,20 @@ export async function savePrivateVaultData(data) {
         content: JSON.stringify(encryptedObj),
         mimeType: "application/octet-stream"
     });
+
+    // --- EXECUTE STAGED EVICTION CLEANLY ---
+    if (_pendingBiometricEviction) {
+        try {
+            log("privateVault.savePrivateVaultData", "Commiting password-linked biometric eviction...");
+
+            await BM.evictBiometricRecord('private');
+            _pendingBiometricEviction = false;
+
+            log("privateVault.savePrivateVaultData", "Biometric eviction finalized.");
+        } catch (bioErr) {
+            warn("privateVault.savePrivateVaultData", "Biometric eviction failed during save pass:", bioErr);
+        }
+    }
 }
 
 /**
@@ -104,6 +120,50 @@ export function lockPrivateVault() {
 
 export function isPrivateVaultUnlocked() {
     return !!_privateKey;
+}
+
+export function clearPendingPrivateBiometricEviction() {
+    _pendingBiometricEviction = false;
+}
+
+/**
+ * Rotates the encryption layer for the private vault purely in memory.
+ * No network I/O occurs here, keeping it identical to normal edit flows.
+ * @param {string} oldPwd - Existing Private password string
+ * @param {string} newPwd - Destination target password string
+ * @param {string} currentPointerBlob - Legacy pointer extracted from the main envelope
+ * @param {string} emailHash - Hashed identity context matching the user session
+ * @returns {Promise<{ freshPointerBlob: string }>}
+ */
+export async function rotatePrivateVaultPayloadKey(oldPwd, newPwd, currentPointerBlob, emailHash) {
+    log("privateVault.rotatePrivateVaultPayloadKey", "Staging private data block re-wrap in memory.");
+
+    // 1. Verify their old password by confirming it can unwrap the active pointer
+    const pointer = await _unwrapPointer(currentPointerBlob, oldPwd, emailHash);
+    if (!pointer) {
+        throw new Error("Validation Failed: The current private password entered is incorrect.");
+    }
+
+    // 2. Setup structural updates for the new configuration
+    const newFileSalt = CR.bufToB64(CR.randomBytes(32));
+    const targetIterations = 600000;
+
+    // 3. Mutate the live session key in memory so subsequent item creations work
+    _privateKey = await CR.deriveKey(newPwd, { salt: newFileSalt, iterations: targetIterations });
+
+    // Track identity variables for when the actual save click happens later
+    _privateFileId = pointer.fileId;
+    _privateFileName = `a4_pvt_${emailHash.substring(0,8)}.dat`;
+
+    // 4. Wrap the fresh pointer payload metrics to back-propagate to the Shared Envelope
+    const newMetadataConfig = { fileId: _privateFileId, salt: newFileSalt, iterations: targetIterations };
+    const freshPointerBlob = await _wrapPointer(newMetadataConfig, newPwd, emailHash);
+
+    // Stage the eviction internally
+    _pendingBiometricEviction = true;
+    log("privateVault.rotatePrivateVaultPayloadKey", "In-memory rotation staged. Biometric eviction flagged.");
+
+    return { freshPointerBlob };
 }
 
 /** INTERNAL FUNCTIONS **/

@@ -6,6 +6,7 @@ export const ScreenManager = {
     activeScreenKey: null, // Start null so the first switch always works
 
     EXPLORER_SCREENKEY: 'explorer',
+    CHANGE_PWD_SCREENKEY: 'change-pwd',
     USERS_SCREENKEY: 'users',
     RECOVERY_KEY_ROTATION_SCREENKEY: 'recovery-key-rotation',
     RAW_DATA_SCREENKEY: 'raw-data',

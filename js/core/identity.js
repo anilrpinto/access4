@@ -178,6 +178,83 @@ export async function decryptPreviousKeys(id, pwd) {
     }
 }
 
+/**
+ * Rotates the local device identity password by re-wrapping the private key.
+ * Designed to cleanly fit into a generalized UI execution sequence.
+ * * @param {string} oldPwd - The user's current password
+ * @param {string} newPwd - The target new password string
+ * @returns {Promise<{success: boolean}>}
+ */
+export async function updateIdentityPassword(oldPwd, newPwd) {
+    log("ID.updateIdentityPassword", "called - Initializing local identity password rotation");
+
+    const id = await loadIdentity();
+    if (!id) {
+        throw new Error("Local identity profile not found — cannot change password.");
+    }
+
+    // Authoritatively verify the old password
+    const oldKey = await CR.deriveKey(oldPwd, id.kdf);
+    try {
+        await verifyPasswordVerifier(id.passwordVerifier, oldKey);
+    } catch {
+        error("ID.updateIdentityPassword", "Verification failed: current password string is incorrect");
+        throw new Error("Current password is incorrect.");
+    }
+
+    // Decrypt the raw device private key using the old key context
+    let privateKeyPkcs8;
+    try {
+        privateKeyPkcs8 = await CR.decrypt(id.encryptedPrivateKey, oldKey);
+    } catch (err) {
+        error("ID.updateIdentityPassword", "Failed to extract underlying device private key payload:", err.message);
+        throw new Error("Cryptographic extraction failed. Profile may be corrupted.");
+    }
+
+    // Establish an entirely new Salt / KDF context block for the new password
+    const newSaltBytes = CR.randomBytes(CR.CR_ALG.SALT_LENGTH);
+    id.kdf = {
+        salt: CR.bufToB64(newSaltBytes),
+        iterations: CR.CR_ALG.PBKDF2_ITERATIONS
+    };
+
+    // Derive the new Key Encryption Key and construct fresh verification bindings
+    const newKey = await CR.deriveKey(newPwd, id.kdf);
+    id.passwordVerifier = await _createPasswordVerifier(newKey);
+    id.encryptedPrivateKey = await CR.encrypt(privateKeyPkcs8, newKey);
+
+    // Update previous tracking collections if historical tracking objects exist
+    if (id.previousKeys?.length) {
+        log("ID.updateIdentityPassword", `Re-wrapping ${id.previousKeys.length} historical key rings under new password structure`);
+        for (const prev of id.previousKeys) {
+            try {
+                const prevDerivedOld = await CR.deriveKey(oldPwd, prev.kdf);
+                const prevRawBytes = await CR.decrypt(prev.encryptedPrivateKey, prevDerivedOld);
+
+                // Keep historical keys bound to their individual KDF configurations, just updated with the new key string
+                const prevDerivedNew = await CR.deriveKey(newPwd, prev.kdf);
+                prev.encryptedPrivateKey = await CR.encrypt(prevRawBytes, prevDerivedNew);
+            } catch (err) {
+                warn("ID.updateIdentityPassword", `Skipped re-wrapping historical key item ${prev.fingerprint}:`, err.message);
+            }
+        }
+    }
+
+    id.meta.passwordLastModified = new Date().toISOString();
+    // Flush structural modifications safely to local device persistent storage
+    _saveIdentity(id);
+
+    // Refresh session references in memory
+    id._sessionPrivateKey = G.currentPrivateKey; // Preserves the active cryptographic engine reference
+    G.unlockedIdentity = id;
+
+    // Decrypt historical components into session tracking collections using the new password matrix
+    await decryptPreviousKeys(id, newPwd);
+
+    log("ID.updateIdentityPassword", "Device profile rotation complete. Persistent storage sync finalized.");
+    return { success: true };
+}
+
 /** INTERNAL FUNCTIONS **/
 function _saveIdentity(id) {
     LS.set(C.IDENTITY_KEY, JSON.stringify(id));
