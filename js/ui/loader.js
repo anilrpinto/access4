@@ -8,7 +8,7 @@ export const loginUI = loadUI(['title', 'signinBtn', 'signinStatus', 'welcomeSpa
     'authMsg', 'pwdSection', 'confirmPwdSection', 'pwdInput', 'confirmPwdInput',
     'unlockBtn', 'recoverBtn', 'recoveryLnk', 'statusMsg', 'restoreBackupLnk'], 'login_', 'loginView');
 
-export const vaultUI = loadUI(['header', 'headerLeftSide', 'title', 'toggleSecureBtn', 'mainSection', 'headerRightSide', 'explorer', 'statusMsg'], 'vault_', 'vaultView');
+export const vaultUI = loadUI(['header', 'headerLeftSide', 'title', 'welcomeTitle', 'toggleSecureBtn', 'mainSection', 'headerRightSide', 'explorer', 'statusMsg'], 'vault_', 'vaultView');
 
 export const vaultRawDataUI = loadUI(['mainSection', 'textContent', 'treeContent', 'toggleViewBtn', 'closeBtn'], 'vaultRawData_', 'vaultView');
 
@@ -18,7 +18,7 @@ export const vaultRecoveryKeyUI = loadUI(['mainSection', 'currentPwdSection', 'c
 export const vaultCreatePrivateUI = loadUI(['mainSection', 'pwdInput', 'confirmPwdInput', 'createBtn', 'cancelBtn', 'statusMsg'],
     'vaultCreatePrivate_', 'vaultBody');
 
-export const vaultChangePwdUI = loadUI(['mainSection', 'currentInput', 'newInput', 'confirmNewInput', 'submitBtn', 'cancelBtn', 'statusMsg'],
+export const vaultChangePwdUI = loadUI(['mainSection', 'title', 'currentInput', 'newInput', 'confirmNewInput', 'submitBtn', 'cancelBtn', 'statusMsg'],
     'vaultChangePassword_', 'vaultBody');
 
 export const vaultAddNewUI = loadUI(['mainSection', 'title', 'label', 'input', 'archiveSection', 'archiveCheck', 'cancelBtn', 'addBtn'], 'vaultAddNew_', 'vaultBody');

@@ -1,4 +1,4 @@
-import { C, G, LS, inReadOnlyMode, isValidSession, AU, SV, AT, U, log, trace, debug, info, warn, error, isDebugEnabled } from '@/shared/exports.js';
+import { C, G, LS, inReadOnlyMode, isValidSession, identifiedName, AU, SV, AT, U, log, trace, debug, info, warn, error, isDebugEnabled } from '@/shared/exports.js';
 import { ScreenManager } from '@/ui/screen-manager.js'; // Do not delete, need for initialization!
 import { runFullBackup, runSharedVaultBackup, runPrivateVaultBackup } from '@/core/backup.js';
 import { runSharedVaultCleanup, runPrivateVaultCleanup, runVaultAccessHousekeeping } from '@/core/janitor.js';
@@ -8,7 +8,7 @@ import { rootUI, vaultUI, vaultNavBarUI, vaultRawDataUI, copyLogsToClipboard, va
 import { showConfirmUI } from '@/ui/confirm.js';
 import { showOverlayConfirmUI, showOverlayAlertUI, showOverlayPasswordUI, showOverlayChoiceUI } from '@/ui/modal.js';
 import { initSearchAndSort, generateFilterMap } from '@/ui/search-and-sort.js';
-import { lockPrivateVault, isPrivateVaultUnlocked, savePrivateVaultData } from "@/ui/private-vault.js";
+import { lockPrivateVault, isPrivateVaultUnlocked, savePrivateVaultData, isPrivatePasswordRotationStaged } from "@/ui/private-vault.js";
 import { loadExplorer, renderVaultExplorer } from '@/ui/explorer.js';
 
 let _originalVaultData = null;
@@ -190,7 +190,7 @@ export async function handlePrivateVaultGenesis(result) {
     // 1. Update the local Main Envelope
     if (!_vaultData.meta.extensions) _vaultData.meta.extensions = { private_vaults: {} };
 
-    _vaultData.meta.extensions.private_vaults[result.emailHash] = result.pointer;
+    _vaultData.meta.extensions.private_vaults[result.emailHash] = result.meta;
 
     // 2. Persist the Main Envelope immediately (so the pointer isn't lost)
     await _doSaveClick();
@@ -457,6 +457,7 @@ async function _init() {
 
     vaultUI.title.onClick(_doToggleSecureClick);
     vaultUI.toggleSecureBtn.onClick(_doToggleSecureClick);
+    vaultUI.welcomeTitle.setText(identifiedName());
 
     vaultMenu.logoutMenu.onClick(_doLogout);
 
@@ -790,7 +791,11 @@ async function _doSaveClick() {
 
     // Check for any changes across both vaults
     const changedShared = JSON.stringify(_vaultData) !== JSON.stringify(_originalVaultData);
-    const changedPrivate = _privateVaultData && (JSON.stringify(_privateVaultData) !== JSON.stringify(_originalPrivateVaultData));
+
+    // Force private save if text content changed OR if a password rotation was staged!
+    const changedPrivate = _privateVaultData && (isPrivatePasswordRotationStaged() ||
+        (JSON.stringify(_privateVaultData) !== JSON.stringify(_originalPrivateVaultData))
+    );
 
     if (!changedShared && !changedPrivate && _pendingFileDeletions.length === 0) {
         info("vaultUI._doSaveClick", "Vault has not changed since last save");
@@ -808,6 +813,7 @@ async function _doSaveClick() {
         // Task: Shared Vault
         if (changedShared) {
             saveTasks.push((async () => {
+                _vaultData.meta.lastModified = new Date().toISOString();
                 await SV.encryptAndPersistPlaintext(JSON.stringify(_vaultData), { onUpdate: updateLockStatusUI });
                 _originalVaultData = structuredClone(_vaultData);
             })());

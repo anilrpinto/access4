@@ -28,6 +28,23 @@ body.vault-active #vaultView {
     padding-bottom: 40px;        /* Bumper zone protection to float above phone safety notches */
 }
 
+.welcomeTitle {
+    display: flex;
+    font-size: 9px;
+
+    justify-content: center; /* Centers items along the X-axis */
+    align-items: center;     /* Centers items along the Y-axis (vertical) */
+    width: 100%;             /* Ensures the container spans full width to center correctly */
+    text-align: center;      /* Fallback for inline rendering text boundaries */
+}
+
+/* Optional: Add a slight margin if your dynamic script strips leading/trailing spaces */
+.welcomeTitle #vault_welcomeTitle {
+    margin-left: 4px;
+    font-weight: bold;
+    color: darkgreen;
+}
+
 /* Dynamic User Access State Markers */
 .genesis-user { color: #9b02f3 !important; font-weight: bold; }
 .admin-user   { color: #0f5c25 !important; font-weight: bold; }

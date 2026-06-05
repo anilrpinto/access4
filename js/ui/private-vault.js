@@ -122,6 +122,10 @@ export function isPrivateVaultUnlocked() {
     return !!_privateKey;
 }
 
+export function isPrivatePasswordRotationStaged() {
+    return _pendingBiometricEviction;
+}
+
 export function clearPendingPrivateBiometricEviction() {
     _pendingBiometricEviction = false;
 }
@@ -259,6 +263,7 @@ async function _unwrapPointer(pointerBlob, password, emailHash) {
     } catch (err) {
         // Error logging is handled inside your CR module,
         // but we catch here to return null for "Wrong Password"
+        warn("privateVault._unwrapPointer.FAILURE", "Pointer unwrap layer failed execution:", err.message);
         return null;
     }
 }
@@ -312,7 +317,7 @@ async function _setupPrivateVault(userEmail, privatePassword) {
     // RETURN EVERYTHING vault.js needs to take over
     return {
         emailHash,
-        pointer: encryptedPointer, // To save in the Main Envelope
+        meta: { pointer: encryptedPointer, passwordLastModified: new Date().toISOString() }, // To save in the Main Envelope
         data: genesisData         // To show in the UI immediately
     };
 }

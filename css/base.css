@@ -69,7 +69,7 @@ main {
     width: 100%;
     max-width: 500px;
     margin: 0 auto;
-    padding: 20px 15px;
+    padding: 10px 10px;
     flex: 1; /* Pushes bottom utility layouts down smoothly */
 }
 

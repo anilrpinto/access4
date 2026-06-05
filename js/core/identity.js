@@ -240,7 +240,8 @@ export async function updateIdentityPassword(oldPwd, newPwd) {
         }
     }
 
-    id.meta.passwordLastModified = new Date().toISOString();
+    id.passwordLastModified = new Date().toISOString();
+
     // Flush structural modifications safely to local device persistent storage
     _saveIdentity(id);
 
@@ -257,7 +258,18 @@ export async function updateIdentityPassword(oldPwd, newPwd) {
 
 /** INTERNAL FUNCTIONS **/
 function _saveIdentity(id) {
-    LS.set(C.IDENTITY_KEY, JSON.stringify(id));
+    if (!id) return;
+
+    // Use destructuring to isolate and strip out transient session-only properties
+    const {
+        _decryptedPreviousKeys,
+        _sessionPrivateKey,
+        ...persistentIdentityData
+    } = id;
+
+    // Save ONLY the clean profile parameters to localStorage
+    LS.set(C.IDENTITY_KEY, JSON.stringify(persistentIdentityData));
+    log("ID._saveIdentity", "Identity structural profile persisted cleanly to localStorage.");
 }
 
 function _loadIdentityFromStorage() {

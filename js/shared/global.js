@@ -59,6 +59,10 @@ export function clearGlobals() {
     G = structuredClone(_G);
 }
 
+export function identifiedName() {
+    return G.authorizedName ? G.authorizedName : G.userEmail;
+}
+
 export function isValidSession() {
     return (G.sessionUnlocked && G.unlockedIdentity);
 }

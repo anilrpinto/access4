@@ -1,14 +1,10 @@
-import { C, G, ID, log, trace, debug, info, warn, error } from '@/shared/exports.js';
+import { C, G, ID, BM, CR, log, trace, debug, info, warn, error } from '@/shared/exports.js';
 
 import { vaultChangePwdUI } from '@/ui/loader.js';
 import { rotatePrivateVaultPayloadKey } from '@/ui/private-vault.js';
+import { showOverlayAlertUI } from '@/ui/modal.js';
 
-// Central runtime marker tracking whether we are operating on the 'shared' or 'private' vault context
-let _currentRotationContext = 'shared';
-
-export async function showChangePasswordUI(context = 'shared') {
-
-    _currentRotationContext = context;
+export async function showChangePasswordUI() {
 
     const screenKey = window.ScreenManager.CHANGE_PWD_SCREENKEY;
     window.ScreenManager.register(screenKey, vaultChangePwdUI.mainSection, {
@@ -21,16 +17,17 @@ export async function showChangePasswordUI(context = 'shared') {
 
 /** INTERNAL FUNCTIONS **/
 async function _load() {
-    log("change-pwd._load", `called for context: ${_currentRotationContext}`);
+    const { isPrivateMode } = G.vaultContext();
+    log("change-pwd._load", "called isPrivateMode:", isPrivateMode);
 
-    if (vaultChangePwdUI.title) {
-        vaultChangePwdUI.title.setText(_currentRotationContext === 'private' ? "Change Private Vault Password" : "Change Shared Vault Password");
-    }
+    //if (vaultChangePwdUI.title) vaultChangePwdUI.title.setText(`Change ${isPrivateMode ? "Private" : "Shared"} vault password`);
 
     _clearFields();
     _showStatus("", "info");
 
-    vaultChangePwdUI.submitBtn.onClick((e) => _doSubmitClick());
+    vaultChangePwdUI.submitBtn.setText(`Change ${isPrivateMode ? "Private" : "Shared"} password`);
+
+    vaultChangePwdUI.submitBtn.onClick((e) => _doSubmitClick(isPrivateMode));
     vaultChangePwdUI.cancelBtn.onClick((e) => _doCancelClick());
 }
 
@@ -43,8 +40,8 @@ function _doCancelClick() {
     window.ScreenManager.goHome();
 }
 
-async function _doSubmitClick() {
-    log("change-pwd._doSubmitClick", `Processing password rotation update for: ${_currentRotationContext}`);
+async function _doSubmitClick(isPrivateMode) {
+    log("change-pwd._doSubmitClick", "called - isPrivateMode", isPrivateMode);
     _showStatus(""); // Flush display canvas
 
     const oldPwd = vaultChangePwdUI.currentInput.value;
@@ -79,16 +76,9 @@ async function _doSubmitClick() {
 
     try {
 
-        if (_currentRotationContext === 'shared') {
-            // --- SHARED VAULT ROTATION ---
-            await ID.updateIdentityPassword(oldPwd, newPwd);
+        let msg;
 
-            // Evict any out-of-date shared biometrics
-            await BM.evictBiometricRecord('shared');
-            log("change-pwd.submit", "Shared identity boundaries updated. Stale credentials evicted.");
-
-            _showStatus("Shared Vault password updated successfully!", "success");
-        } else {
+        if (isPrivateMode) {
             // --- PRIVATE VAULT ROTATION ---
             log("change-pwd.submit", "Staging Private Vault password updates...");
 
@@ -113,9 +103,21 @@ async function _doSubmitClick() {
             currentContext.updatePrivateVaultPointer(emailHash, freshPointerBlob);
 
             // 3. Notify the user that their changes are staged
-            _showStatus("Password change staged! Click 'Save' on the main vault menu to commit changes to the cloud.", "success");
+            msg = "Private vault password change will only take effect after vault changes are saved";
+        } else {
+            // --- SHARED VAULT ROTATION ---
+            await ID.updateIdentityPassword(oldPwd, newPwd);
+
+            // Evict any out-of-date shared biometrics
+            await BM.evictBiometricRecord('shared');
+            log("change-pwd.submit", "Shared identity boundaries updated. Stale credentials evicted.");
+
+            msg = "Shared Vault password has been changed";
         }
 
+        if (msg) showOverlayAlertUI({ title: "Note", message: msg });
+
+        window.ScreenManager.goHome();
     } catch (err) {
         error("change-pwd.submit", "Rotation pipeline failed execution:", err);
         _showStatus(err.message, "error");

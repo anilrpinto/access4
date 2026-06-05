@@ -159,6 +159,7 @@
         </div>
     </header>
 
+    <!-- Raw Data card -->
     <div id="vaultRawData_mainSection" style="display:none;">
         <div class="raw-data-header">
             <span id="vaultRawData_title">Raw Vault Data</span>
@@ -176,7 +177,7 @@
 
         <!-- Vault Main Section -->
         <div id="vault_mainSection">
-
+            <div class="welcomeTitle"><span>Welcome, </span><span id="vault_welcomeTitle"></span></div>
             <div id="vaultNavBar_mainSection">
                 <div id="vaultNavBar_content" style="flex: 1; position: relative;">
                     <nav id="vaultNavBar_breadcrumbs"></nav>
@@ -349,9 +350,7 @@
         <!-- Vault Change Password card -->
         <div id="vaultChangePassword_mainSection" style="display: none;">
             <div>
-                <h3 id="vaultChangePassword_title">Change Password</h3>
-
-                <div class="input-group">
+                 <div class="input-group">
                     <label>Current Password</label>
                     <input type="password" id="vaultChangePassword_currentInput" autocomplete="current-password">
                 </div>
@@ -366,10 +365,11 @@
 
                 <div class="button-group">
                     <button id="vaultChangePassword_cancelBtn" class="btn-secondary">Cancel</button>
-                    <button id="vaultChangePassword_submitBtn">Update Password</button>
+                    <button id="vaultChangePassword_submitBtn">Update</button>
                 </div>
             </div>
             <div id="vaultChangePassword_statusMsg" class="unlock-message"></div>
+        </div>
 
         <!-- User administration card -->
         <div id="vaultUsers_mainSection" class="inline-ui-view" style="display: none;">

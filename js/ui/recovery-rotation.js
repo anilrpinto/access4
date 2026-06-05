@@ -120,7 +120,7 @@ async function _doRotateRecoveryKeyClick(rotateMode) {
         log("recKeyRotUI._doRotateRecoveryKeyClick", "Recovery key successfully established");
 
         vaultRecoveryKeyUI.rotateBtn.setEnabled(true);
-        _doCancelRecoveryRotationClick();
+        window.ScreenManager.goHome();
         showStatusMessage("Recovery key created!", "status-message success");
 
     } catch (err) {
