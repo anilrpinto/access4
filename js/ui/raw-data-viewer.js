@@ -2,7 +2,7 @@ import { AU, U, log, trace, debug, isDebugEnabled, info, warn, error } from '@/s
 import { vaultRawDataUI  } from '@/ui/loader.js';
 import { swapVisibility } from '@/ui/uihelper.js';
 
-let _isTreeView = false;
+let _isTreeView = true;
 let _lastDataFingerprint = "";
 
 export async function showRawDataUI(stateProvider, onClose) {
@@ -88,6 +88,7 @@ function _doToggleViewerClick() {
         swapVisibility(vaultRawDataUI.treeContent, vaultRawDataUI.textContent);
         //vaultRawDataUI.toggleViewBtn.setText('Tree View');
     }
+    vaultRawDataUI.toggleViewBtn.setText(_isTreeView ? '📄' : '🌳');
 }
 
 function _renderJSONTree(data, masked) {

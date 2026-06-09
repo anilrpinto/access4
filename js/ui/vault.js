@@ -95,7 +95,6 @@ export async function loadVault(pwd, data, options) {
         },
         toggleEditable: () => {
             _sessionState.isEditable = !_sessionState.isEditable;
-            vaultMenu.toggleEditMenu.setText(_sessionState.isEditable ? "❌ Stop Editing" : "✏️ Edit");
             refreshVault();
         },
         onNavigate: (id) => {
@@ -1015,6 +1014,7 @@ function _refreshMainMenuItemsState(readOnly) {
     // These only care about read-only/admin status, not depth
     vaultMenu.saveMenu.setVisible(visible);
     vaultMenu.toggleEditMenu.setVisible(visible);
+    vaultMenu.toggleEditMenu.setText(_sessionState.isEditable ? "❌ Stop Editing" : "✏️ Edit");
 
     vaultMenu.rawDataMenu.setVisible(genesis || (visible && admin));
 

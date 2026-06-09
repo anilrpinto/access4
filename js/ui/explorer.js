@@ -884,6 +884,15 @@ function _renderItemDetails(container) {
         const expandBtnHtml = (field.type === 'note') ?
             `<button class="icon-btn expand-note-btn" data-index="${index}" title="Expand Note">⛶</button>` : '';
 
+        // 🔼 🔽 Dynamically calculate boundaries so we can hide or disable unneeded actions
+        const isFirst = index === 0;
+        const isLast = index === item.fields.length - 1;
+
+        const moveButtonsHtml = isEditable ? `
+            <button class="icon-btn move-up-btn" data-index="${index}" ${isFirst ? 'disabled style="opacity:0.3; cursor:default;"' : ''} title="Move Up">🔼</button>
+            <button class="icon-btn move-down-btn" data-index="${index}" ${isLast ? 'disabled style="opacity:0.3; cursor:default;"' : ''} title="Move Down">🔽</button>
+        ` : '';
+
         // Label input gets the '.search-label-hit' class ONLY if the label string matched the search criteria
         let html = `
             <div class="field-header">
@@ -892,9 +901,10 @@ function _renderItemDetails(container) {
                 <div class="field-actions">
                     ${expandBtnHtml}
                     ${isEditable ?
-            `<button class="icon-btn delete-field-btn" data-index="${index}">🗑️</button>` :
-            `<button class="icon-btn copy-btn" data-val="${field.val}">📋</button>`
-        }
+                        `<button class="icon-btn delete-field-btn" data-index="${index}">🗑️</button>` :
+                        `<button class="icon-btn copy-btn" data-val="${field.val}">📋</button>`
+                    }
+                    ${moveButtonsHtml}
                 </div>
             </div>`;
 
@@ -1234,6 +1244,45 @@ function _attachDetailListeners(container) {
         btn.onclick = () => {
             const index = btn.dataset.index;
             _expandNote(index, item, isEditable);
+        };
+    });
+
+    container.querySelectorAll('.move-up-btn').forEach(btn => {
+        btn.onclick = (e) => {
+            e.stopPropagation();
+            const index = parseInt(btn.dataset.index, 10);
+            if (index > 0) {
+                log("explorer.fields.moveUp", `Moving field from index ${index} to ${index - 1}`);
+
+                // Swap in-place
+                const temp = item.fields[index];
+                item.fields[index] = item.fields[index - 1];
+                item.fields[index - 1] = temp;
+
+                // Flag modification timeline and redraw
+                item.modified = new Date().toISOString();
+                refresh();
+            }
+        };
+    });
+
+    // ─── NEW: Move Field Down Logic ───
+    container.querySelectorAll('.move-down-btn').forEach(btn => {
+        btn.onclick = (e) => {
+            e.stopPropagation();
+            const index = parseInt(btn.dataset.index, 10);
+            if (index < item.fields.length - 1) {
+                log("explorer.fields.moveDown", `Moving field from index ${index} to ${index + 1}`);
+
+                // Swap in-place
+                const temp = item.fields[index];
+                item.fields[index] = item.fields[index + 1];
+                item.fields[index + 1] = temp;
+
+                // Flag modification timeline and redraw
+                item.modified = new Date().toISOString();
+                refresh();
+            }
         };
     });
 
