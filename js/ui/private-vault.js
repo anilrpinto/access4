@@ -24,7 +24,7 @@ export async function showCreatePrivateVaultUI(onSuccess = () => alert('Private 
     window.ScreenManager.switchView(screenKey);
 }
 
-export async function promptPrivateVaultPassword(pointer, emailHash, onSuccess = (pwd, data) => alert('Unlocked')) {
+export async function promptPrivateVaultPassword(pointer, emailHash, onSuccess = (pwd, data) => alert('Unlocked'), injectedPassword = null) {
 
     // --- SESSION CHECK ---
     // If we already have the key and ID, the vault is "Open" in the background.
@@ -39,7 +39,8 @@ export async function promptPrivateVaultPassword(pointer, emailHash, onSuccess =
         return;
     }
 
-    const pwd = await showOverlayPasswordUI({
+    // Reuse injected password if present, otherwise fallback to UI Overlay
+    const pwd = injectedPassword || await showOverlayPasswordUI({
         title: "Unlock Private Vault",
         message: "Enter your private password to decrypt this vault.",
         okText: "Unlock"
@@ -72,7 +73,12 @@ export async function promptPrivateVaultPassword(pointer, emailHash, onSuccess =
     } catch (err) {
         _privateKey = null;
         error("Unlock failed", err);
-        showOverlayAlertUI({ title: "Unlock Failed", message: "Incorrect password or corrupted vault data." });
+        // Only throw for biometrics to catch upstream, show alert for manual typing
+        if (injectedPassword) {
+            throw err;
+        } else {
+            showOverlayAlertUI({ title: "Unlock Failed", message: "Incorrect password or corrupted vault data." });
+        }
     }
 }
 

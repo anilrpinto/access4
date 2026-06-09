@@ -1,4 +1,4 @@
-import { C, G, SV, AT, CR, log, trace, debug, info, warn, error} from '@/shared/exports.js';
+import { C, G, SV, AT, CR, BM, log, trace, debug, info, warn, error} from '@/shared/exports.js';
 import { vaultUI, vaultNavBarUI, vaultMenuBar, vaultMenu } from '@/ui/loader.js';
 import { hideFilterUI, sortVaultData } from '@/ui/search-and-sort.js';
 import { showOverlayConfirmUI, showOverlayAlertUI } from '@/ui/modal.js';
@@ -377,6 +377,85 @@ function _getNameFromId(id, index) {
     return id;
 }
 
+async function _handlePrivateVaultBiometricAction() {
+    log("explorer._handlePrivateVaultBiometricAction", "Initializing biometric pipeline run...");
+
+    const { isPrivateMode, privateDataPointer } = _vaultCtx();
+    const emailHash = await CR.hashString(G.userEmail);
+    const pointer = privateDataPointer(emailHash);
+
+    if (!pointer) {
+        showSilentToast("Create a private vault first before enabling biometrics.");
+        return;
+    }
+
+    // 1. Check registration using the exact function name exported in your module
+    const isRegistered = await BM.isBiometricRegistered('private');
+
+    if (isRegistered) {
+        if (isPrivateVaultUnlocked() && !isPrivateMode) {
+            log("explorer.biometric", "Private Vault already hot in memory. Fast-tracking transition.");
+            showSilentToast("Switching to Private Vault... 🛡️");
+
+            // Explicitly call your framework's view switcher
+            toggleVaultMode('private');
+            return;
+        }
+
+        try {
+            showSilentToast("Scanning biometrics...");
+
+            // 2. Trigger the WebAuthn Assertion pipeline for the 'private' workspace boundary
+            await BM.attemptBiometricUnlock('private', async (retrievedPassword) => {
+                log("explorer.biometric", "Hardware keys verified. Executing structural decryption pass...");
+
+                // 3. Bypass UI modal prompts and inject credentials straight into the engine
+                await promptPrivateVaultPassword(pointer, emailHash, async (pwd, data) => {
+                    // This mirrors your standard _doPrivateVaultClick logic flow
+                    handlePrivateVaultUnlock(pwd, data);
+                    showSilentToast("Unlocked with Biometrics! 🛡️");
+                }, retrievedPassword);
+            });
+
+        } catch (err) {
+            error("explorer.biometric.failure", "Biometric processing flow broke:", err);
+            showOverlayAlertUI({
+                title: "Biometric Authentication Failed",
+                message: "Could not verify device credentials. Tap the home icon normally to fall back to your Master Password."
+            });
+        }
+    } else {
+        // ─── REGISTRATION PASS ───
+        showOverlayAlertUI({
+            title: "Setup Quick Biometric Access",
+            message: "To link your biometric profile, you must first verify your access configuration with your Private Password. Click OK to authenticate.",
+            okText: "Continue",
+            onConfirm: async () => {
+                // Force traditional password prompt pass first
+                await promptPrivateVaultPassword(pointer, emailHash, async (verifiedPassword, decryptedData) => {
+                    // This block fires ONLY if their manually entered password was 100% correct
+                    handlePrivateVaultUnlock(verifiedPassword, decryptedData);
+
+                    try {
+                        showSilentToast("Enrolling biometric hardware...");
+
+                        // 4. Call your internal enrollment engine to bind the verified secret to WebAuthn
+                        await BM.enrollBiometric(verifiedPassword, 'private');
+
+                        showOverlayAlertUI({
+                            title: "Success",
+                            message: "Biometrics successfully linked! You can now hold down the Home button to fast-track unlock this vault."
+                        });
+                    } catch (regErr) {
+                        error("explorer.biometric.registration", "Hardware enrollment failed:", regErr);
+                        showOverlayAlertUI({ title: "Enrollment Failed", message: "Device biometric enrollment was cancelled or rejected." });
+                    }
+                });
+            }
+        });
+    }
+}
+
 function _renderBreadcrumbs() {
     const breadcrumbs = vaultNavBarUI.breadcrumbs;
     if (!breadcrumbs) return;
@@ -408,8 +487,69 @@ function _renderBreadcrumbs() {
         span.className = classList.join(' ');
         span.innerText = label;
 
-        span.onclick = async () => {
-            if (isRootNode) {
+        if (isRootNode) {
+
+            let pressTimer = null;
+            let isLongPress = false;
+
+            // 🟢 SAFARI / MOBILE FIX: Kill the native OS pop-up magnifier/preview bubble
+            span.style.webkitTouchCallout = 'none'; // iOS Safari
+            span.style.userSelect = 'none';         // Standard modern fallback
+
+            // Local helper to evaluate the full dynamic rule snapshot instantly
+            const checkBiometricIntentValid = () => {
+                return isCurrentlyAtRoot &&
+                    !isArchiveModeActive &&
+                    !isPrivateMode;
+            };
+
+            // 🟢 UNIVERSAL MOBILE FIX: Prevent mobile OS long-press menu from appearing
+            span.oncontextmenu = (e) => {
+                if (checkBiometricIntentValid()) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return false;
+                }
+            };
+
+            // ─── BIOMETRIC LONG-PRESS HOOK WITH CONTEXTUAL GUARDS ───
+            span.onpointerdown = (e) => {
+                if (e.button !== 0) return; // Ignore right-clicks
+
+                if (!checkBiometricIntentValid()) {
+                    // Log the reason why the hold engine is bypassed for transparency
+                    trace("explorer.root.onpointerdown", "Long-press ignored: Context does not meet biometric criteria.", {
+                        isCurrentlyAtRoot,
+                        isArchiveModeActive,
+                        isPrivateMode,
+                        isPrivateVaultUnlocked: isPrivateVaultUnlocked()
+                    });
+                    return;
+                }
+                isLongPress = false;
+
+                // Arm the countdown timer
+                pressTimer = setTimeout(() => {
+                    isLongPress = true;
+                    log("explorer.root.onlongpress", "Biometric Long Press Verified!");
+                    _handlePrivateVaultBiometricAction();
+                }, C.PRIVATE_VAULT_BIO_DELAY_MS);
+            };
+
+            // Teardown the ticking timer if the user releases or slides off early
+            span.onpointerup = () => { if (pressTimer) clearTimeout(pressTimer); };
+            span.onpointercancel = () => { if (pressTimer) clearTimeout(pressTimer); };
+
+            // ─── CLICK HANDLER: FALLBACK PASS-THROUGH ───
+            span.onclick = async (e) => {
+
+                if (isLongPress) {
+                    log("explorer.root.onclick", "Bypassing standard sub-click routing. Long press intercept active.");
+                    isLongPress = false; // Reset tracking flag
+                    return;
+                }
+
+                // Standard navigation flows are safely preserved here
                 if (isCurrentlyAtRoot) {
                     // --- CONTEXT SWITCHER ---
                     // Triggered by clicking the icon while already at the top level.
@@ -433,12 +573,15 @@ function _renderBreadcrumbs() {
                     log("explorer.nonroot.onclick", "Resetting to current vault root");
                     resetToRoot();
                 }
-            } else if (!isLast) {
-                // --- STANDARD BACKWARD NAVIGATION ---
-                // Navigating to a specific Group in the path.
-                navigateToPath(index + 1);
-            }
-        };
+            };
+
+        } else {
+            // Standard back-navigation click for regular group breadcrumbs
+            // Navigating to a specific Group in the path.
+            span.onclick = () => {
+                if (!isLast) navigateToPath(index + 1);
+            };
+        }
 
         breadcrumbs.appendChild(span);
         if (!isLast) {

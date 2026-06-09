@@ -204,53 +204,100 @@ function _init() {
 }
 
 function _setupTitleGesture() {
-    log("loginUI._setupTitleGesture", "called");
+    log("loginUI._setupTitleGesture", "called - Configuring long-press framework");
 
-    let tapCount = 0;
-    let tapTimer = null;
+    let pressTimer = null;
+    let isLongPress = false;
 
-    loginUI.title.addEventListener("pointerdown", async () => {
+    // Cross-platform mobile styling overrides
+    loginUI.title.style.webkitTouchCallout = 'none';
+    loginUI.title.style.userSelect = 'none';
+
+    loginUI.title.oncontextmenu = (e) => {
+        if (G.userEmail && !G.sessionUnlocked) {
+            e.preventDefault();
+            e.stopPropagation();
+            return false;
+        }
+    };
+
+    loginUI.title.onpointerdown = (e) => {
+        if (e.button !== 0) return;
         if (!G.userEmail || G.sessionUnlocked) return;
 
-        tapCount++;
+        isLongPress = false;
 
-        if (!tapTimer) {
-            tapTimer = setTimeout(() => {
-                tapCount = 0;
-                tapTimer = null;
-            }, 3000);
+        pressTimer = setTimeout(async () => {
+            isLongPress = true;
+            log("loginUI._setupTitleGesture.onlongpress", "Main App Biometric Intent Triggered!");
+            await _handlePrimaryBiometricAction();
+        }, C.LOGIN_BIO_DELAY_MS);
+    };
+
+    loginUI.title.onpointerup = () => { if (pressTimer) clearTimeout(pressTimer); };
+    loginUI.title.onpointercancel = () => { if (pressTimer) clearTimeout(pressTimer); };
+
+    loginUI.title.onclick = (e) => {
+        if (isLongPress) {
+            e.preventDefault();
+            e.stopPropagation();
+            isLongPress = false;
+            return false;
         }
-
-        if (tapCount >= 3) {
-            clearTimeout(tapTimer);
-            tapCount = 0;
-            tapTimer = null;
-
-            await _doHiddenGesture();
-        }
-    });
+    };
 }
 
-async function _doHiddenGesture() {
-    log("loginUI._doHiddenGesture", "called");
+async function _handlePrimaryBiometricAction() {
+    log("loginUI._handlePrimaryBiometricAction", "Evaluating intent context...");
 
     if (!G.userEmail || G.sessionUnlocked) return;
-
-    // ALWAYS activate intent first
-    G.biometricIntent = true;
-    await _updateBiometricIndicator();
 
     const registered = await BM.isBiometricRegistered();
 
     if (registered) {
-        await BM.attemptBiometricUnlock(async (pwd) => {
-            await _unlockIdentityFlow(pwd);
-            await proceedAfterPasswordSuccess(pwd);
-        });
-
-        // After attempt, clear temporary intent
-        G.biometricIntent = false;
+        // ─── AUTHENTICATION PATH ───
+        G.biometricIntent = true;
         await _updateBiometricIndicator();
+        showUnlockMessage("Scanning biometrics...", "info");
+
+        try {
+            // We pass a safety tracking flag or check if the callback never fires
+            let callbackFired = false;
+
+            await BM.attemptBiometricUnlock('shared', async (pwd) => {
+                callbackFired = true;
+                log("loginUI.biometric", "Hardware keys verified. Processing authorization...");
+                await _unlockIdentityFlow(pwd);
+                await proceedAfterPasswordSuccess(pwd);
+            });
+
+            // 🟢 STALE IDENTITY RESCUE DETECTOR:
+            // If attemptBiometricUnlock finishes executing but our success callback above
+            // never ran, it means the underlying WebAuthn hardware pass failed or was cancelled!
+            if (!callbackFired) {
+                log("loginUI._handlePrimaryBiometricAction", "Biometric operation concluded without acquiring credentials.");
+                showUnlockMessage("Biometric link invalid or cancelled. Please log in with your password.");
+                G.biometricIntent = false;
+                await _updateBiometricIndicator();
+            }
+
+        } catch (err) {
+            error("loginUI.biometric.auth.critical_failure", err);
+            showUnlockMessage("Biometric validation error. Please use manual password.");
+            G.biometricIntent = false;
+            await _updateBiometricIndicator();
+        }
+    } else {
+        // ─── FIRST-TIME ENROLLMENT ARMED TOGGLE ───
+        G.biometricIntent = !G.biometricIntent;
+        await _updateBiometricIndicator();
+
+        if (G.biometricIntent) {
+            log("loginUI._handlePrimaryBiometricAction", "Biometrics ARMED for registration.");
+            showUnlockMessage("Biometric enrollment armed. Enter your password normally to link this device.", "info");
+        } else {
+            showUnlockMessage("");
+        }
     }
 }
 
@@ -396,11 +443,7 @@ async function _unlockIdentityFlow(pwd) {
             } catch (err) {
                 warn("loginUI._unlockIdentityFlow", "Biometric enrollment skipped or failed:" + err);
             }
-        } else {
-            log("loginUI._unlockIdentityFlow", "Biometric already registered");
         }
-
-        G.biometricIntent = false;
     }
 
     await _updateBiometricIndicator();
