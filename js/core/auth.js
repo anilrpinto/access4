@@ -2,7 +2,7 @@ import { C, G, LS, ID, GD, CR, activeUser, log, trace, debug, info, warn, error,
 import { loginUI } from '@/ui/loader.js';
 import { handleSignInSuccessStatus, showAuthMessage, setupPasswordPrompt, proceedAfterPasswordSuccess, showUnlockMessage } from '@/ui/login.js';
 
-export function initGIS() {
+export async function initGIS() {
 
     log("AU.initGIS", `called for [v${C.APP_VERSION}]`);
 
@@ -12,12 +12,15 @@ export function initGIS() {
         callback: _handleAuth
     });
 
-    if (G.settings.gisPrompt) {
-        // Promts for accounts regardless (helpful in switching account)
-        G.tokenClient.requestAccessToken({ prompt:"consent select_account" })
-    } else {
+    const lastAccessedBy = await LS.get("email", false);
+    log("AU.initGIS", "lastAccessedBy:", lastAccessedBy);
+
+    if (lastAccessedBy) {
         // Do not prompt for choosing other accounts if atleast one is signed in to Google already
-        G.tokenClient.requestAccessToken({ prompt:"" });
+        G.tokenClient.requestAccessToken({ prompt: 'none', hint: lastAccessedBy });
+    } else {
+        // Prompts for accounts (helpful in switching account)
+        G.tokenClient.requestAccessToken({ prompt:"consent select_account" })
     }
 }
 
@@ -82,24 +85,23 @@ async function _handleAuth(resp) {
             return;
         }
 
-        loginUI.signinBtn.setVisible(false);
-
         G.accessToken = resp.access_token;
         trace("AU._handleAuth", `Acquired access token [${G.accessToken?.slice(0, 20)}...]`);
 
         await GD.fetchUserEmail();
         await handleSignInSuccessStatus();
 
-        await GD.verifySharedRoot(C.ACCESS4_ROOT_ID);
-        await GD.verifyWritable(C.ACCESS4_ROOT_ID);
-        await _ensureAuthorization();
+        // Avoid re-running costly complete setup passes if this is just a routine token refresh cycle
+        if (!G.sessionUnlocked) {
+            await GD.verifySharedRoot(C.ACCESS4_ROOT_ID);
+            await GD.verifyWritable(C.ACCESS4_ROOT_ID);
+            await _ensureAuthorization();
+            _onAuthReady(G.userEmail);
+        }
 
-        _onAuthReady(G.userEmail);
     } catch (err) {
         error("AU._handleAuth", "Error after signin: " + err);
         showAuthMessage(`Initial authorization failed. ${err}`);
-        loginUI.signinBtn.setVisible(true);
-        //alert("Error after signin: " + err);
     }
 }
 

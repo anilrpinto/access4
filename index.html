@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Access4 Login</title>
+    <title>Access4 Vault</title>
     <link rel="stylesheet" href="css/main.css">
     <script type="importmap">
         {
@@ -23,13 +23,10 @@
 <!-- LOGIN VIEW -->
 <div id="loginView" class="view-container"  style="display: none;">
     <header>
-        <h1 id="login_title">Login</h1>
+        <h1 id="login_title">Vault</h1>
     </header>
 
     <main id="login_body">
-        <!-- Sign-in button -->
-        <button id="login_signinBtn">Sign in with Google</button>
-
         <div id="login_signinStatus" class="login-user-line">
             <div class="user-info-left">
                 <span id="login_welcomeSpan" class="not-signed-in">Not signed in</span>
@@ -177,7 +174,10 @@
 
         <!-- Vault Main Section -->
         <div id="vault_mainSection">
-            <div class="welcomeTitle"><span>Welcome, </span><span id="vault_welcomeTitle"></span></div>
+            <div class="welcomeTitle">
+                <div>Welcome back, <span id="vault_welcomeTitle"></span></div>
+                <div><b>Last saved on: </b><span id="vault_savedOn"></span></div>
+            </div>
             <div id="vaultNavBar_mainSection">
                 <div id="vaultNavBar_content" style="flex: 1; position: relative;">
                     <nav id="vaultNavBar_breadcrumbs"></nav>

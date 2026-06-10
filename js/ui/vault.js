@@ -238,6 +238,8 @@ export function refreshVault({ readOnly = false, vaultSwitch = false} = {}) {
     _applyReadOnlyTheme(isReadOnly);
 
     vaultRawDataUI.textContent.setReadOnly(isReadOnly || !AU.isGenesisUser());
+
+    vaultUI.savedOn.setText(U.formatLocalTime(_vaultData.meta.lastModified));
 }
 
 export function refreshMoveMenu() {
@@ -718,9 +720,41 @@ function _doDiscardChangesClick() {
     });
 }
 
-function _doLogout() {
+// 🟢 Made async to support awaiting the save operation
+async function _doLogout() {
     log("vaultUI._doLogout", "called");
 
+    if (_hasSharedVaultChanged()) {
+        showOverlayConfirmUI({
+            title: "Unsaved changes",
+            message: `Vault has unsaved changes. Choose <b>Save and logout</b> to proceed or <b>Stay</b> to go back to vault and discard changes before you logout`,
+            okText: "Save and logout",
+            cancelText: "Stay",
+            onConfirm: async () => {
+                // 1. CRITICAL: Await the save completion BEFORE tearing down the environment
+                try {
+                    showSilentToast("Saving changes... App will logout soon after");
+                    await _doSaveClick(true);
+                    _finalizeLogoutSequence();
+                } catch (err) {
+                    error("vaultUI._doLogout", "Auto-save failed during logout sequence", err);
+                    // Leave session intact so user doesn't lose data on a network fail
+                }
+            },
+        });
+        return;
+    }
+
+    // No changes? Run clean teardown instantly
+    _finalizeLogoutSequence();
+}
+
+/**
+ * Single point of responsibility for cleaning up session artifacts.
+ * Eliminates code duplication between clean logouts and dirty logouts.
+ */
+function _finalizeLogoutSequence() {
+    log("vaultUI._finalizeLogoutSequence", "Executing destructive session teardown");
     showStatusMessage("");
     _doSecure();
     logout();
@@ -779,7 +813,11 @@ async function _doToggleSecureClick() {
     refreshRawDataTree(getActiveVaultData(), !_sessionState.showSecure);
 }
 
-async function _doSaveClick() {
+function _hasSharedVaultChanged() {
+    return JSON.stringify(_vaultData) !== JSON.stringify(_originalVaultData);
+}
+
+async function _doSaveClick(skipAlert = false) {
     log("vaultUI._doSaveClick", "Starting save process...");
 
     if (!_vaultData || Object.keys(_vaultData).length === 0) {
@@ -789,7 +827,7 @@ async function _doSaveClick() {
     }
 
     // Check for any changes across both vaults
-    const changedShared = JSON.stringify(_vaultData) !== JSON.stringify(_originalVaultData);
+    const changedShared = _hasSharedVaultChanged();
 
     // Force private save if text content changed OR if a password rotation was staged!
     const changedPrivate = _privateVaultData && (isPrivatePasswordRotationStaged() ||
@@ -861,15 +899,18 @@ async function _doSaveClick() {
         }
 
         // 4. UI SUCCESS STATE
-        showOverlayAlertUI({
-            title: "Vault Saved",
-            message: `Your changes (and deletions) have been applied successfully.`,
-            okText: "OK",
-            onConfirm: () => {
-                refreshVault();
-            }
-        });
-        showStatusMessage(`Last saved at ${U.getCurrentTime()}`, "success");
+        // ONLY show the modal popup if we aren't trying to exit the app
+        if (!skipAlert) {
+            showOverlayAlertUI({
+                title: "Vault Saved",
+                message: `Your changes (and deletions) have been applied successfully.`,
+                okText: "OK",
+                onConfirm: () => {
+                    refreshVault();
+                }
+            });
+            vaultUI.savedOn.setText(U.getCurrentTime());
+        }
 
     } catch (err) {
         error("vaultUI._doSaveClick", "Save failed:", err);
@@ -880,7 +921,7 @@ async function _doSaveClick() {
 }
 
 function _hasVaultChanges() {
-    return (JSON.stringify(_vaultData) !== JSON.stringify(_originalVaultData)) ||
+    return _hasSharedVaultChanged() ||
         (_privateVaultData && JSON.stringify(_privateVaultData) !== JSON.stringify(_originalPrivateVaultData));
 }
 
@@ -941,6 +982,11 @@ function _refreshTitleBar(vaultSwitch = false) {
     // Atomic assignments via DOM Tokens & Strings
     vaultUI.title.setText(config.text);
     vaultUI.header.classList.add(config.className);
+
+    if (_hasVaultChanges())
+        vaultUI.savedOn.classList.add('unsaved');
+    else
+        vaultUI.savedOn.classList.remove('unsaved');
 
     if (vaultSwitch) {
         showSilentToast(config.toast, false);

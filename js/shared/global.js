@@ -38,7 +38,6 @@ const _G = {
     recoveryCEK: null,
 
     settings: {
-        gisPrompt: false,
         minifyJson: false,
         clearBioDbOnLoad: false,
         clearLocalStorageOnLoad: false,

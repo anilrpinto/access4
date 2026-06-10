@@ -11,8 +11,7 @@ export async function loadLogin() {
     _updateBiometricIndicator();
     _setupTitleGesture();
 
-    loginUI.signinBtn.onClick(() => AU.initGIS());
-    loginUI.signoutLnk.onClick(() => handleSignOut());
+    loginUI.signoutLnk.onClick(() => _doSignOutClick());
     loginUI.recoveryLnk.onClick(_doNeedRecoveryClick);
     loginUI.recoverBtn.onClick(_doRecoverClick);
     loginUI.restoreBackupLnk.onClick(openRecoveryModal);
@@ -119,6 +118,7 @@ export function handleSignInSuccessStatus() {
 
     log("loginUI.handleSignInSuccessStatus", `called - name: ${G.authorizedName ? G.authorizedName?.slice(-2) : G.userEmail?.slice(-10)}`);
 
+    LS.set("email", G.userEmail, false);
     const name = G.authorizedName ? G.authorizedName : G.userEmail;
 
     if (name) {
@@ -133,27 +133,8 @@ export function handleSignInSuccessStatus() {
         // temp code - REMOVE
         _doDevelopmentCleanup();
     } else {
-        handleSignOut();
+        _handleSignOut();
     }
-}
-
-// On Sign Out
-export function handleSignOut() {
-    log("loginUI.handleSignOut", "called");
-
-    clearGlobals();
-
-    // 1. Remove the layout class (returns to center)
-    loginUI.signinStatus.classList.remove('signed-in');
-
-    // 2. Reset the UI
-    loginUI.welcomeSpan.setText("Not signed in");
-    loginUI.welcomeSpan.classList.add('not-signed-in');
-    loginUI.authorizedNameSpan.clear();
-    loginUI.signoutLnk.setVisible(false);
-
-    loginUI.signinBtn.setVisible(true);
-    loginUI.pwdSection.setVisible(false);
 }
 
 export function showUnlockMessage(msg, type = "error") {
@@ -184,8 +165,7 @@ function _init() {
 
     loginUI.title.setText(`Login [v${C.APP_VERSION}]`);
 
-    loginUI.signinBtn.setVisible(true);
-    handleSignOut();
+    _handleSignOut();
 
     // Clear password inputs
     _clearSensitiveFields();
@@ -580,6 +560,31 @@ async function _doCreatePasswordClick()  {
     } catch (e) {
         showUnlockMessage(e.message);
     }
+}
+
+function _doSignOutClick() {
+    LS.set("email", "", false);
+    _handleSignOut();
+}
+
+// On Sign Out
+function _handleSignOut() {
+    log("loginUI._handleSignOut", "called");
+
+    clearGlobals();
+
+    // 1. Remove the layout class (returns to center)
+    loginUI.signinStatus.classList.remove('signed-in');
+
+    // 2. Reset the UI
+    loginUI.welcomeSpan.setText("Not signed in");
+    loginUI.welcomeSpan.classList.add('not-signed-in');
+    loginUI.authorizedNameSpan.clear();
+    loginUI.signoutLnk.setVisible(false);
+
+    loginUI.pwdSection.setVisible(false);
+
+    loginUI.welcomeSpan.onClick(async () => await AU.initGIS());
 }
 
 /*

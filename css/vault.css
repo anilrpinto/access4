@@ -30,12 +30,10 @@ body.vault-active #vaultView {
 
 .welcomeTitle {
     display: flex;
+    justify-content: space-between;
     font-size: 9px;
-
-    justify-content: center; /* Centers items along the X-axis */
     align-items: center;     /* Centers items along the Y-axis (vertical) */
     width: 100%;             /* Ensures the container spans full width to center correctly */
-    text-align: center;      /* Fallback for inline rendering text boundaries */
 }
 
 /* Optional: Add a slight margin if your dynamic script strips leading/trailing spaces */
@@ -43,6 +41,14 @@ body.vault-active #vaultView {
     margin-left: 4px;
     font-weight: bold;
     color: darkgreen;
+}
+
+.welcomeTitle #vault_savedOn {
+    margin-left: 4px;
+}
+
+.unsaved {
+    color: #f30202 !important;
 }
 
 /* Dynamic User Access State Markers */
