@@ -1,7 +1,3 @@
-#vault_explorer {
-    width: 100%; /* Explicitly stretches dynamic custom items inside container templates */
-}
-
 .list-row {
     display: flex;
     justify-content: space-between;
@@ -70,14 +66,18 @@
 .meta-left  { text-align: left; }
 .meta-right { text-align: right; }
 
+/* 1. Ensure the parent container can explicitly distribute empty space */
 .field-header {
     display: flex;
     justify-content: space-between;
     align-items: flex-end;
     margin-bottom: 2px;
+    width: 100%;
+    gap: 12px; /* Enforces a safe gutter so text never collides directly into buttons */
 }
 
 /* Dynamic Field Identifier Input Element Labels */
+/* 2. Tell the label to aggressively expand into all available middle room */
 .label-input {
     border: none !important;
     background: transparent !important;
@@ -86,9 +86,14 @@
     letter-spacing: 0.03em;
     text-transform: uppercase;
     color: #777777 !important;
-    width: auto !important;
     padding: 0 !important;
     margin: 0 !important;
+    flex: 1;                /* THE MAGIC FIX: Consumes all empty territory dynamically */
+    min-width: 0;           /* Crucial: Allows flex calculations to step down gracefully without fracturing layout */
+    width: 100% !important; /* Forces the box container to expand past default browser sizing restrictions */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis; /* If a title is absolutely astronomical, it clips elegantly instead of snapping lines */
 }
 
 /* Editable context layout modifications */
@@ -101,7 +106,9 @@
    FIELD INTERACTION LAYOUT ENGINE & ACTIONS
    ========================================================================== */
 
+/* Ensure the action button row stays completely unified on the right flank */
 .field-actions {
+    flex-shrink: 0;         /* CRITICAL: Prevents your buttons from squishing or dropping down */
     display: flex;
     gap: 4px;
 }
@@ -381,4 +388,45 @@
 
 .file-link:hover {
     opacity: 0.7;
+}
+
+/* ==========================================================================
+   VIEWPORT SCROLL REPAIR & BOUNDARY PATCH
+   ========================================================================== */
+
+/* 1. Prevent the container wrapper from expanding past #vaultBody boundaries */
+#vault_explorer {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0; /* Prevents text elements from expanding the container outer bounds */
+}
+
+/* 2. Transform the detail view wrapper into an isolated scrollable frame */
+.detail-view {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto !important; /* 🟢 THE CRITICAL FIX: Direct scroll track for field sets */
+    -webkit-overflow-scrolling: touch;
+    padding: 10px 8px 30px 4px; /* Added 30px bottom cushion to cleanly float above .add-template */
+}
+
+/* 3. Keep the metadata bar securely stuck to the top of the detail track during scrolling */
+.item-meta-bar {
+    position: sticky;
+    top: 0;
+    background-color: #ffffff; /* Matches the main application container background canvas */
+    z-index: 10;               /* Layered above inputs during list scroll transitions */
+    padding: 6px 4px;
+    margin-top: -10px;         /* Pulls up flush against the view padding bounds */
+}
+
+/* 4. Ensure inputs and form actions don't get squished if space gets tight */
+.field-box,
+.attachment-section,
+.add-template {
+    flex-shrink: 0;
 }

@@ -11,11 +11,14 @@ body.vault-active {
 
 /* Turn the view container into a structural flex column */
 body.vault-active #vaultView {
-    height: 100vh;
-    height: 100dvh;
-    display: flex;          /* Added: Enforces strict layout scaling for child elements */
-    flex-direction: column; /* Added: Arranges header and vaultBody vertically */
-    overflow: hidden;       /* Changed: Stops the window wrapper itself from leaking layout height */
+    /* 🟢 THE CRITICAL MOBILE FIX: Force 100% fallback, then apply dynamic viewport height */
+    height: 100% !important;
+    min-height: 100% !important;
+    max-height: 100dvh !important; /* 100dvh accounts for the Android Chrome URL bar dynamically */
+
+    display: flex;          /* Enforces strict layout scaling for child elements */
+    flex-direction: column; /* Arranges header and vaultBody vertically */
+    overflow: hidden;       /* Stops the window wrapper itself from leaking layout height */
     -webkit-overflow-scrolling: touch;
 }
 
@@ -24,8 +27,11 @@ body.vault-active #vaultView {
     display: flex;
     flex-direction: column;
     width: 100%;
-    flex-shrink: 0;              /* Prevents the content envelope from compressing */
-    padding-bottom: 40px;        /* Bumper zone protection to float above phone safety notches */
+    /* Allow this section to fill the height but never push outside its parent */
+    flex: 1;
+    min-height: 0;
+    flex-shrink: 1;         /* Allows it to remain bounded by #vaultBody */
+    position: relative;     /* Establishes positioning context for absolute bounds */
 }
 
 .welcomeTitle {
@@ -55,7 +61,6 @@ body.vault-active #vaultView {
 .genesis-user { color: #9b02f3 !important; font-weight: bold; }
 .admin-user   { color: #0f5c25 !important; font-weight: bold; }
 .member-user  { color: #000000 !important; font-weight: bold; }
-
 
 /* ==========================================================================
     VAULT STATE HEADERS & THEMATIC BRANDING
@@ -147,10 +152,10 @@ body.vault-frozen .list-row:active {
 #vaultBody {
     display: flex;
     flex-direction: column;
-    flex: 1;                /* Occupies exactly 100vh minus the 60px header */
-    min-height: 0;          /* Prevents content from forcing layout expansion */
+    flex: 1;                     /* Occupies exactly 100vh minus the 60px header */
+    min-height: 0;               /* Prevents content from forcing layout expansion */
     overflow-y: auto !important; /* Forces internal scrolling layout context on iOS/Android */
-    position: relative;          /* Establishes clear layout paint layers */
+    position: relative;          /* Establishes clear absolute baseline tracking roots */
     -webkit-overflow-scrolling: touch;
 }
 
@@ -321,4 +326,19 @@ select#vaultUsers_roleSelect {
 
 .action-group-right button {
     padding: 10px 16px !important;
+}
+
+#vault_statusMsg {
+    width: 100%;
+    height: 42px;
+    flex-shrink: 0;              /* Blocks the flexbox engine from squeezing the bar height */
+    border-top: 1px solid #eef0f2;
+
+    /* Layout & Text Centering */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 16px;
+    padding-bottom: env(safe-area-inset-bottom); /* Safe guard for mobile notches */
+    font-size: 0.85rem;
 }

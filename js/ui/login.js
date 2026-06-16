@@ -44,7 +44,7 @@ export async function proceedAfterPasswordSuccess(pwd = null) {
     if (!auth.authorized) {
         warn("loginUI.proceedAfterPasswordSuccess", "Device not authorized to decrypt envelope");
         setupPasswordPrompt("unlock");
-        showUnlockMessage("This device is not authorized to access vault yet. Ask for access", "error");
+        showUnlockMessage("This device is not authorized to access vault yet. Request access", "error");
         return;
     }
 

@@ -53,14 +53,6 @@ export async function renderVaultExplorer() {
     }
 }
 
-/**
- * Finds the currently active item based on the sessionState.path
- */
-export function getCurrentItem() {
-    const { findActiveGroup, findActiveItem } = _vaultCtx();
-    return findActiveItem(findActiveGroup()) || null;
-}
-
 /** INTERNAL FUNCTIONS **/
 async function _load(onShowCb) {
     log("explorer._load", "called");
@@ -206,7 +198,7 @@ async function _doToggleEditClick() {
     if (isEditable) {
         // We are EXITING edit mode.
         // Update the timestamp now.
-        const item = getCurrentItem();
+        const item = _getCurrentItem();
         if (item) item.modified = new Date().toISOString();
     }
     // Internally refreshes vault
@@ -239,6 +231,14 @@ async function _doPrivateVaultClick() {
         // CASE B: UNLOCK (Vault exists, need password)
         await promptPrivateVaultPassword(pointer, emailHash, async (pwd, data) => handlePrivateVaultUnlock(pwd, data));
     }
+}
+
+/**
+ * Finds the currently active item based on the sessionState.path
+ */
+function _getCurrentItem() {
+    const { findActiveGroup, findActiveItem } = _vaultCtx();
+    return findActiveItem(findActiveGroup()) || null;
 }
 
 function _executeAddGroup(name, archived = false) {
@@ -1219,7 +1219,7 @@ async function _handleUploadAttachment(file, label, itemObject) {
 }
 
 function _attachDetailListeners(container) {
-    const item = getCurrentItem();
+    const item = _getCurrentItem();
     if (!item) return;
 
     const { toggleShowSecure, isEditable, refresh } = _vaultCtx();

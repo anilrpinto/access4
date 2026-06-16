@@ -443,7 +443,7 @@ async function _init() {
         }
     });
 
-    vaultMenu.saveMenu.onClick(_doSaveClick);
+    vaultMenu.saveMenu.onClick(() => _doSaveClick());
 
     vaultMenu.archivedMenu.onClick(_doShowArchivedClick);
     vaultMenu.rawDataMenu.onClick(_doShowRawDataClick);
@@ -909,7 +909,7 @@ async function _doSaveClick(skipAlert = false) {
                     refreshVault();
                 }
             });
-            vaultUI.savedOn.setText(U.getCurrentTime());
+            vaultUI.savedOn.setText(U.formatLocalTime(_vaultData.meta.lastModified));
         }
 
     } catch (err) {
@@ -918,6 +918,8 @@ async function _doSaveClick(skipAlert = false) {
         showStatusMessage(`Save failed: ${err.message || err}`, "error");
         // Note: we do NOT clear _pendingFileDeletions here so the user can try saving again
     }
+
+    _updateSaveState();
 }
 
 function _hasVaultChanges() {
@@ -927,6 +929,13 @@ function _hasVaultChanges() {
 
 async function _toggleLogs() {
     rootUI.log.toggleVisibility();
+}
+
+function _updateSaveState() {
+    if (_hasVaultChanges())
+        vaultUI.savedOn.classList.add('unsaved');
+    else
+        vaultUI.savedOn.classList.remove('unsaved');
 }
 
 function _refreshTitleBar(vaultSwitch = false) {
@@ -983,10 +992,7 @@ function _refreshTitleBar(vaultSwitch = false) {
     vaultUI.title.setText(config.text);
     vaultUI.header.classList.add(config.className);
 
-    if (_hasVaultChanges())
-        vaultUI.savedOn.classList.add('unsaved');
-    else
-        vaultUI.savedOn.classList.remove('unsaved');
+    _updateSaveState();
 
     if (vaultSwitch) {
         showSilentToast(config.toast, false);
