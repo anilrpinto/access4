@@ -1,18 +1,40 @@
 import { C, G, LS, ID, GD, CR, activeUser, log, trace, debug, info, warn, error, isTraceEnabled } from '@/shared/exports.js';
 import { loginUI } from '@/ui/loader.js';
-import { handleSignInSuccessStatus, showAuthMessage, setupPasswordPrompt, proceedAfterPasswordSuccess, showUnlockMessage } from '@/ui/login.js';
+import { doSignOutClick, handleSignInSuccessStatus, showAuthMessage, setupPasswordPrompt, proceedAfterPasswordSuccess, showUnlockMessage } from '@/ui/login.js';
 
 export async function initGIS() {
 
     log("AU.initGIS", `called for [v${C.APP_VERSION}]`);
 
+    showAuthMessage("");
+    const lastAccessedBy = await LS.get("email", false);
+
     G.tokenClient = google.accounts.oauth2.initTokenClient({
         client_id: C.CLIENT_ID,
         scope: C.SCOPES,
-        callback: _handleAuth
+        callback: _handleAuth,
+        // Catch errors when Google blocks silent token acquisition
+        error_callback: (err) => {
+            error("AU.initGIS", "Token Client error:", err);
+
+            // Check if the fallback popup was closed or failed due to origin locks
+            if (err.type === 'popup_closed') {
+                warn("AU.initGIS", "Authentication window was closed due to above error.");
+                showAuthMessage("Drive authorization failed" + (lastAccessedBy ? `for ${lastAccessedBy}` : ""));
+                doSignOutClick();
+                return;
+            }
+
+            if (err.type === 'popup_failed_to_open' || err.type === 'unknown') {
+                log("AU.initGIS", "Silent authentication failed. Falling back to interactive login...");
+                G.tokenClient.requestAccessToken({ prompt: "consent select_account" });
+            } else {
+                showAuthMessage(`Google Auth Client initialization failed: ${err.message}`);
+            }
+        }
     });
 
-    const lastAccessedBy = await LS.get("email", false);
+
     log("AU.initGIS", "lastAccessedBy:", lastAccessedBy);
 
     if (lastAccessedBy) {
@@ -69,6 +91,7 @@ export async function logLastAccess() {
 
     if (user) {
         user.lastVaultAccess = new Date().toISOString();
+        user.fromDeviceId = ID.getDeviceId();
         GD.drivePatchJsonFile(await LS.get(C.AUTH_FILE_ID_CACHE), G.auth);
     }
 }
@@ -81,8 +104,10 @@ async function _handleAuth(resp) {
         //log("AU._handleAuth", "resp: " + JSON.stringify(resp));
 
         if (resp.error) {
-            loginUI.signinBtn.setVisible(true);
-            return;
+            loginUI.signinStatus.classList.remove('signed-in');
+            loginUI.signinStatus.add('not-signed-in');
+            throw resp.error
+            //return;
         }
 
         G.accessToken = resp.access_token;
@@ -145,7 +170,6 @@ async function _onAuthReady(email) {
     } catch (e) {
         error("AU._onAuthReady", "Error loading identity:", e.message);
         showUnlockMessage("Failed to load identity. Try again.");
-        loginUI.signinBtn.setEnabled(true);
     }
 }
 
@@ -234,7 +258,8 @@ async function _ensureAuthorization() {
             version: 1,
             created: new Date().toISOString(),
             members: {
-                [G.userEmail]: { role: "genesis", readonly: false, allowAttachments: true, forcePasswordChange: false },
+                [G.userEmail]: { role: "genesis", lastVaultAccess: new Date().toISOString(), fromDeviceId: ID.getDeviceId(),
+                    readonly: false, allowAttachments: true, forcePasswordChange: false },
                 ...preAuth
             }
         };

@@ -11,7 +11,7 @@ export async function loadLogin() {
     _updateBiometricIndicator();
     _setupTitleGesture();
 
-    loginUI.signoutLnk.onClick(() => _doSignOutClick());
+    loginUI.signoutLnk.onClick(() => doSignOutClick());
     loginUI.recoveryLnk.onClick(_doNeedRecoveryClick);
     loginUI.recoverBtn.onClick(_doRecoverClick);
     loginUI.restoreBackupLnk.onClick(openRecoveryModal);
@@ -562,7 +562,7 @@ async function _doCreatePasswordClick()  {
     }
 }
 
-function _doSignOutClick() {
+export function doSignOutClick() {
     LS.set("email", "", false);
     _handleSignOut();
 }
@@ -571,13 +571,14 @@ function _doSignOutClick() {
 function _handleSignOut() {
     log("loginUI._handleSignOut", "called");
 
+    showAuthMessage("");
     clearGlobals();
 
     // 1. Remove the layout class (returns to center)
     loginUI.signinStatus.classList.remove('signed-in');
 
     // 2. Reset the UI
-    loginUI.welcomeSpan.setText("Not signed in");
+    loginUI.welcomeSpan.setText("Click to sign in");
     loginUI.welcomeSpan.classList.add('not-signed-in');
     loginUI.authorizedNameSpan.clear();
     loginUI.signoutLnk.setVisible(false);

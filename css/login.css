@@ -93,6 +93,11 @@
     align-items: baseline;
 }
 
+#login_welcomeSpan.signed-in {
+    color: var(--success-color);
+    font-weight: 600;
+}
+
 #login_welcomeSpan.not-signed-in {
     color: var(--danger);
     font-weight: 600;

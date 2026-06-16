@@ -4,7 +4,7 @@ import { loadUI, showSilentToast } from '@/ui/uihelper.js';
 
 export const rootUI = loadUI(['loginView', 'vaultView', 'restoreBackupView', 'log']);
 
-export const loginUI = loadUI(['title', 'signinBtn', 'signinStatus', 'welcomeSpan', 'authorizedNameSpan', 'signoutLnk',
+export const loginUI = loadUI(['title', 'signinStatus', 'welcomeSpan', 'authorizedNameSpan', 'signoutLnk',
     'authMsg', 'pwdSection', 'confirmPwdSection', 'pwdInput', 'confirmPwdInput',
     'unlockBtn', 'recoverBtn', 'recoveryLnk', 'statusMsg', 'restoreBackupLnk'], 'login_', 'loginView');
 
